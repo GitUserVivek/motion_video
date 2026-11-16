@@ -1,0 +1,64 @@
+import type { AspectRatio, AnimationTheme, TtsEngine } from './types/index.js';
+
+export const ASPECT_RATIOS: Record<AspectRatio, { width: number; height: number; label: string }> = {
+  '9:16': { width: 1080, height: 1920, label: 'Portrait (9:16)' },
+  '16:9': { width: 1920, height: 1080, label: 'Landscape (16:9)' },
+  '1:1':  { width: 1080, height: 1080, label: 'Square (1:1)' },
+};
+
+export const DEFAULT_FPS = 30;
+export const DEFAULT_DURATION = 40;
+export const DEFAULT_ASPECT_RATIO: AspectRatio = '9:16';
+export const DEFAULT_LANGUAGE = 'en';
+export const DEFAULT_ANIMATION_THEME: AnimationTheme = 'educational';
+
+export const DURATION_OPTIONS = [40, 60, 90] as const;
+
+export const ANIMATION_THEMES: AnimationTheme[] = ['modern', 'playful', 'minimal', 'educational'];
+
+export const TTS_ENGINES: TtsEngine[] = ['kokoro', 'edge-tts', 'espeak'];
+
+export const VOICES: Record<string, { label: string; lang: string; engine: TtsEngine }> = {
+  'en-US-female-1': { label: 'Emma (US Female)', lang: 'en', engine: 'edge-tts' },
+  'en-US-male-1':   { label: 'James (US Male)',  lang: 'en', engine: 'edge-tts' },
+  'en-GB-female-1': { label: 'Sophie (UK Female)', lang: 'en', engine: 'edge-tts' },
+  'espeak-en':      { label: 'eSpeak English',   lang: 'en', engine: 'espeak' },
+};
+
+export const OLLAMA_DEFAULT_MODEL = 'qwen2.5:7b';
+export const OLLAMA_FALLBACK_MODEL = 'llama3.2:3b';
+export const OLLAMA_BASE_URL = 'http://localhost:11434';
+
+export const WORDS_PER_SECOND = 2.5; // average narration speed
+export const MAX_RETRY_COUNT = 2;
+export const JOB_POLL_INTERVAL_MS = 2000;
+export const MAX_CONCURRENT_JOBS = 1;
+
+export const COMPONENT_NAMES = [
+  'AnimatedText',
+  'AnimatedNumber',
+  'Character',
+  'Teacher',
+  'EducationalObject',
+  'ObjectGroup',
+  'MultiplicationTable',
+  'ImageScene',
+  'BackgroundScene',
+  'Subtitle',
+  'QuestionCard',
+  'Confetti',
+  'EndScreen',
+  'ProgressBar',
+] as const;
+
+export const STEP_LABELS: Record<string, string> = {
+  pending:            'Waiting in queue',
+  generating_audio:   'Generating narration audio',
+  aligning_subtitles: 'Aligning subtitles',
+  planning_storyboard:'Planning storyboard',
+  rendering:          'Rendering animation frames',
+  muxing:             'Encoding video',
+  validating:         'Validating output',
+  saving:             'Saving to disk',
+  completed:          'Complete',
+};

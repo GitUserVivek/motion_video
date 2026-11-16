@@ -1,0 +1,9 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0f0f1a; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; }
+button { cursor: pointer; }
+input, textarea, select { background: #1e1e36; color: #e0e0e0; border: 1px solid #3a3a5a; border-radius: 8px; padding: 10px 14px; font-size: 14px; font-family: inherit; outline: none; width: 100%; }
+input:focus, textarea:focus, select:focus { border-color: #4A90D9; }
+a { color: #4A90D9; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #1a1a2e; }
+::-webkit-scrollbar-thumb { background: #3a3a5a; border-radius: 3px; }

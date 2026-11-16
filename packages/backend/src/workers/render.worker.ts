@@ -1,0 +1,203 @@
+import { getDb } from '../db/db.js';
+import { ttsService } from '../services/tts.service.js';
+import { subtitleService } from '../services/subtitle.service.js';
+import { storyboardService } from '../services/storyboard.service.js';
+import { renderService } from '../services/render.service.js';
+import { config } from '../config.js';
+import path from 'path';
+import fs from 'fs';
+import type { VideoConfig, StoryboardPlan } from '@edumotion/shared';
+
+const POLL_INTERVAL_MS = 2000;
+let workerTimer: ReturnType<typeof setTimeout> | null = null;
+let isProcessing = false;
+
+interface JobRow {
+  id: string;
+  project_id: string;
+  script_id: string;
+  config_json: string;
+  retry_count: number;
+}
+
+interface ScriptRow {
+  content: string;
+}
+
+function updateJob(
+  jobId: string,
+  status: string,
+  progress: number,
+  step: string,
+  error?: string,
+): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE jobs
+    SET status = ?, progress = ?, current_step = ?, error = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(status, progress, step, error ?? null, jobId);
+}
+
+async function processJob(job: JobRow): Promise<void> {
+  const db = getDb();
+  const videoConfig = JSON.parse(job.config_json) as VideoConfig;
+
+  updateJob(job.id, 'processing', 5, 'generating_audio');
+  console.log(`[Worker] Processing job ${job.id}`);
+
+  // 1. Get script content
+  const scriptRow = db
+    .prepare('SELECT content FROM scripts WHERE id = ?')
+    .get(job.script_id) as ScriptRow | undefined;
+
+  if (!scriptRow) throw new Error(`Script not found for job ${job.id}`);
+
+  const script = scriptRow.content;
+
+  // 2. Generate TTS audio
+  const audioPath = path.join(config.storage.audioDir, `${job.id}.wav`);
+  const { audioPath: finalAudioPath, durationMs } = await ttsService.synthesize(
+    script,
+    config.tts.voice,
+    audioPath,
+  );
+
+  updateJob(job.id, 'processing', 20, 'aligning_subtitles');
+
+  // 3. Generate subtitles
+  const subtitles = subtitleService.generateSubtitles(script, durationMs);
+  const srtPath = path.join(config.storage.subtitlesDir, `${job.id}.srt`);
+  const jsonSubPath = path.join(config.storage.subtitlesDir, `${job.id}.json`);
+  subtitleService.writeSrt(subtitles, srtPath);
+  subtitleService.writeJson(subtitles, jsonSubPath);
+
+  updateJob(job.id, 'processing', 30, 'planning_storyboard');
+
+  // 4. Plan storyboard
+  const storyboard: StoryboardPlan = await storyboardService.planStoryboard(
+    job.id,
+    script,
+    videoConfig,
+    durationMs,
+    subtitles,
+  );
+
+  // Persist scenes to DB
+  const insertScene = db.prepare(
+    'INSERT INTO scenes (id, job_id, scene_index, instruction_json) VALUES (?, ?, ?, ?)',
+  );
+  const insertAllScenes = db.transaction(() => {
+    storyboard.scenes.forEach((scene, i) => {
+      insertScene.run(`${job.id}-scene-${i}`, job.id, i, JSON.stringify(scene));
+    });
+  });
+  insertAllScenes();
+
+  updateJob(job.id, 'processing', 40, 'rendering');
+
+  // 5. Check for cancellation before heavy render
+  const jobStatus = db
+    .prepare('SELECT status FROM jobs WHERE id = ?')
+    .get(job.id) as { status: string } | undefined;
+  if (jobStatus?.status === 'cancelled') {
+    console.log(`[Worker] Job ${job.id} cancelled before render`);
+    return;
+  }
+
+  // 6. Render video
+  const result = await renderService.renderVideo(
+    job.id,
+    storyboard,
+    finalAudioPath,
+    videoConfig,
+    (pct) => {
+      // Map render progress (0-100) to job progress (40-95)
+      const jobPct = 40 + Math.round(pct * 0.55);
+      updateJob(job.id, 'processing', jobPct, 'rendering');
+    },
+  );
+
+  updateJob(job.id, 'processing', 96, 'saving');
+
+  // 7. Save video record to DB
+  const videoId = `vid-${job.id}`;
+  db.prepare(`
+    INSERT INTO videos (id, job_id, file_path, duration_sec, size_bytes, thumbnail_path)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    videoId,
+    job.id,
+    result.videoPath,
+    result.durationSec,
+    result.sizeBytes,
+    result.thumbnailPath,
+  );
+
+  updateJob(job.id, 'completed', 100, 'completed');
+  console.log(`[Worker] Job ${job.id} completed. Output: ${result.videoPath}`);
+}
+
+async function runWorkerCycle(): Promise<void> {
+  if (isProcessing) return;
+
+  const db = getDb();
+  const job = db.prepare(`
+    SELECT id, project_id, script_id, config_json, retry_count
+    FROM jobs
+    WHERE status = 'pending'
+    ORDER BY created_at ASC
+    LIMIT 1
+  `).get() as JobRow | undefined;
+
+  if (!job) return;
+
+  isProcessing = true;
+
+  try {
+    await processJob(job);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[Worker] Job ${job.id} failed:`, message);
+
+    const retryCount = job.retry_count + 1;
+    const maxRetries = config.render.maxRetryCount;
+
+    if (retryCount <= maxRetries) {
+      // Re-queue for retry
+      db.prepare(`
+        UPDATE jobs
+        SET status = 'pending', retry_count = ?, error = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(retryCount, message, job.id);
+      console.log(`[Worker] Job ${job.id} re-queued (attempt ${retryCount}/${maxRetries})`);
+    } else {
+      updateJob(job.id, 'failed', 0, 'failed', message);
+      // Clean up temp files on final failure
+      renderService.cleanupTemp(job.id);
+    }
+  } finally {
+    isProcessing = false;
+  }
+}
+
+export function startRenderWorker(): void {
+  console.log('[RenderWorker] Starting job queue worker (poll interval: 2s)');
+
+  const tick = (): void => {
+    runWorkerCycle().catch((err) => {
+      console.error('[Worker] Unexpected error in worker cycle:', err);
+    });
+    workerTimer = setTimeout(tick, POLL_INTERVAL_MS);
+  };
+
+  workerTimer = setTimeout(tick, POLL_INTERVAL_MS);
+}
+
+export function stopRenderWorker(): void {
+  if (workerTimer) {
+    clearTimeout(workerTimer);
+    workerTimer = null;
+  }
+  console.log('[RenderWorker] Worker stopped');
+}

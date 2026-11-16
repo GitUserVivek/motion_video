@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+*.js.map
+.env
+.env.local
+output/
+temp/
+data/
+assets/sounds/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+Thumbs.db
