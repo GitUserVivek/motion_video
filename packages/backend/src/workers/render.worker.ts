@@ -145,10 +145,10 @@ async function runWorkerCycle(): Promise<void> {
   const job = db.prepare(`
     SELECT id, project_id, script_id, config_json, retry_count
     FROM jobs
-    WHERE status = 'pending'
+    WHERE status = 'pending' AND retry_count <= ?
     ORDER BY created_at ASC
     LIMIT 1
-  `).get() as JobRow | undefined;
+  `).get(config.render.maxRetryCount) as JobRow | undefined;
 
   if (!job) return;
 
@@ -160,11 +160,10 @@ async function runWorkerCycle(): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[Worker] Job ${job.id} failed:`, message);
 
-    const retryCount = job.retry_count + 1;
+    const retryCount = (job.retry_count ?? 0) + 1;
     const maxRetries = config.render.maxRetryCount;
 
     if (retryCount <= maxRetries) {
-      // Re-queue for retry
       db.prepare(`
         UPDATE jobs
         SET status = 'pending', retry_count = ?, error = ?, updated_at = datetime('now')
@@ -173,8 +172,8 @@ async function runWorkerCycle(): Promise<void> {
       console.log(`[Worker] Job ${job.id} re-queued (attempt ${retryCount}/${maxRetries})`);
     } else {
       updateJob(job.id, 'failed', 0, 'failed', message);
-      // Clean up temp files on final failure
       renderService.cleanupTemp(job.id);
+      console.log(`[Worker] Job ${job.id} permanently failed after ${maxRetries} retries`);
     }
   } finally {
     isProcessing = false;

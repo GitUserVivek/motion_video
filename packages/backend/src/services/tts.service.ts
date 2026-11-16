@@ -7,6 +7,20 @@ import type { TtsEngine } from '@edumotion/shared';
 
 const execAsync = promisify(exec);
 
+// Augment PATH to include common pip install locations
+const EXTRA_PATHS = [
+  '/usr/local/bin',
+  '/usr/bin',
+  `${process.env['HOME'] ?? '/root'}/.local/bin`,
+  '/opt/conda/bin',
+  '/kaggle/working/.local/bin',
+].join(':');
+
+const ENV_WITH_PATH = {
+  ...process.env,
+  PATH: `${EXTRA_PATHS}:${process.env['PATH'] ?? ''}`,
+};
+
 export interface TtsSynthesisResult {
   audioPath: string;
   durationMs: number;
@@ -14,33 +28,34 @@ export interface TtsSynthesisResult {
 
 class TtsService {
   private detectedEngine: TtsEngine | null = null;
+  private edgeTtsCmd: string = 'edge-tts';
 
   async selectEngine(): Promise<TtsEngine> {
     if (this.detectedEngine) return this.detectedEngine;
 
-    // Try edge-tts first
-    try {
-      await execAsync('edge-tts --version');
-      this.detectedEngine = 'edge-tts';
-      return 'edge-tts';
-    } catch { /* not found */ }
+    // Try edge-tts binary (direct or via augmented PATH)
+    for (const cmd of ['edge-tts', 'python3 -m edge_tts', 'python -m edge_tts']) {
+      try {
+        await execAsync(`${cmd} --version`, { env: ENV_WITH_PATH, timeout: 10000 });
+        this.edgeTtsCmd = cmd;
+        this.detectedEngine = 'edge-tts';
+        console.log(`[TTS] Using edge-tts via: ${cmd}`);
+        return 'edge-tts';
+      } catch { /* try next */ }
+    }
 
     // Try espeak-ng
-    try {
-      await execAsync('espeak-ng --version');
-      this.detectedEngine = 'espeak';
-      return 'espeak';
-    } catch { /* not found */ }
-
-    // Try espeak (no -ng suffix)
-    try {
-      await execAsync('espeak --version');
-      this.detectedEngine = 'espeak';
-      return 'espeak';
-    } catch { /* not found */ }
+    for (const cmd of ['espeak-ng', 'espeak']) {
+      try {
+        await execAsync(`${cmd} --version`, { env: ENV_WITH_PATH, timeout: 10000 });
+        this.detectedEngine = 'espeak';
+        console.log(`[TTS] Using espeak: ${cmd}`);
+        return 'espeak';
+      } catch { /* try next */ }
+    }
 
     throw new Error(
-      'No TTS engine found. Install edge-tts (pip install edge-tts) or espeak-ng.',
+      'No TTS engine found. Run: pip install edge-tts   or   apt install espeak-ng',
     );
   }
 
@@ -53,9 +68,13 @@ class TtsService {
       ? config.tts.engine
       : await this.selectEngine();
 
+    // If configured engine is edge-tts but it's not found yet, detect it
+    if (engine === 'edge-tts' && !this.detectedEngine) {
+      await this.selectEngine();
+    }
+
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-    // Sanitise text for shell safety — write to temp file and pass by path
     const textFile = outputPath + '.input.txt';
     fs.writeFileSync(textFile, text, 'utf-8');
 
@@ -69,10 +88,13 @@ class TtsService {
       if (fs.existsSync(textFile)) fs.unlinkSync(textFile);
     }
 
-    // Convert to WAV if output is mp3 (edge-tts outputs mp3)
-    const wavPath = outputPath.endsWith('.wav') ? outputPath : outputPath.replace(/\.mp3$/, '.wav');
+    // Convert mp3 → wav (edge-tts outputs mp3)
+    const wavPath = outputPath.endsWith('.wav')
+      ? outputPath
+      : outputPath.replace(/\.mp3$/, '.wav');
+
     if (!outputPath.endsWith('.wav') && fs.existsSync(outputPath)) {
-      await execAsync(`ffmpeg -y -i "${outputPath}" "${wavPath}"`);
+      await execAsync(`ffmpeg -y -i "${outputPath}" "${wavPath}"`, { env: ENV_WITH_PATH });
       fs.unlinkSync(outputPath);
     }
 
@@ -85,24 +107,29 @@ class TtsService {
     voice: string,
     outputPath: string,
   ): Promise<void> {
-    const mp3Path = outputPath.endsWith('.mp3') ? outputPath : outputPath.replace(/\.wav$/, '.mp3');
-    const cmd = `edge-tts --voice "${voice}" --file "${textFile}" --write-media "${mp3Path}"`;
-    await execAsync(cmd, { timeout: 120000 });
+    const mp3Path = outputPath.endsWith('.mp3')
+      ? outputPath
+      : outputPath.replace(/\.wav$/, '.mp3');
+
+    const cmd = `${this.edgeTtsCmd} --voice "${voice}" --file "${textFile}" --write-media "${mp3Path}"`;
+    await execAsync(cmd, { env: ENV_WITH_PATH, timeout: 120000 });
   }
 
-  private async synthesizeEspeak(
-    textFile: string,
-    outputPath: string,
-  ): Promise<void> {
-    const wavPath = outputPath.endsWith('.wav') ? outputPath : outputPath.replace(/\.mp3$/, '.wav');
-    const cmd = `espeak-ng -f "${textFile}" -w "${wavPath}" -s 150 -a 200`;
-    try {
-      await execAsync(cmd, { timeout: 120000 });
-    } catch {
-      // try espeak without -ng
-      const fallback = `espeak -f "${textFile}" -w "${wavPath}" -s 150 -a 200`;
-      await execAsync(fallback, { timeout: 120000 });
+  private async synthesizeEspeak(textFile: string, outputPath: string): Promise<void> {
+    const wavPath = outputPath.endsWith('.wav')
+      ? outputPath
+      : outputPath.replace(/\.mp3$/, '.wav');
+
+    for (const cmd of [
+      `espeak-ng -f "${textFile}" -w "${wavPath}" -s 150 -a 200`,
+      `espeak -f "${textFile}" -w "${wavPath}" -s 150 -a 200`,
+    ]) {
+      try {
+        await execAsync(cmd, { env: ENV_WITH_PATH, timeout: 120000 });
+        return;
+      } catch { /* try next */ }
     }
+    throw new Error('espeak synthesis failed');
   }
 
   async detectDuration(audioPath: string): Promise<number> {
@@ -111,6 +138,7 @@ class TtsService {
     }
     const { stdout } = await execAsync(
       `ffprobe -v quiet -print_format json -show_streams "${audioPath}"`,
+      { env: ENV_WITH_PATH },
     );
     const data = JSON.parse(stdout) as {
       streams: Array<{ duration?: string; codec_type: string }>;
