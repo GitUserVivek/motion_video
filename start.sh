@@ -53,7 +53,8 @@ done
 
 # ---------- 3. Start frontend ----------
 echo "[3/3] Starting frontend dev server (port 5173)..."
-npm run dev --workspace=packages/frontend >> logs/frontend.log 2>&1 &
+VITE_BACKEND_URL="${BACKEND_URL:-http://localhost:3001}" \
+  npm run dev --workspace=packages/frontend >> logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "$FRONTEND_PID" > "$PID_DIR/frontend.pid"
 sleep 2
