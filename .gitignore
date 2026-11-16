@@ -13,3 +13,5 @@ assets/sounds/
 *.db-wal
 .DS_Store
 Thumbs.db
+logs/
+*lock.json

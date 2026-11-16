@@ -41,7 +41,7 @@ async function bootstrap(): Promise<void> {
 
   const app = express();
 
-  app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:4173'] }));
+  app.use(cors({ origin: true, credentials: true }));
   app.use(express.json({ limit: '10mb' }));
   app.use(requestLogger);
 
