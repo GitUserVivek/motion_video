@@ -1,6 +1,7 @@
 {
   "name": "@edumotion/backend",
   "version": "1.0.0",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "prebuild": "cd ../shared && npx tsup src/index.ts --format esm,cjs --dts --clean",

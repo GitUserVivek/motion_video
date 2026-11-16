@@ -2,7 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
+import { fileURLToPath } from 'url';
 import { config } from '../config.js';
+
+const __filename = fileURLToPath(import.meta.url);
 
 export interface DownloadProgress {
   downloaded: number;
@@ -156,7 +159,8 @@ async function main(): Promise<void> {
 }
 
 // Run as a standalone script when invoked directly
-if (require.main === module) {
+const isMain = process.argv[1] === __filename || process.argv[1]?.endsWith('llm.downloader.js');
+if (isMain) {
   main().catch((err) => {
     console.error('\n[Downloader] Failed:', String(err));
     process.exit(1);
