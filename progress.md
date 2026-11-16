@@ -197,3 +197,4 @@
 | 2026-11-16 | Phase 9 | storage.service.ts (saveVideo, listVideos, deleteVideo, pruneOrphans), .env.example |
 | 2026-11-16 | Phase 10 | setup.bat (8-step), start.bat (health-check launcher), stop.bat (port-based kill), README.md |
 | 2026-11-16 | Phase 11 | Zod schema tests, health/jobs route tests, Dashboard page test, vitest configs, e2e/VERIFICATION.md checklist |
+| 2026-11-16 | Addendum | Added setup.sh, start.sh, stop.sh (Linux/macOS shell scripts, mirrors .bat logic) |

@@ -23,24 +23,43 @@ Local AI-powered educational video generator. Enter a topic, get a playable MP4 
 
 ## Setup (first time only)
 
+**Windows:**
 ```bat
 setup.bat
 ```
 
-This will check prerequisites, install dependencies, pull the AI model, create directories, and create your `.env` file.
+**Linux / macOS:**
+```bash
+chmod +x setup.sh start.sh stop.sh
+./setup.sh
+```
+
+Both scripts check prerequisites, install dependencies, pull the AI model, create directories, and create your `.env` file.
 
 ## Start
 
+**Windows:**
 ```bat
 start.bat
 ```
 
-Opens the app at **http://localhost:5173** automatically.
+**Linux / macOS:**
+```bash
+./start.sh
+```
+
+Opens the app at **http://localhost:5173** automatically. On Linux, press **Ctrl+C** in the terminal to stop all services, or run `stop.sh` from another terminal.
 
 ## Stop
 
+**Windows:**
 ```bat
 stop.bat
+```
+
+**Linux / macOS:**
+```bash
+./stop.sh
 ```
 
 ## Configuration
