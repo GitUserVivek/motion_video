@@ -10,7 +10,7 @@ echo.
 
 :: ---------- 1. Build if needed ----------
 echo [1/3] Preparing backend...
-if not exist packages\shared\dist\index.cjs (
+if not exist packages\shared\dist\index.js (
   echo   Building shared package...
   call npm run build:shared
 )

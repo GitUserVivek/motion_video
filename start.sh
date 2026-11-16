@@ -20,7 +20,7 @@ echo ""
 
 # ---------- 1. Build if needed ----------
 echo "[1/3] Preparing backend..."
-if [[ ! -f packages/shared/dist/index.cjs ]]; then
+if [[ ! -f packages/shared/dist/index.js ]]; then
   echo "  Building shared package..."
   cd packages/shared && npx tsup src/index.ts --format esm,cjs --dts --clean && cd "$SCRIPT_DIR"
 fi
