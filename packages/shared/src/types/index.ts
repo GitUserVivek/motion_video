@@ -104,8 +104,8 @@ export interface Video {
 }
 
 export interface Settings {
-  ollamaBaseUrl: string;
-  ollamaModel: string;
+  llmModelName: string;
+  llmModelsDir: string;
   ttsEngine: TtsEngine;
   ttsVoice: string;
   outputDir: string;

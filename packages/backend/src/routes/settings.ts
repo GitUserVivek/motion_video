@@ -11,8 +11,8 @@ router.get('/', (_req, res) => {
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
 
   const settings: Settings = {
-    ollamaBaseUrl: config.ollama.baseUrl,
-    ollamaModel: map['ollama_model'] ?? config.ollama.model,
+    llmModelName: map['llm_model_name'] ?? config.localLlm.modelName,
+    llmModelsDir: config.localLlm.modelsDir,
     ttsEngine: (map['tts_engine'] ?? 'edge-tts') as Settings['ttsEngine'],
     ttsVoice: map['tts_voice'] ?? 'en-US-AriaNeural',
     outputDir: config.storage.outputDir,

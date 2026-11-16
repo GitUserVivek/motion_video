@@ -13,7 +13,7 @@ export function SettingsPage(): React.ReactElement {
     queryFn: api.getSettings,
     onSuccess: (data) => {
       setForm({
-        ollama_model: data.ollamaModel,
+        llm_model_name: data.llmModelName,
         tts_engine: data.ttsEngine,
         tts_voice: data.ttsVoice,
         default_duration: String(data.defaultDuration),
@@ -65,15 +65,15 @@ export function SettingsPage(): React.ReactElement {
       </section>
 
       <section style={card}>
-        <h2 style={sectionTitle}>Ollama AI</h2>
-        <label style={labelStyle}>Model</label>
+        <h2 style={sectionTitle}>Local LLM</h2>
+        <label style={labelStyle}>Model Name</label>
         <input
-          value={form['ollama_model'] ?? ''}
-          onChange={(e) => setForm((f) => ({ ...f, ollama_model: e.target.value }))}
-          placeholder="qwen2.5:7b"
+          value={form['llm_model_name'] ?? ''}
+          onChange={(e) => setForm((f) => ({ ...f, llm_model_name: e.target.value }))}
+          placeholder="qwen2.5-7b-instruct-q4"
           style={{ marginBottom: 8 }}
         />
-        <p style={{ fontSize: 12, color: '#555' }}>Base URL: {settings.ollamaBaseUrl}</p>
+        <p style={{ fontSize: 12, color: '#555' }}>Models directory: <code style={{ color: '#4A90D9' }}>{settings.llmModelsDir}</code></p>
       </section>
 
       <section style={card}>
