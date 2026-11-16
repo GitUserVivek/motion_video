@@ -32,10 +32,6 @@ export const config = {
     timeoutMs: parseInt(process.env['LLM_TIMEOUT_MS'] ?? '180000', 10),
   },
 
-  db: {
-    path: process.env['DB_PATH'] ?? path.join(ROOT_DIR, 'data', 'edumotion.db'),
-  },
-
   storage: {
     rootDir: ROOT_DIR,
     outputDir: path.join(ROOT_DIR, 'output'),

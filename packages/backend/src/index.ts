@@ -59,7 +59,7 @@ async function bootstrap(): Promise<void> {
   app.listen(config.port, () => {
     console.log(`[Server] EduMotion backend running on http://localhost:${config.port}`);
     console.log(`[Server] Environment: ${config.nodeEnv}`);
-    console.log(`[Server] DB: ${config.db.path}`);
+    console.log(`[Server] DB: ${config.storage.dataDir}/db/ (JSON store)`);
     console.log(`[Server] Model: ${config.localLlm.modelName} (${config.localLlm.modelsDir})`);
     console.log(`[Server] RAM: ${config.system.totalRamGB}GB | CPUs: ${config.system.cpuCount}`);
   });
