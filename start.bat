@@ -8,34 +8,23 @@ echo  EduMotion AI — Starting Services
 echo ============================================
 echo.
 
-:: ---------- Check Ollama ----------
-echo [1/4] Checking Ollama...
-curl -s http://localhost:11434/api/tags >nul 2>&1
-if errorlevel 1 (
-  echo   Starting Ollama...
-  start /b ollama serve
-  timeout /t 3 /nobreak >nul
-) else (
-  echo   OK: Ollama already running
-)
-
-:: ---------- Build backend if needed ----------
-echo [2/4] Preparing backend...
+:: ---------- 1. Build if needed ----------
+echo [1/3] Preparing backend...
 if not exist packages\shared\dist\index.cjs (
-  echo   Building shared package first...
+  echo   Building shared package...
   call npm run build:shared
 )
 if not exist packages\backend\dist\index.js (
   echo   Building backend...
   call npm run build:backend
 )
+echo   OK: Ready
 
-:: ---------- Start backend ----------
-echo [3/4] Starting backend server (port 3001)...
-start "EduMotion Backend" /b cmd /c "node packages/backend/dist/index.js >> logs\backend.log 2>&1"
+:: ---------- 2. Start backend ----------
+echo [2/3] Starting backend server (port 3001)...
 if not exist logs mkdir logs
+start "EduMotion Backend" /b cmd /c "node packages\backend\dist\index.js >> logs\backend.log 2>&1"
 
-:: Wait for backend to be ready
 echo   Waiting for backend...
 :wait_backend
 timeout /t 1 /nobreak >nul
@@ -43,8 +32,8 @@ curl -s http://localhost:3001/api/health >nul 2>&1
 if errorlevel 1 goto wait_backend
 echo   OK: Backend ready
 
-:: ---------- Start frontend ----------
-echo [4/4] Starting frontend (port 5173)...
+:: ---------- 3. Start frontend ----------
+echo [3/3] Starting frontend dev server (port 5173)...
 start "EduMotion Frontend" /b cmd /c "npm run dev --workspace=packages/frontend >> logs\frontend.log 2>&1"
 timeout /t 3 /nobreak >nul
 
@@ -54,7 +43,8 @@ echo ============================================
 echo  EduMotion AI is running!
 echo  Frontend: http://localhost:5173
 echo  Backend:  http://localhost:3001/api/health
-echo  Press Ctrl+C in service windows to stop.
+echo  Logs:     .\logs\
+echo  Close this window or run stop.bat to stop.
 echo ============================================
 echo.
 start http://localhost:5173

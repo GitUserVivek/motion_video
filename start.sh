@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EduMotion AI — Start Services (Linux)
+# EduMotion AI — Start Services (Linux / macOS)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,91 +18,60 @@ echo " EduMotion AI — Starting Services"
 echo "============================================"
 echo ""
 
-# ---------- 1. Ollama ----------
-echo "[1/4] Checking Ollama..."
-if curl -s http://localhost:11434/api/tags &>/dev/null; then
-  echo -e "  ${GREEN}OK: Ollama already running${NC}"
-else
-  echo "  Starting Ollama..."
-  ollama serve >> logs/ollama.log 2>&1 &
-  echo $! > "$PID_DIR/ollama.pid"
-  # Wait up to 10s for Ollama to become ready
-  for i in {1..10}; do
-    sleep 1
-    if curl -s http://localhost:11434/api/tags &>/dev/null; then
-      echo -e "  ${GREEN}OK: Ollama started${NC}"
-      break
-    fi
-    if [[ $i -eq 10 ]]; then
-      echo -e "  ${YELLOW}WARNING: Ollama did not respond within 10s. Script generation may fail.${NC}"
-    fi
-  done
-fi
-
-# ---------- 2. Build backend if needed ----------
-echo "[2/4] Preparing backend..."
+# ---------- 1. Build if needed ----------
+echo "[1/3] Preparing backend..."
 if [[ ! -f packages/shared/dist/index.cjs ]]; then
-  echo "  Building shared package first..."
+  echo "  Building shared package..."
   npm run build:shared
 fi
 if [[ ! -f packages/backend/dist/index.js ]]; then
-  echo "  Building backend (first run)..."
+  echo "  Building backend..."
   npm run build:backend
-  echo -e "  ${GREEN}OK: Backend built${NC}"
-else
-  echo -e "  ${GREEN}OK: Backend already built${NC}"
 fi
+echo -e "  ${GREEN}OK: Ready${NC}"
 
-# ---------- 3. Start backend ----------
-echo "[3/4] Starting backend server (port 3001)..."
+# ---------- 2. Start backend ----------
+echo "[2/3] Starting backend server (port 3001)..."
 node packages/backend/dist/index.js >> logs/backend.log 2>&1 &
 BACKEND_PID=$!
-echo $BACKEND_PID > "$PID_DIR/backend.pid"
+echo "$BACKEND_PID" > "$PID_DIR/backend.pid"
 
-# Poll /api/health until ready (up to 15s)
 echo "  Waiting for backend..."
-for i in {1..15}; do
+for i in {1..20}; do
   sleep 1
   if curl -s http://localhost:3001/api/health &>/dev/null; then
     echo -e "  ${GREEN}OK: Backend ready (PID $BACKEND_PID)${NC}"
     break
   fi
-  if [[ $i -eq 15 ]]; then
-    echo -e "  ${YELLOW}WARNING: Backend did not respond within 15s. Check logs/backend.log${NC}"
+  if [[ $i -eq 20 ]]; then
+    echo -e "  ${YELLOW}WARNING: Backend did not respond within 20s. Check logs/backend.log${NC}"
   fi
 done
 
-# ---------- 4. Start frontend ----------
-echo "[4/4] Starting frontend dev server (port 5173)..."
+# ---------- 3. Start frontend ----------
+echo "[3/3] Starting frontend dev server (port 5173)..."
 npm run dev --workspace=packages/frontend >> logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
-echo $FRONTEND_PID > "$PID_DIR/frontend.pid"
+echo "$FRONTEND_PID" > "$PID_DIR/frontend.pid"
 sleep 2
 
-# ---------- Open browser ----------
 echo ""
 echo "============================================"
 echo -e " ${GREEN}EduMotion AI is running!${NC}"
 echo "  Frontend: http://localhost:5173"
 echo "  Backend:  http://localhost:3001/api/health"
 echo "  Logs:     ./logs/"
-echo "  Stop:     ./stop.sh"
+echo "  Stop:     ./stop.sh   or   Ctrl+C"
 echo "============================================"
 echo ""
 
-# Try to open browser (best-effort, different launchers on different distros)
+# Open browser (best-effort)
 if command -v xdg-open &>/dev/null; then
   xdg-open http://localhost:5173 &>/dev/null &
-elif command -v gnome-open &>/dev/null; then
-  gnome-open http://localhost:5173 &>/dev/null &
-elif command -v sensible-browser &>/dev/null; then
-  sensible-browser http://localhost:5173 &>/dev/null &
-else
-  echo "  Open http://localhost:5173 in your browser."
+elif command -v open &>/dev/null; then
+  open http://localhost:5173 &>/dev/null &
 fi
 
-# Keep the script alive so the user can Ctrl+C to stop everything
-echo "  Press Ctrl+C to stop all services."
-echo ""
+# Stay alive — Ctrl+C stops everything via trap
 trap 'echo ""; echo "Stopping services..."; "$SCRIPT_DIR/stop.sh"; exit 0' INT TERM
 wait

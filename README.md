@@ -5,7 +5,7 @@ Local AI-powered educational video generator. Enter a topic, get a playable MP4 
 ## What it does
 
 1. You enter an educational topic (or paste your own script).
-2. A local Ollama AI model writes the narration script.
+2. A local GGUF language model writes the narration script.
 3. You review and edit the script, then approve it.
 4. Local TTS synthesizes the narration audio.
 5. Remotion renders animated scenes frame-by-frame.
@@ -18,8 +18,33 @@ Local AI-powered educational video generator. Enter a topic, get a playable MP4 
 |------|---------|------|
 | Node.js | 18+ | https://nodejs.org |
 | FFmpeg | any | https://ffmpeg.org/download.html |
-| Ollama | any | https://ollama.com |
 | edge-tts | pip install | `pip install edge-tts` |
+
+> **No Ollama required.** The AI model runs directly inside Node via
+> [node-llama-cpp](https://github.com/withcatai/node-llama-cpp).
+> The GGUF weights are downloaded automatically on first setup.
+
+## Model Storage
+
+Models are stored **outside** the project directory to avoid being accidentally deleted or committed:
+
+```
+<parent-of-project>/
+└── models/
+    └── qwen2.5-7b-instruct-q4/
+        └── qwen2.5-7b-instruct-q4_k_m.gguf   (~4.5 GB)
+```
+
+The default model is **Qwen 2.5 7B Instruct Q4** from Hugging Face
+(`Qwen/Qwen2.5-7B-Instruct-GGUF`). You can change it in `.env`.
+
+To use a custom model, download any GGUF file and set:
+
+```env
+LLM_MODEL_NAME=my-model-folder
+LLM_MODEL_FILE=my-model.gguf
+# Leave LLM_HF_REPO / LLM_HF_FILE blank if you placed the file manually
+```
 
 ## Setup (first time only)
 
@@ -34,7 +59,13 @@ chmod +x setup.sh start.sh stop.sh
 ./setup.sh
 ```
 
-Both scripts check prerequisites, install dependencies, pull the AI model, create directories, and create your `.env` file.
+Both scripts:
+1. Check Node.js (≥ 18) and FFmpeg
+2. Install npm dependencies
+3. Build the shared and backend packages
+4. Create output / temp / asset directories
+5. Copy `.env.example` → `.env`
+6. Download the GGUF model weights into `../models/`
 
 ## Start
 
@@ -48,7 +79,8 @@ start.bat
 ./start.sh
 ```
 
-Opens the app at **http://localhost:5173** automatically. On Linux, press **Ctrl+C** in the terminal to stop all services, or run `stop.sh` from another terminal.
+Opens the app at **http://localhost:5173** automatically.  
+On Linux/macOS, press **Ctrl+C** to stop all services, or run `./stop.sh` from another terminal.
 
 ## Stop
 
@@ -66,19 +98,27 @@ stop.bat
 
 Edit `.env` to change:
 
-- `OLLAMA_MODEL` — AI model (default: `qwen2.5:7b`)
-- `TTS_ENGINE` — `edge-tts` or `espeak`
-- `TTS_VOICE` — voice name (default: `en-US-AriaNeural`)
-- `PORT` — backend port (default: `3001`)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_MODEL_NAME` | `qwen2.5-7b-instruct-q4` | Sub-folder name under `../models/` |
+| `LLM_HF_REPO` | `Qwen/Qwen2.5-7B-Instruct-GGUF` | HuggingFace repo for auto-download |
+| `LLM_HF_FILE` | `qwen2.5-7b-instruct-q4_k_m.gguf` | GGUF filename to download |
+| `LLM_CONTEXT_SIZE` | `4096` | Token context window (reduce if low RAM) |
+| `LLM_GPU_LAYERS` | `0` | GPU layers to offload (`0` = CPU, `-1` = auto) |
+| `LLM_MAX_TOKENS` | `2048` | Max tokens generated per request |
+| `MODELS_DIR` | `../models` | Override model storage location |
+| `TTS_ENGINE` | `edge-tts` | `edge-tts` or `espeak` |
+| `TTS_VOICE` | `en-US-AriaNeural` | Voice name for TTS |
+| `PORT` | `3001` | Backend port |
 
-You can also change settings at runtime from the **Settings** page in the app.
+You can also change most settings at runtime from the **Settings** page in the app.
 
 ## Usage
 
 ### Topic mode
 1. Click **Create** → **Generate from Topic**
 2. Enter your topic (e.g. "How does photosynthesis work?")
-3. Click **Generate Script** — wait for the AI
+3. Click **Generate Script** — the local LLM generates the narration
 4. Edit the script if needed, then click **Approve & Continue**
 5. Choose duration, aspect ratio, voice, and theme
 6. Click **Create Video**
@@ -93,10 +133,14 @@ You can also change settings at runtime from the **Settings** page in the app.
 ## Project Structure
 
 ```
-edumotion/
+<parent>/
+└── models/
+    └── qwen2.5-7b-instruct-q4/   ← GGUF weights (auto-downloaded)
+
+project/
 ├── packages/
 │   ├── shared/     # Shared TypeScript types and Zod schemas
-│   ├── backend/    # Express API, SQLite, Ollama, TTS, render queue
+│   ├── backend/    # Express API, SQLite, local LLM, TTS, render queue
 │   ├── renderer/   # Remotion composition + 14 animation components
 │   └── frontend/   # React + Vite — 8 pages
 ├── output/videos/     # Generated MP4 files
@@ -106,18 +150,18 @@ edumotion/
 ├── temp/              # Render frames (auto-cleaned)
 ├── data/              # SQLite database
 ├── assets/            # Characters, backgrounds, sounds
-├── setup.bat
-├── start.bat
-├── stop.bat
+├── setup.bat / setup.sh
+├── start.bat / start.sh
+├── stop.bat / stop.sh
 └── .env
 ```
 
 ## Component Library
 
-All animation is driven by trusted Remotion components. The LLM never executes code — it outputs JSON scene instructions that reference components by name.
+The LLM never executes code — it outputs JSON scene instructions that reference components by name.
 
 | Component | Purpose |
-|-----------|--------|
+|-----------|---------|
 | AnimatedText | Fade/slide/bounce/zoom text |
 | AnimatedNumber | Count-up number |
 | Character | SVG avatar (idle/wave/point) |
@@ -154,12 +198,27 @@ All animation is driven by trusted Remotion components. The LLM never executes c
 
 ## Troubleshooting
 
-**Ollama not responding** — Run `ollama serve` in a terminal, then retry.
+**Model download fails during setup**
+Run the downloader manually after setup:
+```bash
+node packages/backend/dist/services/llm.downloader.js
+```
+Or set `MODELS_DIR` to a path with enough free space (the default Q4 model is ~4.5 GB).
 
-**TTS not working** — Install edge-tts: `pip install edge-tts`. Or install espeak-ng from your package manager.
+**Script generation is slow**
+Set `LLM_GPU_LAYERS=-1` in `.env` to offload all layers to your GPU. Requires a CUDA or Metal-capable GPU.
 
-**FFmpeg not found** — Add FFmpeg to your PATH. Download from https://ffmpeg.org/download.html.
+**Out of memory during generation**
+Reduce `LLM_CONTEXT_SIZE` to `2048` in `.env`.
 
-**Video file too small / corrupt** — Check `logs/backend.log` for the render error. Usually a Remotion or FFmpeg issue.
+**TTS not working**
+Install edge-tts: `pip install edge-tts`. Or install espeak-ng and set `TTS_ENGINE=espeak`.
 
-**Out of memory during render** — Reduce `MAX_CONCURRENT_JOBS` to 1 in `.env` (already the default).
+**FFmpeg not found**
+Add FFmpeg to your PATH. Download from https://ffmpeg.org/download.html.
+
+**Video file too small / corrupt**
+Check `logs/backend.log` for the render error. Usually a Remotion or FFmpeg issue.
+
+**Out of memory during render**
+Reduce `MAX_CONCURRENT_JOBS` to 1 in `.env` (already the default).

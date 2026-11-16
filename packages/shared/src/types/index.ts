@@ -174,10 +174,12 @@ export interface HealthStatus {
   status: 'ok' | 'degraded' | 'down';
   services: {
     database: boolean;
-    ollama: boolean;
+    llm: boolean;
     tts: boolean;
     ffmpeg: boolean;
     renderer: boolean;
+    /** @deprecated use llm */
+    ollama?: boolean;
   };
   version: string;
   uptime: number;

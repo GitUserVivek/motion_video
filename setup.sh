@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EduMotion AI — One-Time Setup (Linux)
+# EduMotion AI — One-Time Setup (Linux / macOS)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # no colour
+NC='\033[0m'
 
 ERRORS=0
 
@@ -19,7 +19,7 @@ echo "============================================"
 echo ""
 
 # ---------- 1. Node.js ----------
-echo "[1/8] Checking Node.js..."
+echo "[1/7] Checking Node.js..."
 if ! command -v node &>/dev/null; then
   echo -e "  ${RED}ERROR: Node.js not found.${NC}"
   echo "        Install via: https://nodejs.org  or  nvm install 18"
@@ -36,25 +36,16 @@ else
 fi
 
 # ---------- 2. FFmpeg ----------
-echo "[2/8] Checking FFmpeg..."
+echo "[2/7] Checking FFmpeg..."
 if ! command -v ffmpeg &>/dev/null; then
   echo -e "  ${RED}ERROR: FFmpeg not found.${NC}"
-  echo "        Install via: sudo apt install ffmpeg  (Debian/Ubuntu)"
-  echo "                     sudo dnf install ffmpeg  (Fedora)"
+  echo "        sudo apt install ffmpeg   (Debian/Ubuntu)"
+  echo "        sudo dnf install ffmpeg   (Fedora)"
+  echo "        brew install ffmpeg       (macOS)"
   ERRORS=1
 else
   FFMPEG_VER=$(ffmpeg -version 2>&1 | head -1)
   echo -e "  ${GREEN}OK: $FFMPEG_VER${NC}"
-fi
-
-# ---------- 3. Ollama ----------
-echo "[3/8] Checking Ollama..."
-if ! command -v ollama &>/dev/null; then
-  echo -e "  ${RED}ERROR: Ollama not found.${NC}"
-  echo "        Install via: curl -fsSL https://ollama.com/install.sh | sh"
-  ERRORS=1
-else
-  echo -e "  ${GREEN}OK: Ollama found${NC}"
 fi
 
 if [[ "$ERRORS" -ne 0 ]]; then
@@ -63,72 +54,57 @@ if [[ "$ERRORS" -ne 0 ]]; then
   exit 1
 fi
 
-# ---------- 4. Pull AI model ----------
-echo "[4/8] Pulling AI model (qwen2.5:7b)..."
-echo "  This may take several minutes on first run."
-
-# Ensure Ollama is running for the pull
-if ! curl -s http://localhost:11434/api/tags &>/dev/null; then
-  echo "  Starting Ollama service temporarily..."
-  ollama serve &>/dev/null &
-  OLLAMA_PID=$!
-  sleep 3
-  STARTED_OLLAMA=true
-else
-  STARTED_OLLAMA=false
-fi
-
-if ! ollama pull qwen2.5:7b; then
-  echo -e "  ${YELLOW}WARNING: Failed to pull qwen2.5:7b, trying llama3.2:3b fallback...${NC}"
-  if ! ollama pull llama3.2:3b; then
-    echo -e "  ${YELLOW}WARNING: Fallback model pull also failed. You can retry with: ollama pull qwen2.5:7b${NC}"
-  fi
-fi
-
-if [[ "$STARTED_OLLAMA" == "true" ]]; then
-  kill "$OLLAMA_PID" 2>/dev/null || true
-fi
-
-# ---------- 5. npm install ----------
-echo "[5/8] Installing npm dependencies..."
-# Temporarily disable postinstall to avoid a double-build during install
+# ---------- 3. npm install ----------
+echo "[3/7] Installing npm dependencies..."
 if ! npm install --ignore-scripts; then
   echo -e "  ${RED}ERROR: npm install failed.${NC}"
   exit 1
 fi
 echo -e "  ${GREEN}OK: Dependencies installed${NC}"
 
-# ---------- 6. Build shared package ----------
-echo "[6/8] Building shared package..."
+# ---------- 4. Build shared + backend ----------
+echo "[4/7] Building packages..."
 if ! npm run build:shared; then
-  echo -e "  ${RED}ERROR: shared package build failed.${NC}"
+  echo -e "  ${RED}ERROR: shared build failed.${NC}"
   exit 1
 fi
-echo -e "  ${GREEN}OK: Shared package built (dist/index.cjs ready)${NC}"
+npm run build:backend 2>/dev/null || true
+echo -e "  ${GREEN}OK: Packages built${NC}"
 
-# ---------- 7. Create directories ----------
-echo "[7/8] Creating storage directories..."
+# ---------- 5. Create directories ----------
+echo "[5/7] Creating storage directories..."
 mkdir -p \
-  output/videos \
-  output/audio \
-  output/subtitles \
-  output/thumbnails \
-  temp \
-  data/projects \
-  assets/characters \
-  assets/backgrounds \
-  assets/animations \
-  assets/sounds \
+  output/videos output/audio output/subtitles output/thumbnails \
+  temp data/projects \
+  assets/characters assets/backgrounds assets/animations assets/sounds \
   logs
 echo -e "  ${GREEN}OK: Directories created${NC}"
 
-# ---------- 8. Create .env ----------
-echo "[8/8] Creating .env file..."
+# ---------- 6. Create .env ----------
+echo "[6/7] Creating .env file..."
 if [[ ! -f .env ]]; then
   cp .env.example .env
   echo -e "  ${GREEN}OK: .env created from .env.example${NC}"
 else
   echo -e "  ${GREEN}OK: .env already exists, skipping${NC}"
+fi
+
+# ---------- 7. Download AI model ----------
+echo "[7/7] Downloading AI model (GGUF — may take several minutes)..."
+
+# Source .env so the downloader picks up any custom MODELS_DIR / LLM_* vars
+set -a
+# shellcheck disable=SC1091
+[[ -f .env ]] && source .env
+set +a
+
+if [[ -f packages/backend/dist/services/llm.downloader.js ]]; then
+  if ! node packages/backend/dist/services/llm.downloader.js; then
+    echo -e "  ${YELLOW}WARNING: Model download failed. It will be retried on first server start.${NC}"
+    echo "  Manual retry: node packages/backend/dist/services/llm.downloader.js"
+  fi
+else
+  echo -e "  ${YELLOW}NOTE: Downloader not compiled yet — model will download on first server start.${NC}"
 fi
 
 echo ""

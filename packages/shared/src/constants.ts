@@ -25,8 +25,16 @@ export const VOICES: Record<string, { label: string; lang: string; engine: TtsEn
   'espeak-en':      { label: 'eSpeak English',   lang: 'en', engine: 'espeak' },
 };
 
+export const LOCAL_LLM_MODEL_NAME = 'qwen2.5-7b-instruct-q4';
+export const LOCAL_LLM_HF_REPO = 'Qwen/Qwen2.5-7B-Instruct-GGUF';
+export const LOCAL_LLM_HF_FILE = 'qwen2.5-7b-instruct-q4_k_m.gguf';
+export const LOCAL_LLM_CONTEXT_SIZE = 4096;
+
+/** @deprecated — Ollama is no longer used. Kept for reference only. */
 export const OLLAMA_DEFAULT_MODEL = 'qwen2.5:7b';
+/** @deprecated */
 export const OLLAMA_FALLBACK_MODEL = 'llama3.2:3b';
+/** @deprecated */
 export const OLLAMA_BASE_URL = 'http://localhost:11434';
 
 export const WORDS_PER_SECOND = 2.5; // average narration speed
