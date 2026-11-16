@@ -20,10 +20,13 @@ echo ""
 
 # ---------- 1. Build if needed ----------
 echo "[1/3] Preparing backend..."
-if [[ ! -f packages/shared/dist/index.js ]]; then
-  echo "  Building shared package..."
-  cd packages/shared && npx tsup src/index.ts --format esm,cjs --dts --clean && cd "$SCRIPT_DIR"
-fi
+
+# Always ensure shared is built — the symlink in node_modules points directly
+# to packages/shared, so dist/ must exist before the backend can require() it.
+echo "  Building shared package..."
+(cd packages/shared && npx tsup src/index.ts --format esm,cjs --dts --clean 2>&1) \
+  || { echo -e "  ${RED:-}ERROR: shared build failed. Check tsup output above.${NC:-}"; exit 1; }
+
 if [[ ! -f packages/backend/dist/index.js ]]; then
   echo "  Building backend..."
   npm run build:backend

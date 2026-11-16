@@ -1,19 +1,81 @@
-import fs from 'fs';
-import path from 'path';
 import { getDb } from './db.js';
+
+// SQL is inlined here so tsc does not need to copy .sql files to dist/.
+const SCHEMA_SQL = `
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS projects (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS scripts (
+  id                        TEXT PRIMARY KEY,
+  project_id                TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  mode                      TEXT NOT NULL CHECK(mode IN ('topic', 'own-script')),
+  content                   TEXT NOT NULL,
+  status                    TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','approved','rejected')),
+  original_topic            TEXT,
+  word_count                INTEGER NOT NULL DEFAULT 0,
+  estimated_duration_sec    REAL NOT NULL DEFAULT 0,
+  created_at                TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id            TEXT PRIMARY KEY,
+  project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  script_id     TEXT REFERENCES scripts(id),
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','completed','failed','cancelled')),
+  progress      REAL NOT NULL DEFAULT 0,
+  current_step  TEXT NOT NULL DEFAULT 'pending',
+  error         TEXT,
+  config_json   TEXT NOT NULL DEFAULT '{}',
+  retry_count   INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS scenes (
+  id               TEXT PRIMARY KEY,
+  job_id           TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  scene_index      INTEGER NOT NULL,
+  instruction_json TEXT NOT NULL,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS videos (
+  id             TEXT PRIMARY KEY,
+  job_id         TEXT NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
+  file_path      TEXT NOT NULL,
+  duration_sec   REAL NOT NULL DEFAULT 0,
+  size_bytes     INTEGER NOT NULL DEFAULT 0,
+  thumbnail_path TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`;
+
+const DEFAULT_SETTINGS: [string, string][] = [
+  ['llm_model_name',     'qwen2.5-7b-instruct-q4'],
+  ['tts_engine',         'edge-tts'],
+  ['tts_voice',          'en-US-AriaNeural'],
+  ['default_duration',   '40'],
+  ['default_aspect_ratio', '9:16'],
+  ['max_concurrent_jobs', '1'],
+];
 
 export function runMigrations(): void {
   const db = getDb();
-  const schemaPath = path.join(__dirname, 'schema.sql');
-  
-  if (!fs.existsSync(schemaPath)) {
-    throw new Error(`Schema file not found at ${schemaPath}`);
-  }
 
-  const schema = fs.readFileSync(schemaPath, 'utf-8');
-  
-  // Execute each statement separately
-  const statements = schema
+  // Run each DDL statement individually
+  const statements = SCHEMA_SQL
     .split(';')
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
@@ -21,6 +83,15 @@ export function runMigrations(): void {
   for (const statement of statements) {
     db.exec(statement + ';');
   }
+
+  // Seed default settings (INSERT OR IGNORE — never overwrites user changes)
+  const upsert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+  const seedAll = db.transaction(() => {
+    for (const [key, value] of DEFAULT_SETTINGS) {
+      upsert.run(key, value);
+    }
+  });
+  seedAll();
 
   console.log('[DB] Migrations applied successfully');
 }
