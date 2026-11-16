@@ -21,9 +21,12 @@ if errorlevel 1 (
 
 :: ---------- Build backend if needed ----------
 echo [2/4] Preparing backend...
+if not exist packages\shared\dist\index.cjs (
+  echo   Building shared package first...
+  call npm run build:shared
+)
 if not exist packages\backend\dist\index.js (
   echo   Building backend...
-  call npm run build:shared
   call npm run build:backend
 )
 

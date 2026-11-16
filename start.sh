@@ -41,9 +41,12 @@ fi
 
 # ---------- 2. Build backend if needed ----------
 echo "[2/4] Preparing backend..."
+if [[ ! -f packages/shared/dist/index.cjs ]]; then
+  echo "  Building shared package first..."
+  npm run build:shared
+fi
 if [[ ! -f packages/backend/dist/index.js ]]; then
   echo "  Building backend (first run)..."
-  npm run build:shared
   npm run build:backend
   echo -e "  ${GREEN}OK: Backend built${NC}"
 else

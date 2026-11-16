@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "main": "dist/index.js",
   "scripts": {
+    "prebuild": "npm run build --workspace=packages/shared",
+    "predev": "npm run build --workspace=packages/shared",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
@@ -14,6 +16,7 @@
     "better-sqlite3": "^9.4.0",
     "cors": "^2.8.5",
     "express": "^4.19.0",
+    "node-llama-cpp": "^3.0.0",
     "uuid": "^10.0.0",
     "zod": "^3.23.0"
   },

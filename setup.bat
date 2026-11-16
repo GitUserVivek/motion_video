@@ -58,7 +58,7 @@ if errorlevel 1 (
 
 :: ---------- 5. npm install ----------
 echo [5/8] Installing npm dependencies...
-call npm install
+call npm install --ignore-scripts
 if errorlevel 1 (
   echo   ERROR: npm install failed
   pause
@@ -73,6 +73,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+echo   OK: Shared package built (dist/index.cjs ready)
 
 :: ---------- 7. Create directories ----------
 echo [7/8] Creating storage directories...

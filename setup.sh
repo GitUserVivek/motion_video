@@ -91,7 +91,8 @@ fi
 
 # ---------- 5. npm install ----------
 echo "[5/8] Installing npm dependencies..."
-if ! npm install; then
+# Temporarily disable postinstall to avoid a double-build during install
+if ! npm install --ignore-scripts; then
   echo -e "  ${RED}ERROR: npm install failed.${NC}"
   exit 1
 fi
@@ -103,7 +104,7 @@ if ! npm run build:shared; then
   echo -e "  ${RED}ERROR: shared package build failed.${NC}"
   exit 1
 fi
-echo -e "  ${GREEN}OK: Shared package built${NC}"
+echo -e "  ${GREEN}OK: Shared package built (dist/index.cjs ready)${NC}"
 
 # ---------- 7. Create directories ----------
 echo "[7/8] Creating storage directories..."

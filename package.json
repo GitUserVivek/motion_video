@@ -9,6 +9,7 @@
     "packages/frontend"
   ],
   "scripts": {
+    "postinstall": "npm run build:shared",
     "build:shared": "npm run build --workspace=packages/shared",
     "build:renderer": "npm run build --workspace=packages/renderer",
     "build:backend": "npm run build --workspace=packages/backend",
