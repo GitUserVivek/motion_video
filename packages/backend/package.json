@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "dist/index.js",
   "scripts": {
-    "prebuild": "npm run build --workspace=packages/shared",
-    "predev": "npm run build --workspace=packages/shared",
+    "prebuild": "cd ../shared && npx tsup src/index.ts --format esm,cjs --dts --clean",
+    "predev":   "cd ../shared && npx tsup src/index.ts --format esm,cjs --dts --clean",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",

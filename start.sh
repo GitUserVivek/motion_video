@@ -22,7 +22,7 @@ echo ""
 echo "[1/3] Preparing backend..."
 if [[ ! -f packages/shared/dist/index.cjs ]]; then
   echo "  Building shared package..."
-  npm run build:shared
+  cd packages/shared && npx tsup src/index.ts --format esm,cjs --dts --clean && cd "$SCRIPT_DIR"
 fi
 if [[ ! -f packages/backend/dist/index.js ]]; then
   echo "  Building backend..."
