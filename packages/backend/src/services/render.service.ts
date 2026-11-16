@@ -46,15 +46,15 @@ class RenderService {
     try {
       onProgress?.(5);
 
-      // Write storyboard JSON for the renderer process
-      const storyboardPath = path.join(config.storage.tempDir, jobId, 'storyboard.json');
-      fs.writeFileSync(storyboardPath, JSON.stringify(storyboard), 'utf-8');
+      // Remotion `--props` expects the composition props, i.e. { storyboard }
+      const propsPath = path.join(config.storage.tempDir, jobId, 'props.json');
+      fs.writeFileSync(propsPath, JSON.stringify({ storyboard }), 'utf-8');
 
       onProgress?.(10);
 
-      // Render PNG sequence via @remotion/renderer CLI
+      // Render the image sequence via the Remotion CLI
       await this.renderFrames(
-        storyboardPath,
+        propsPath,
         framesDir,
         storyboard.totalFrames,
         videoConfig,
@@ -100,7 +100,7 @@ class RenderService {
   }
 
   private async renderFrames(
-    storyboardPath: string,
+    propsPath: string,
     framesDir: string,
     totalFrames: number,
     videoConfig: VideoConfig,
@@ -115,9 +115,12 @@ class RenderService {
         entryPoint,
         'EduVideo',
         '--output', framesDir,
+        // Without --sequence Remotion writes a video file and the frame muxing
+        // below finds nothing to encode.
+        '--sequence',
         '--image-format', 'jpeg',
         '--jpeg-quality', '85',
-        '--props', JSON.stringify({ storyboardPath }),
+        '--props', propsPath,
         '--log', 'verbose',
       ];
 
@@ -127,22 +130,71 @@ class RenderService {
       });
 
       let stderr = '';
-      child.stderr.on('data', (data: Buffer) => {
+      const onData = (data: Buffer): void => {
         stderr += data.toString();
         // Parse progress from remotion output
-        const match = /Rendering frame (\d+)/.exec(data.toString());
+        const match = /(?:Rendering|Rendered) frame (\d+)/i.exec(data.toString());
         if (match?.[1]) {
           const frame = parseInt(match[1], 10);
           const pct = 10 + Math.round((frame / totalFrames) * 65);
           onProgress?.(pct);
         }
+      };
+      child.stderr.on('data', onData);
+      child.stdout.on('data', onData);
+
+      child.on('error', (err) => {
+        reject(new Error(`Could not start Remotion render: ${err.message}`));
       });
 
       child.on('close', (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`Remotion render failed (exit ${code}): ${stderr.slice(-500)}`));
+        if (code !== 0) {
+          reject(new Error(`Remotion render failed (exit ${code}): ${stderr.slice(-500)}`));
+          return;
+        }
+        try {
+          this.normalizeFrameSequence(framesDir, totalFrames);
+          resolve();
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
       });
     });
+  }
+
+  /**
+   * Remotion names sequence files `element-0000.jpeg`, while FFmpeg muxes a
+   * printf pattern. Rename the rendered frames to `frame%06d.jpeg` in frame
+   * order, so encoding never depends on Remotion's naming scheme.
+   */
+  private normalizeFrameSequence(framesDir: string, expectedFrames: number): void {
+    if (!fs.existsSync(framesDir)) {
+      throw new Error(`Remotion did not create the frames directory: ${framesDir}`);
+    }
+
+    const entries = fs
+      .readdirSync(framesDir)
+      .filter((name) => /\.(jpe?g|png)$/i.test(name))
+      .map((name) => ({ name, frame: Number(/(\d+)(?=\.[^.]+$)/.exec(name)?.[1] ?? NaN) }))
+      .filter((entry) => Number.isFinite(entry.frame))
+      .sort((a, b) => a.frame - b.frame);
+
+    if (entries.length === 0) {
+      throw new Error('Remotion render completed but produced no frames');
+    }
+
+    entries.forEach((entry, index) => {
+      const target = `frame${String(index).padStart(6, '0')}.jpeg`;
+      if (entry.name !== target) {
+        fs.renameSync(path.join(framesDir, entry.name), path.join(framesDir, target));
+      }
+    });
+
+    if (entries.length < expectedFrames) {
+      throw new Error(
+        `Remotion rendered ${entries.length} frames, expected ${expectedFrames}`,
+      );
+    }
   }
 
   async muxVideo(

@@ -27,15 +27,14 @@ pkill -9 -f "backend/dist/index.js" 2>/dev/null || true
 pkill -9 -f "vite" 2>/dev/null || true
 sleep 1
 
-# ---------- 1. Build if needed ----------
-echo "[1/3] Preparing backend..."
-if [[ ! -f packages/shared/dist/index.js ]]; then
-  echo "  Building shared package..."
-  (cd packages/shared && npx tsup src/index.ts --format esm,cjs --dts --clean)
-fi
-if [[ ! -f packages/backend/dist/index.js ]]; then
-  echo "  Building backend..."
-  npm run build:backend
+# ---------- 1. Build ----------
+# Always rebuild: dist/ is what runs, and a stale build silently executes old
+# code (that is how the TTS/WAV bug survived a source fix). build:backend also
+# rebuilds the shared package through its prebuild hook.
+echo "[1/3] Building backend..."
+if ! npm run build:backend; then
+  echo -e "  ${RED}ERROR: backend build failed — fix the errors above${NC}"
+  exit 1
 fi
 echo -e "  ${GREEN}OK: Ready${NC}"
 

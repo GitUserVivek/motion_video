@@ -8,15 +8,14 @@ echo  EduMotion AI — Starting Services
 echo ============================================
 echo.
 
-:: ---------- 1. Build if needed ----------
-echo [1/3] Preparing backend...
-if not exist packages\shared\dist\index.js (
-  echo   Building shared package...
-  call npm run build:shared
-)
-if not exist packages\backend\dist\index.js (
-  echo   Building backend...
-  call npm run build:backend
+:: ---------- 1. Build ----------
+:: Always rebuild: dist/ is what runs, so a stale build would silently execute
+:: old code. build:backend rebuilds the shared package via its prebuild hook.
+echo [1/3] Building backend...
+call npm run build:backend
+if errorlevel 1 (
+  echo   ERROR: backend build failed - fix the errors above
+  exit /b 1
 )
 echo   OK: Ready
 

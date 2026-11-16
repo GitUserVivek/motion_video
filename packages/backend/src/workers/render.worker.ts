@@ -18,6 +18,7 @@ interface JobRow {
   script_id: string;
   config_json: string;
   retry_count: number;
+  status: string;
 }
 
 interface ScriptRow {
@@ -83,7 +84,9 @@ async function processJob(job: JobRow): Promise<void> {
     subtitles,
   );
 
-  // Persist scenes to DB
+  // Persist scenes to DB — replace any scenes left by a previous attempt so a
+  // shorter retry storyboard cannot leave stale scenes behind.
+  db.prepare('DELETE FROM scenes WHERE job_id = ?').run(job.id);
   const insertScene = db.prepare(
     'INSERT INTO scenes (id, job_id, scene_index, instruction_json) VALUES (?, ?, ?, ?)',
   );
@@ -143,14 +146,16 @@ async function runWorkerCycle(): Promise<void> {
 
   const db = getDb();
   const job = db.prepare(`
-    SELECT id, project_id, script_id, config_json, retry_count
+    SELECT id, project_id, script_id, config_json, retry_count, status
     FROM jobs
     WHERE status = 'pending' AND retry_count <= ?
     ORDER BY created_at ASC
     LIMIT 1
   `).get(config.render.maxRetryCount) as JobRow | undefined;
 
-  if (!job) return;
+  // Defensive: never re-run a job that is not pending (a lost filter here would
+  // spin on the same job forever).
+  if (!job || job.status !== 'pending') return;
 
   isProcessing = true;
 
@@ -182,6 +187,17 @@ async function runWorkerCycle(): Promise<void> {
 
 export function startRenderWorker(): void {
   console.log('[RenderWorker] Starting job queue worker (poll interval: 2s)');
+
+  // A job left in 'processing' belongs to a previous process that died or was
+  // restarted mid-render. Put it back in the queue so it is not stranded.
+  const db = getDb();
+  const stuck = db.prepare("SELECT id FROM jobs WHERE status = 'processing'").all() as Array<{ id: string }>;
+  for (const row of stuck) {
+    updateJob(row.id, 'pending', 0, 'requeued');
+  }
+  if (stuck.length > 0) {
+    console.log(`[RenderWorker] Re-queued ${stuck.length} interrupted job(s)`);
+  }
 
   const tick = (): void => {
     runWorkerCycle().catch((err) => {

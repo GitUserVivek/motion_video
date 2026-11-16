@@ -132,6 +132,15 @@ function RemotionRoot(): React.ReactElement {
       width={1080}
       height={1920}
       defaultProps={{ storyboard: PREVIEW_STORYBOARD }}
+      // The rendered video must follow the storyboard rendered from the script
+      // and audio length, not the 40 s preview defaults.
+      calculateMetadata={({ props }) => {
+        const storyboard = props.storyboard as StoryboardPlan | undefined;
+        return {
+          durationInFrames: Math.max(1, Math.round(storyboard?.totalFrames ?? 1200)),
+          fps: storyboard?.fps || 30,
+        };
+      }}
     />
   );
 }

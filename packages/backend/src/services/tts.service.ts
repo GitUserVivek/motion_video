@@ -59,67 +59,81 @@ class TtsService {
     );
   }
 
+  /**
+   * Pick the engine that will actually run: an explicitly configured `espeak`
+   * is honoured, anything else probes edge-tts first and falls back to espeak
+   * so a missing binary degrades instead of failing the job.
+   */
+  private async resolveEngine(): Promise<TtsEngine> {
+    if (config.tts.engine === 'espeak') return 'espeak';
+    return this.selectEngine();
+  }
+
   async synthesize(
     text: string,
     voice: string,
     outputPath: string,
   ): Promise<TtsSynthesisResult> {
-    const engine = config.tts.engine !== 'kokoro'
-      ? config.tts.engine
-      : await this.selectEngine();
+    const engine = await this.resolveEngine();
 
-    // If configured engine is edge-tts but it's not found yet, detect it
-    if (engine === 'edge-tts' && !this.detectedEngine) {
-      await this.selectEngine();
-    }
+    const wavPath = outputPath.endsWith('.wav') ? outputPath : `${outputPath}.wav`;
+    const mp3Path = wavPath.replace(/\.wav$/, '.mp3');
 
-    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.mkdirSync(path.dirname(wavPath), { recursive: true });
+    // Never reuse audio from an earlier attempt: a stale file would hide a
+    // failed synthesis and desync subtitles against the previous narration.
+    this.removeIfExists(wavPath);
+    this.removeIfExists(mp3Path);
 
-    const textFile = outputPath + '.input.txt';
+    const textFile = `${wavPath}.input.txt`;
     fs.writeFileSync(textFile, text, 'utf-8');
 
     try {
       if (engine === 'edge-tts') {
-        await this.synthesizeEdgeTts(textFile, voice, outputPath);
+        // edge-tts only writes MP3, so it always needs the WAV conversion below.
+        await this.synthesizeEdgeTts(textFile, voice, mp3Path);
       } else {
-        await this.synthesizeEspeak(textFile, outputPath);
+        await this.synthesizeEspeak(textFile, wavPath);
       }
     } finally {
-      if (fs.existsSync(textFile)) fs.unlinkSync(textFile);
+      this.removeIfExists(textFile);
     }
 
-    // Convert mp3 → wav (edge-tts outputs mp3)
-    const wavPath = outputPath.endsWith('.wav')
-      ? outputPath
-      : outputPath.replace(/\.mp3$/, '.wav');
+    if (engine === 'edge-tts') {
+      if (!fs.existsSync(mp3Path) || fs.statSync(mp3Path).size === 0) {
+        throw new Error(`edge-tts produced no audio file at ${mp3Path}`);
+      }
+      await this.convertToWav(mp3Path, wavPath);
+      this.removeIfExists(mp3Path);
+    }
 
-    if (!outputPath.endsWith('.wav') && fs.existsSync(outputPath)) {
-      await execAsync(`ffmpeg -y -i "${outputPath}" "${wavPath}"`, { env: ENV_WITH_PATH });
-      fs.unlinkSync(outputPath);
+    if (!fs.existsSync(wavPath) || fs.statSync(wavPath).size === 0) {
+      throw new Error(`TTS produced no audio file at ${wavPath}`);
     }
 
     const durationMs = await this.detectDuration(wavPath);
     return { audioPath: wavPath, durationMs };
   }
 
+  private removeIfExists(filePath: string): void {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+
   private async synthesizeEdgeTts(
     textFile: string,
     voice: string,
-    outputPath: string,
+    mp3Path: string,
   ): Promise<void> {
-    const mp3Path = outputPath.endsWith('.mp3')
-      ? outputPath
-      : outputPath.replace(/\.wav$/, '.mp3');
-
     const cmd = `${this.edgeTtsCmd} --voice "${voice}" --file "${textFile}" --write-media "${mp3Path}"`;
-    await execAsync(cmd, { env: ENV_WITH_PATH, timeout: 120000 });
+    try {
+      const { stderr } = await execAsync(cmd, { env: ENV_WITH_PATH, timeout: 120000 });
+      if (stderr) console.warn('[TTS] edge-tts stderr:', stderr.slice(0, 300));
+    } catch (err) {
+      throw new Error(`edge-tts failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
-  private async synthesizeEspeak(textFile: string, outputPath: string): Promise<void> {
-    const wavPath = outputPath.endsWith('.wav')
-      ? outputPath
-      : outputPath.replace(/\.mp3$/, '.wav');
-
+  private async synthesizeEspeak(textFile: string, wavPath: string): Promise<void> {
     for (const cmd of [
       `espeak-ng -f "${textFile}" -w "${wavPath}" -s 150 -a 200`,
       `espeak -f "${textFile}" -w "${wavPath}" -s 150 -a 200`,
@@ -132,22 +146,45 @@ class TtsService {
     throw new Error('espeak synthesis failed');
   }
 
+  private async convertToWav(inputPath: string, wavPath: string): Promise<void> {
+    try {
+      await execAsync(
+        `ffmpeg -y -i "${inputPath}" -vn -acodec pcm_s16le "${wavPath}"`,
+        { env: ENV_WITH_PATH, timeout: 120000 },
+      );
+    } catch (err) {
+      throw new Error(
+        `ffmpeg is required to convert TTS audio to WAV but failed: ${
+          err instanceof Error ? err.message.slice(-400) : String(err)
+        }`,
+      );
+    }
+  }
+
   async detectDuration(audioPath: string): Promise<number> {
     if (!fs.existsSync(audioPath)) {
       throw new Error(`Audio file not found: ${audioPath}`);
     }
+
     const { stdout } = await execAsync(
-      `ffprobe -v quiet -print_format json -show_streams "${audioPath}"`,
+      `ffprobe -v quiet -print_format json -show_format -show_streams "${audioPath}"`,
       { env: ENV_WITH_PATH },
     );
     const data = JSON.parse(stdout) as {
-      streams: Array<{ duration?: string; codec_type: string }>;
+      streams?: Array<{ duration?: string; codec_type: string }>;
+      format?: { duration?: string };
     };
-    const audioStream = data.streams.find((s) => s.codec_type === 'audio');
-    if (!audioStream?.duration) {
+
+    // Container duration is present for WAV/MP3 even when the stream omits it.
+    const raw =
+      data.streams?.find((s) => s.codec_type === 'audio')?.duration ??
+      data.format?.duration;
+
+    const seconds = raw ? parseFloat(raw) : NaN;
+    if (!Number.isFinite(seconds) || seconds <= 0) {
       throw new Error(`Cannot detect audio duration for: ${audioPath}`);
     }
-    return Math.round(parseFloat(audioStream.duration) * 1000);
+    return Math.round(seconds * 1000);
   }
 
   async isAvailable(): Promise<boolean> {

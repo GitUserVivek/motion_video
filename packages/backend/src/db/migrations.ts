@@ -71,6 +71,62 @@ const DEFAULT_SETTINGS: [string, string][] = [
   ['max_concurrent_jobs', '1'],
 ];
 
+const VALID_JOB_STATUSES = new Set(['pending', 'processing', 'completed', 'failed', 'cancelled']);
+const VALID_SCRIPT_STATUSES = new Set(['draft', 'approved', 'rejected']);
+
+/**
+ * Repair rows written by the previous JSON store, which turned inline SQL string
+ * literals into timestamps and dropped them from WHERE clauses. An unknown
+ * `scripts.status` can only come from the approve endpoint, and an unknown
+ * `jobs.status` only from the retry re-queue — those rows never ran to
+ * completion, so keep the recorded error and mark them failed instead of
+ * leaving them invisible to the worker 2000 ms poll.
+ */
+function repairLegacyRows(): void {
+  const db = getDb();
+  let scripts = 0;
+  let jobs = 0;
+
+  const scriptRows = db.prepare('SELECT id, status FROM scripts').all() as Array<{ id: string; status?: string }>;
+  for (const row of scriptRows) {
+    if (!row.status) {
+      // Rows written before defaults were applied were never approved.
+      db.prepare("UPDATE scripts SET status = 'draft' WHERE id = ?").run(row.id);
+      scripts++;
+    } else if (!VALID_SCRIPT_STATUSES.has(row.status)) {
+      db.prepare("UPDATE scripts SET status = 'approved' WHERE id = ?").run(row.id);
+      scripts++;
+    }
+  }
+
+  const jobRows = db.prepare('SELECT id, status FROM jobs').all() as Array<{ id: string; status: string }>;
+  for (const row of jobRows) {
+    if (!VALID_JOB_STATUSES.has(row.status)) {
+      db.prepare("UPDATE jobs SET status = 'failed' WHERE id = ?").run(row.id);
+      jobs++;
+    }
+  }
+
+  // INSERT OR IGNORE previously ignored the `key` primary key, so settings rows
+  // were appended on every startup. Keep the newest value per key.
+  const settingRows = db.prepare('SELECT key, value FROM settings').all() as Array<{ key: string; value: string }>;
+  const deduped = new Map<string, string>();
+  for (const row of settingRows) deduped.set(row.key, row.value);
+  let settings = 0;
+  if (deduped.size !== settingRows.length) {
+    settings = settingRows.length - deduped.size;
+    db.prepare('DELETE FROM settings').run();
+    const insert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
+    for (const [key, value] of deduped) insert.run(key, value);
+  }
+
+  if (scripts || jobs || settings) {
+    console.log(
+      `[DB] Repaired legacy rows — scripts: ${scripts}, jobs: ${jobs}, duplicate settings: ${settings}`,
+    );
+  }
+}
+
 export function runMigrations(): void {
   const db = getDb();
 
@@ -92,6 +148,8 @@ export function runMigrations(): void {
     }
   });
   seedAll();
+
+  repairLegacyRows();
 
   console.log('[DB] Migrations applied successfully');
 }
