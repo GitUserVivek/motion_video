@@ -7,6 +7,7 @@ cd "$SCRIPT_DIR"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 PID_DIR="$SCRIPT_DIR/.pids"
@@ -18,15 +19,20 @@ echo " EduMotion AI — Starting Services"
 echo "============================================"
 echo ""
 
+# Always stop any existing instances first to avoid EADDRINUSE
+echo "  Clearing any existing processes..."
+fuser -k 3001/tcp 2>/dev/null || true
+fuser -k 5173/tcp 2>/dev/null || true
+pkill -9 -f "backend/dist/index.js" 2>/dev/null || true
+pkill -9 -f "vite" 2>/dev/null || true
+sleep 1
+
 # ---------- 1. Build if needed ----------
 echo "[1/3] Preparing backend..."
-
-# Always ensure shared is built — the symlink in node_modules points directly
-# to packages/shared, so dist/ must exist before the backend can require() it.
-echo "  Building shared package..."
-(cd packages/shared && npx tsup src/index.ts --format esm,cjs --dts --clean 2>&1) \
-  || { echo -e "  ${RED:-}ERROR: shared build failed. Check tsup output above.${NC:-}"; exit 1; }
-
+if [[ ! -f packages/shared/dist/index.js ]]; then
+  echo "  Building shared package..."
+  (cd packages/shared && npx tsup src/index.ts --format esm,cjs --dts --clean)
+fi
 if [[ ! -f packages/backend/dist/index.js ]]; then
   echo "  Building backend..."
   npm run build:backend
@@ -40,16 +46,19 @@ BACKEND_PID=$!
 echo "$BACKEND_PID" > "$PID_DIR/backend.pid"
 
 echo "  Waiting for backend..."
+READY=false
 for i in {1..20}; do
   sleep 1
   if curl -s http://localhost:3001/api/health &>/dev/null; then
+    READY=true
     echo -e "  ${GREEN}OK: Backend ready (PID $BACKEND_PID)${NC}"
     break
   fi
-  if [[ $i -eq 20 ]]; then
-    echo -e "  ${YELLOW}WARNING: Backend did not respond within 20s. Check logs/backend.log${NC}"
-  fi
 done
+if [[ "$READY" == "false" ]]; then
+  echo -e "  ${YELLOW}WARNING: Backend did not respond in 20s — check logs/backend.log${NC}"
+  tail -5 logs/backend.log || true
+fi
 
 # ---------- 3. Start frontend ----------
 echo "[3/3] Starting frontend dev server (port 5173)..."
@@ -57,7 +66,15 @@ VITE_BACKEND_URL="${BACKEND_URL:-http://localhost:3001}" \
   npm run dev --workspace=packages/frontend >> logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "$FRONTEND_PID" > "$PID_DIR/frontend.pid"
-sleep 2
+
+# Wait for frontend to be up
+for i in {1..15}; do
+  sleep 1
+  if curl -s http://localhost:5173 &>/dev/null; then
+    echo -e "  ${GREEN}OK: Frontend ready (PID $FRONTEND_PID)${NC}"
+    break
+  fi
+done
 
 echo ""
 echo "============================================"
@@ -76,6 +93,6 @@ elif command -v open &>/dev/null; then
   open http://localhost:5173 &>/dev/null &
 fi
 
-# Stay alive — Ctrl+C stops everything via trap
-trap 'echo ""; echo "Stopping services..."; "$SCRIPT_DIR/stop.sh"; exit 0' INT TERM
+# Stay alive — Ctrl+C stops everything
+trap '"$SCRIPT_DIR/stop.sh"; exit 0' INT TERM
 wait

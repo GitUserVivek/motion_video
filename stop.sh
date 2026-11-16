@@ -1,42 +1,38 @@
 #!/usr/bin/env bash
-# EduMotion AI — Stop Services (Linux)
+# EduMotion AI — Stop Services
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_DIR="$SCRIPT_DIR/.pids"
 
-GREEN='\033[0;32m'
-NC='\033[0m'
-
 echo ""
 echo "Stopping EduMotion AI services..."
-echo ""
 
-stop_pid_file() {
-  local name="$1"
-  local pid_file="$PID_DIR/$2"
+# Kill by saved PID files
+for name in backend frontend; do
+  pid_file="$PID_DIR/$name.pid"
   if [[ -f "$pid_file" ]]; then
-    local pid
-    pid=$(cat "$pid_file")
-    if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null && echo -e "  ${GREEN}Stopped $name (PID $pid)${NC}"
+    pid=$(cat "$pid_file" 2>/dev/null)
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null && echo "  Stopped $name (PID $pid)"
     fi
     rm -f "$pid_file"
   fi
-}
+done
 
-# Stop via PID files written by start.sh
-stop_pid_file "frontend" "frontend.pid"
-stop_pid_file "backend"  "backend.pid"
-stop_pid_file "ollama"   "ollama.pid"
-
-# Fallback: find by port if PID files are missing
-for port in 5173 3001; do
-  pid=$(lsof -ti tcp:"$port" 2>/dev/null || true)
-  if [[ -n "$pid" ]]; then
-    kill "$pid" 2>/dev/null && echo -e "  ${GREEN}Stopped process on port $port (PID $pid)${NC}"
+# Kill by port — try fuser first (available on Kaggle/Ubuntu), then lsof
+for port in 3001 5173; do
+  # fuser approach
+  fuser -k "${port}/tcp" 2>/dev/null && echo "  Killed port $port" || true
+  # lsof fallback
+  if command -v lsof &>/dev/null; then
+    lsof -ti tcp:"$port" 2>/dev/null | xargs -r kill -9 2>/dev/null || true
   fi
 done
 
-echo ""
-echo "  Done. Your videos and data are safe."
+# Kill any stray node processes matching our entry points
+pkill -9 -f "backend/dist/index.js" 2>/dev/null || true
+pkill -9 -f "vite" 2>/dev/null || true
+
+sleep 1
+echo "  Done."
 echo ""

@@ -56,12 +56,22 @@ async function bootstrap(): Promise<void> {
   // Error handler (must be last)
   app.use(errorHandler);
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     console.log(`[Server] EduMotion backend running on http://localhost:${config.port}`);
     console.log(`[Server] Environment: ${config.nodeEnv}`);
     console.log(`[Server] DB: ${config.storage.dataDir}/db/ (JSON store)`);
     console.log(`[Server] Model: ${config.localLlm.modelName} (${config.localLlm.modelsDir})`);
     console.log(`[Server] RAM: ${config.system.totalRamGB}GB | CPUs: ${config.system.cpuCount}`);
+  });
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Fatal] Port ${config.port} is already in use.`);
+      console.error(`        Run: fuser -k ${config.port}/tcp && node packages/backend/dist/index.js`);
+    } else {
+      console.error('[Fatal] Server error:', err.message);
+    }
+    process.exit(1);
   });
 
   // Start render worker in background
