@@ -283,14 +283,14 @@ class Statement {
     return { changes: 1 };
   }
 
-  get(...params: unknown[]): Row | undefined {
+  get(...params: unknown[]): unknown {
     const p = this.parsed;
     if (p.type !== 'SELECT') return undefined;
     const rows = executeSelect(p, params);
     return rows[0];
   }
 
-  all(...params: unknown[]): Row[] {
+  all(...params: unknown[]): unknown[] {
     const p = this.parsed;
     if (p.type !== 'SELECT') return [];
     return executeSelect(p, params);
