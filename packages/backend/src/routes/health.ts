@@ -6,6 +6,7 @@ import { promisify } from 'util';
 import { llmService } from '../services/llm.service.js';
 import { ttsService } from '../services/tts.service.js';
 import { config } from '../config.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 import type { HealthStatus, ApiResponse } from '@edumotion/shared';
 
 const execAsync = promisify(exec);
@@ -35,7 +36,7 @@ function checkDatabase(): boolean {
   }
 }
 
-router.get('/', async (_req, res) => {
+router.get('/', asyncHandler(async (_req, res) => {
   const [ffmpegOk, ttsOk] = await Promise.all([
     checkFfmpeg(),
     ttsService.isAvailable(),
@@ -65,6 +66,6 @@ router.get('/', async (_req, res) => {
 
   const response: ApiResponse<HealthStatus> = { success: true, data: health };
   res.status(status === 'down' ? 503 : 200).json(response);
-});
+}));
 
 export default router;

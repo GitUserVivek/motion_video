@@ -20,11 +20,22 @@ class LlmService {
   private context: LlamaContext | null = null;
   private initialized = false;
   private initializing: Promise<void> | null = null;
+  /**
+   * A context owns a fixed number of sequences (one by default). Chats are
+   * therefore serialized: a second caller waits for the sequence to be
+   * released instead of failing with "No sequences left".
+   */
+  private chatQueue: Promise<unknown> = Promise.resolve();
 
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
     if (this.initializing) return this.initializing;
-    this.initializing = this._init();
+
+    this.initializing = this._init().catch((err: unknown) => {
+      // Allow a later call to retry a failed load instead of caching the error.
+      this.initializing = null;
+      throw err;
+    });
     await this.initializing;
   }
 
@@ -56,48 +67,94 @@ class LlmService {
   }
 
   async chat(messages: LlmMessage[], options?: LlmChatOptions): Promise<string> {
+    const run = this.chatQueue.then(
+      () => this.runChat(messages, options),
+      () => this.runChat(messages, options),
+    );
+    // Keep the chain alive whether the run succeeds or fails.
+    this.chatQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async runChat(messages: LlmMessage[], options?: LlmChatOptions): Promise<string> {
     await this.ensureInitialized();
 
-    const session = new LlamaChatSession({
-      contextSequence: this.context!.getSequence(),
-    });
+    const context = this.context;
+    if (!context) throw new Error('LLM context is not available');
 
-    const systemMsg = messages.find((m) => m.role === 'system')?.content ?? '';
-    const userMessages = messages.filter((m) => m.role !== 'system');
+    // Each chat takes one context sequence and must always give it back —
+    // otherwise the second request fails with "No sequences left".
+    const sequence = context.getSequence();
+    const session = new LlamaChatSession({ contextSequence: sequence });
 
-    // Prepend system prompt to first user message if present
-    if (systemMsg && userMessages[0]) {
-      userMessages[0] = {
-        ...userMessages[0],
-        content: `${systemMsg}\n\n${userMessages[0].content}`,
-      };
-    }
+    try {
+      const systemMsg = messages.find((m) => m.role === 'system')?.content ?? '';
+      const userMessages = messages
+        .filter((m) => m.role !== 'system')
+        .map((m) => ({ ...m }));
 
-    const timeoutMs = config.localLlm.timeoutMs;
-    let reply = '';
-
-    const generatePromise = (async () => {
-      for (let i = 0; i < userMessages.length; i++) {
-        const msg = userMessages[i];
-        if (!msg) continue;
-        if (i < userMessages.length - 1) {
-          await session.prompt(msg.content, { maxTokens: 10, temperature: 0.1 });
-        } else {
-          reply = await session.prompt(msg.content, {
-            maxTokens: options?.num_predict ?? config.localLlm.maxTokens,
-            temperature: options?.temperature ?? 0.7,
-            topP: options?.top_p ?? 0.9,
-          });
-        }
+      // Prepend system prompt to first user message if present
+      if (systemMsg && userMessages[0]) {
+        userMessages[0] = {
+          ...userMessages[0],
+          content: `${systemMsg}\n\n${userMessages[0].content}`,
+        };
       }
+
+      const timeoutMs = config.localLlm.timeoutMs;
+      // Abort the generation itself on timeout, so the sequence is released
+      // instead of continuing to generate in the background.
+      const controller = new AbortController();
+      const timer = setTimeout(
+        () => controller.abort(new Error(`LLM timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+
+      let reply = '';
+      try {
+        for (let i = 0; i < userMessages.length; i++) {
+          const msg = userMessages[i];
+          if (!msg) continue;
+
+          if (i < userMessages.length - 1) {
+            await session.prompt(msg.content, {
+              maxTokens: 10,
+              temperature: 0.1,
+              signal: controller.signal,
+              stopOnAbortSignal: true,
+            });
+          } else {
+            reply = await session.prompt(msg.content, {
+              maxTokens: options?.num_predict ?? config.localLlm.maxTokens,
+              temperature: options?.temperature ?? 0.7,
+              topP: options?.top_p ?? 0.9,
+              signal: controller.signal,
+              stopOnAbortSignal: true,
+            });
+          }
+        }
+      } catch (err) {
+        if (controller.signal.aborted) {
+          throw new Error(`LLM timed out after ${timeoutMs}ms`);
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
+
       return reply;
-    })();
-
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`LLM timed out after ${timeoutMs}ms`)), timeoutMs),
-    );
-
-    return Promise.race([generatePromise, timeoutPromise]);
+    } finally {
+      // Release the sequence ourselves and await it: the context reclaims the
+      // slot through an async lock, so the next queued chat must not race it.
+      try {
+        session.dispose();
+      } finally {
+        await sequence.dispose();
+      }
+    }
   }
 
   isModelAvailable(): boolean {
@@ -116,6 +173,9 @@ class LlmService {
     if (this.context) await this.context.dispose();
     if (this.model) await this.model.dispose();
     if (this.llama) await this.llama.dispose();
+    this.context = null;
+    this.model = null;
+    this.llama = null;
     this.initialized = false;
     this.initializing = null;
   }

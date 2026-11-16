@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import type { ApiError } from '@edumotion/shared';
 
 export class AppError extends Error {
@@ -11,6 +11,19 @@ export class AppError extends Error {
     super(message);
     this.name = 'AppError';
   }
+}
+
+/**
+ * Express 4 does not forward rejected promises from async handlers, which made a
+ * thrown LLM error crash the process. Wrap every async route with this so the
+ * failure reaches the error handler instead.
+ */
+export function asyncHandler(
+  handler: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
+): RequestHandler {
+  return (req, res, next): void => {
+    void handler(req, res, next).catch(next);
+  };
 }
 
 export function errorHandler(

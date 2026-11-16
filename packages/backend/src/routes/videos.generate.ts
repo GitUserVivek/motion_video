@@ -2,12 +2,12 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/db.js';
 import { GenerateVideoRequestSchema } from '@edumotion/shared';
-import { AppError } from '../middleware/errorHandler.js';
+import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import type { JobResponse, ApiResponse } from '@edumotion/shared';
 
 const router = Router();
 
-router.post('/generate', async (req, res) => {
+router.post('/generate', asyncHandler(async (req, res) => {
   const parsed = GenerateVideoRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new AppError('VALIDATION_ERROR', 'Invalid video config', 400, parsed.error.errors);
@@ -41,6 +41,6 @@ router.post('/generate', async (req, res) => {
     },
   };
   res.status(202).json(response);
-});
+}));
 
 export default router;

@@ -6,14 +6,14 @@ import {
   OwnScriptRequestSchema,
 } from '@edumotion/shared';
 import { scriptService } from '../services/script.service.js';
-import { AppError } from '../middleware/errorHandler.js';
+import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import type { ScriptResponse, ApiResponse } from '@edumotion/shared';
 import { WORDS_PER_SECOND } from '@edumotion/shared';
 
 const router = Router();
 
 // POST /api/scripts/generate  — topic mode
-router.post('/generate', async (req, res) => {
+router.post('/generate', asyncHandler(async (req, res) => {
   const parsed = GenerateScriptRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new AppError('VALIDATION_ERROR', 'Invalid request', 400, parsed.error.errors);
@@ -41,10 +41,10 @@ router.post('/generate', async (req, res) => {
     data: { scriptId, content, wordCount, estimatedDurationSeconds: estimatedDuration },
   };
   res.status(201).json(response);
-});
+}));
 
 // POST /api/scripts/validate  — own-script mode
-router.post('/validate', async (req, res) => {
+router.post('/validate', asyncHandler(async (req, res) => {
   const parsed = OwnScriptRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new AppError('VALIDATION_ERROR', 'Invalid request', 400, parsed.error.errors);
@@ -80,10 +80,10 @@ router.post('/validate', async (req, res) => {
     },
   };
   res.status(201).json(response);
-});
+}));
 
 // POST /api/scripts/rewrite
-router.post('/rewrite', async (req, res) => {
+router.post('/rewrite', asyncHandler(async (req, res) => {
   const body = req.body as { scriptId?: string; mode?: string };
   if (!body.scriptId || !body.mode) {
     throw new AppError('VALIDATION_ERROR', 'scriptId and mode required', 400);
@@ -117,7 +117,7 @@ router.post('/rewrite', async (req, res) => {
     },
   };
   res.json(response);
-});
+}));
 
 // POST /api/scripts/approve
 router.post('/approve', (req, res) => {
