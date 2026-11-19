@@ -58,11 +58,13 @@ async function processJob(job: JobRow): Promise<void> {
 
   // 2. Generate TTS audio
   const audioPath = path.join(config.storage.audioDir, `${job.id}.wav`);
+  console.log(`[Worker] Job ${job.id} [1/4] synthesizing audio (${script.length} chars)`);
   const { audioPath: finalAudioPath, durationMs } = await ttsService.synthesize(
     script,
     config.tts.voice,
     audioPath,
   );
+  console.log(`[Worker] Job ${job.id} [2/4] subtitles for ${(durationMs / 1000).toFixed(1)}s of audio`);
 
   updateJob(job.id, 'processing', 20, 'aligning_subtitles');
 
@@ -76,6 +78,7 @@ async function processJob(job: JobRow): Promise<void> {
   updateJob(job.id, 'processing', 30, 'planning_storyboard');
 
   // 4. Plan storyboard
+  console.log(`[Worker] Job ${job.id} [3/4] planning storyboard (LLM)`);
   const storyboard: StoryboardPlan = await storyboardService.planStoryboard(
     job.id,
     script,
@@ -96,6 +99,9 @@ async function processJob(job: JobRow): Promise<void> {
     });
   });
   insertAllScenes();
+  console.log(
+    `[Worker] Job ${job.id} storyboard ready: ${storyboard.scenes.length} scenes, ${storyboard.totalFrames} frames`,
+  );
 
   updateJob(job.id, 'processing', 40, 'rendering');
 
@@ -109,6 +115,7 @@ async function processJob(job: JobRow): Promise<void> {
   }
 
   // 6. Render video
+  console.log(`[Worker] Job ${job.id} [4/4] rendering`);
   const result = await renderService.renderVideo(
     job.id,
     storyboard,

@@ -1,11 +1,8 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config.js';
 import type { TtsEngine } from '@edumotion/shared';
-
-const execAsync = promisify(exec);
 
 // Augment PATH to include common pip install locations
 const EXTRA_PATHS = [
@@ -36,7 +33,7 @@ class TtsService {
     // Try edge-tts binary (direct or via augmented PATH)
     for (const cmd of ['edge-tts', 'python3 -m edge_tts', 'python -m edge_tts']) {
       try {
-        await execAsync(`${cmd} --version`, { env: ENV_WITH_PATH, timeout: 10000 });
+        await this.runCommand(cmd, ['--version'], 10000);
         this.edgeTtsCmd = cmd;
         this.detectedEngine = 'edge-tts';
         console.log(`[TTS] Using edge-tts via: ${cmd}`);
@@ -47,7 +44,7 @@ class TtsService {
     // Try espeak-ng
     for (const cmd of ['espeak-ng', 'espeak']) {
       try {
-        await execAsync(`${cmd} --version`, { env: ENV_WITH_PATH, timeout: 10000 });
+        await this.runCommand(cmd, ['--version'], 10000);
         this.detectedEngine = 'espeak';
         console.log(`[TTS] Using espeak: ${cmd}`);
         return 'espeak';
@@ -88,6 +85,7 @@ class TtsService {
     const textFile = `${wavPath}.input.txt`;
     fs.writeFileSync(textFile, text, 'utf-8');
 
+    const startedAt = Date.now();
     try {
       if (engine === 'edge-tts') {
         // edge-tts only writes MP3, so it always needs the WAV conversion below.
@@ -112,7 +110,84 @@ class TtsService {
     }
 
     const durationMs = await this.detectDuration(wavPath);
+    console.log(
+      `[TTS] Synthesized ${(durationMs / 1000).toFixed(1)}s of audio with ${engine} in ${
+        Date.now() - startedAt
+      }ms`,
+    );
     return { audioPath: wavPath, durationMs };
+  }
+
+  /**
+   * Run a child process with a hard deadline.
+   *
+   * `exec`'s built-in timeout only signals the `/bin/sh` wrapper. When the real
+   * command (edge-tts is a Python program) survives that signal it keeps the
+   * inherited stdio pipes open, so the exec callback never fires and the job
+   * hangs silently forever. The child is therefore spawned as its own process
+   * group and the whole group is killed when the deadline passes.
+   */
+  private runCommand(
+    command: string,
+    args: string[],
+    timeoutMs: number,
+  ): Promise<{ stdout: string; stderr: string }> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, args, {
+        env: ENV_WITH_PATH,
+        detached: process.platform !== 'win32',
+      });
+
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+
+      const settle = (): boolean => {
+        if (settled) return false;
+        settled = true;
+        clearTimeout(timer);
+        return true;
+      };
+
+      const timer = setTimeout(() => {
+        if (!settle()) return;
+        this.killTree(child);
+        reject(
+          new Error(
+            `Command timed out after ${timeoutMs}ms: ${command} ${args.join(' ')}`,
+          ),
+        );
+      }, timeoutMs);
+
+      child.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
+      child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+      child.on('error', (err) => {
+        if (!settle()) return;
+        reject(new Error(`Could not run ${command}: ${err.message}`));
+      });
+
+      child.on('close', (code) => {
+        if (!settle()) return;
+        if (code === 0) {
+          resolve({ stdout, stderr });
+          return;
+        }
+        const detail = (stderr.trim() || stdout.trim()).slice(-400);
+        reject(new Error(`${command} exited with code ${code}: ${detail}`));
+      });
+    });
+  }
+
+  private killTree(child: ChildProcess): void {
+    try {
+      if (child.pid && process.platform !== 'win32') {
+        // Negative pid targets the whole group created by `detached: true`.
+        process.kill(-child.pid, 'SIGKILL');
+        return;
+      }
+    } catch { /* fall through to single-process kill */ }
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
   }
 
   private removeIfExists(filePath: string): void {
@@ -124,22 +199,25 @@ class TtsService {
     voice: string,
     mp3Path: string,
   ): Promise<void> {
-    const cmd = `${this.edgeTtsCmd} --voice "${voice}" --file "${textFile}" --write-media "${mp3Path}"`;
-    try {
-      const { stderr } = await execAsync(cmd, { env: ENV_WITH_PATH, timeout: 120000 });
-      if (stderr) console.warn('[TTS] edge-tts stderr:', stderr.slice(0, 300));
-    } catch (err) {
-      throw new Error(`edge-tts failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    const [bin, ...prefix] = this.edgeTtsCmd.split(' ');
+    if (!bin) throw new Error('edge-tts command is empty');
+
+    const { stderr } = await this.runCommand(
+      bin,
+      [...prefix, '--voice', voice, '--file', textFile, '--write-media', mp3Path],
+      120000,
+    );
+    if (stderr) console.warn('[TTS] edge-tts stderr:', stderr.slice(0, 300));
   }
 
   private async synthesizeEspeak(textFile: string, wavPath: string): Promise<void> {
-    for (const cmd of [
-      `espeak-ng -f "${textFile}" -w "${wavPath}" -s 150 -a 200`,
-      `espeak -f "${textFile}" -w "${wavPath}" -s 150 -a 200`,
-    ]) {
+    for (const bin of ['espeak-ng', 'espeak']) {
       try {
-        await execAsync(cmd, { env: ENV_WITH_PATH, timeout: 120000 });
+        await this.runCommand(
+          bin,
+          ['-f', textFile, '-w', wavPath, '-s', '150', '-a', '200'],
+          120000,
+        );
         return;
       } catch { /* try next */ }
     }
@@ -148,14 +226,15 @@ class TtsService {
 
   private async convertToWav(inputPath: string, wavPath: string): Promise<void> {
     try {
-      await execAsync(
-        `ffmpeg -y -i "${inputPath}" -vn -acodec pcm_s16le "${wavPath}"`,
-        { env: ENV_WITH_PATH, timeout: 120000 },
+      await this.runCommand(
+        'ffmpeg',
+        ['-y', '-i', inputPath, '-vn', '-acodec', 'pcm_s16le', wavPath],
+        120000,
       );
     } catch (err) {
       throw new Error(
         `ffmpeg is required to convert TTS audio to WAV but failed: ${
-          err instanceof Error ? err.message.slice(-400) : String(err)
+          err instanceof Error ? err.message : String(err)
         }`,
       );
     }
@@ -166,9 +245,10 @@ class TtsService {
       throw new Error(`Audio file not found: ${audioPath}`);
     }
 
-    const { stdout } = await execAsync(
-      `ffprobe -v quiet -print_format json -show_format -show_streams "${audioPath}"`,
-      { env: ENV_WITH_PATH },
+    const { stdout } = await this.runCommand(
+      'ffprobe',
+      ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', audioPath],
+      30000,
     );
     const data = JSON.parse(stdout) as {
       streams?: Array<{ duration?: string; codec_type: string }>;
