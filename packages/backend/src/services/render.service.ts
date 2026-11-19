@@ -1,4 +1,5 @@
 import { exec, spawn } from 'child_process';
+import { createRequire } from 'module';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
@@ -124,7 +125,11 @@ class RenderService {
         '--log', 'verbose',
       ];
 
-      const child = spawn('npx', ['remotion', ...args], {
+      // Run the CLI with the current node binary instead of `npx remotion`:
+      // npx only works when the executable happens to be on npm's resolution
+      // path, and fails with "could not determine executable to run" otherwise.
+      const cli = this.resolveRemotionCli(rendererRoot);
+      const child = spawn(cli.command, [...cli.args, ...args], {
         cwd: rendererRoot,
         env: process.env,
       });
@@ -160,6 +165,43 @@ class RenderService {
         }
       });
     });
+  }
+
+  /**
+   * Locate the Remotion CLI entry script. The `remotion` package is only the
+   * runtime library; the executable lives in `@remotion/cli`.
+   */
+  private resolveRemotionCli(rendererRoot: string): { command: string; args: string[] } {
+    const candidates = [
+      path.join(rendererRoot, 'node_modules', '@remotion', 'cli', 'package.json'),
+      path.join(process.cwd(), 'node_modules', '@remotion', 'cli', 'package.json'),
+    ];
+
+    const pkgPath = candidates.find((candidate) => fs.existsSync(candidate));
+    if (pkgPath) return this.remotionCliEntry(pkgPath);
+
+    try {
+      const requireFromRenderer = createRequire(path.join(rendererRoot, 'package.json'));
+      return this.remotionCliEntry(requireFromRenderer.resolve('@remotion/cli/package.json'));
+    } catch { /* not resolvable from the renderer workspace */ }
+
+    throw new Error(
+      'Remotion CLI is not installed (@remotion/cli is missing from packages/renderer). ' +
+        'Run `npm install` in the project root so the renderer workspace installs it.',
+    );
+  }
+
+  private remotionCliEntry(pkgPath: string): { command: string; args: string[] } {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as {
+      bin?: string | Record<string, string>;
+    };
+    const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.['remotion'];
+    if (!bin) {
+      throw new Error(`@remotion/cli at ${pkgPath} does not expose a remotion executable`);
+    }
+
+    // Absolute node + absolute script: no PATH, no npx, no network at render time.
+    return { command: process.execPath, args: [path.resolve(path.dirname(pkgPath), bin)] };
   }
 
   /**
