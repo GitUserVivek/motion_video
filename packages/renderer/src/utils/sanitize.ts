@@ -122,6 +122,40 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
       };
     }
 
+    case 'ConceptDiagram': {
+      const items = Array.isArray(raw['items'])
+        ? raw['items']
+            .filter(isRecord)
+            .map((item) => {
+              // Artwork arrives inlined by the backend; anything else (a model
+              // URL or a local file path) would stall the render, so it is dropped
+              // and the tile falls back to its built-in glyph.
+              const image = item['image'];
+              const usable = typeof image === 'string'
+                && /^data:image\//i.test(image)
+                && image.length <= 2_000_000
+                ? image
+                : undefined;
+              return {
+                icon: enumValue(item['icon'], OBJECT_TYPES, 'book'),
+                label: str(item['label'], '').trim().slice(0, 32),
+                ...(usable ? { image: usable } : {}),
+              };
+            })
+            .filter((item) => item.label.length > 0)
+            .slice(0, 5)
+        : [];
+      if (items.length === 0) return null;
+      return {
+        ...raw,
+        items,
+        layout: raw['layout'] === 'grid' ? 'grid' : 'row',
+        iconSize: num(raw['iconSize'], 140, 40, 320),
+        accent: str(raw['accent'], '#8f7be0'),
+        title: str(raw['title'], '').slice(0, 80),
+      };
+    }
+
     case 'MultiplicationTable':
       return {
         ...raw,

@@ -66,6 +66,7 @@ export type ComponentName =
   | 'Teacher'
   | 'EducationalObject'
   | 'ObjectGroup'
+  | 'ConceptDiagram'
   | 'MultiplicationTable'
   | 'ImageScene'
   | 'BackgroundScene'

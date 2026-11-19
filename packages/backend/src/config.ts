@@ -66,6 +66,9 @@ export const config = {
     thumbnailsDir: path.join(ROOT_DIR, 'output', 'thumbnails'),
     tempDir: path.join(ROOT_DIR, 'temp'),
     assetsDir: path.join(ROOT_DIR, 'assets'),
+    // Optional artwork pack (SVG/PNG/JPG/WebP/GIF). Everything found here is
+    // matched to a scene's concepts by file name and inlined into the props.
+    resourcesDir: path.join(ROOT_DIR, 'resources'),
     dataDir: path.join(ROOT_DIR, 'data'),
   },
 

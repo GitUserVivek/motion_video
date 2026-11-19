@@ -26,11 +26,14 @@ function ensureDirectories(): void {
     config.storage.thumbnailsDir,
     config.storage.tempDir,
     config.storage.assetsDir,
+    config.storage.resourcesDir,
     config.storage.dataDir,
     path.join(config.storage.assetsDir, 'characters'),
     path.join(config.storage.assetsDir, 'backgrounds'),
     path.join(config.storage.assetsDir, 'animations'),
     path.join(config.storage.assetsDir, 'sounds'),
+    path.join(config.storage.resourcesDir, 'icons'),
+    path.join(config.storage.resourcesDir, 'images'),
     path.join(config.storage.rootDir, 'data', 'projects'),
   ];
   for (const dir of dirs) {

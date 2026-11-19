@@ -97,6 +97,7 @@ mkdir -p \
   output/videos output/audio output/subtitles output/thumbnails \
   temp data/projects \
   assets/characters assets/backgrounds assets/animations assets/sounds \
+  resources/icons resources/images \
   logs
 echo -e "  ${GREEN}OK: Directories created${NC}"
 

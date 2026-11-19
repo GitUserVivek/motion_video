@@ -9,8 +9,9 @@ import type { StoryboardPlan, VideoConfig, SubtitleEntry, SceneInstruction, Comp
 /** Mirrors ComponentNameSchema; typed so a typo cannot drift from the union. */
 const VALID_COMPONENTS: ReadonlySet<string> = new Set<ComponentName>([
   'AnimatedText', 'AnimatedNumber', 'Character', 'Teacher', 'EducationalObject',
-  'ObjectGroup', 'MultiplicationTable', 'ImageScene', 'BackgroundScene',
-  'Subtitle', 'QuestionCard', 'Confetti', 'EndScreen', 'ProgressBar',
+  'ObjectGroup', 'ConceptDiagram', 'MultiplicationTable', 'ImageScene',
+  'BackgroundScene', 'Subtitle', 'QuestionCard', 'Confetti', 'EndScreen',
+  'ProgressBar',
 ]);
 
 class StoryboardService {

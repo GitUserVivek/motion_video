@@ -7,6 +7,7 @@ export const ComponentNameSchema = z.enum([
   'Teacher',
   'EducationalObject',
   'ObjectGroup',
+  'ConceptDiagram',
   'MultiplicationTable',
   'ImageScene',
   'BackgroundScene',

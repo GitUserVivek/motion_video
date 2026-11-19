@@ -8,6 +8,7 @@ import { Character } from '../components/Character.js';
 import { Teacher } from '../components/Teacher.js';
 import { EducationalObject } from '../components/EducationalObject.js';
 import { ObjectGroup } from '../components/ObjectGroup.js';
+import { ConceptDiagram } from '../components/ConceptDiagram.js';
 import { MultiplicationTable } from '../components/MultiplicationTable.js';
 import { ImageScene } from '../components/ImageScene.js';
 import { BackgroundScene } from '../components/BackgroundScene.js';
@@ -27,6 +28,7 @@ const COMPONENT_MAP: Record<ComponentName, React.ComponentType<Record<string, un
   Teacher:             Teacher as unknown as React.ComponentType<Record<string, unknown>>,
   EducationalObject:   EducationalObject as unknown as React.ComponentType<Record<string, unknown>>,
   ObjectGroup:         ObjectGroup as unknown as React.ComponentType<Record<string, unknown>>,
+  ConceptDiagram:      ConceptDiagram as unknown as React.ComponentType<Record<string, unknown>>,
   MultiplicationTable: MultiplicationTable as unknown as React.ComponentType<Record<string, unknown>>,
   ImageScene:          ImageScene as unknown as React.ComponentType<Record<string, unknown>>,
   BackgroundScene:     BackgroundScene as unknown as React.ComponentType<Record<string, unknown>>,
@@ -106,17 +108,17 @@ class SceneBoundary extends React.Component<
   { children: React.ReactNode },
   { failed: boolean }
 > {
-  state = { failed: false };
+  override state = { failed: false };
 
   static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true };
   }
 
-  componentDidCatch(error: Error): void {
+  override componentDidCatch(error: Error): void {
     console.warn('[EduVideo] Scene failed to render:', error.message);
   }
 
-  render(): React.ReactNode {
+  override render(): React.ReactNode {
     if (this.state.failed) {
       return <AbsoluteFill style={{ backgroundColor: '#0f0f1e' }} />;
     }

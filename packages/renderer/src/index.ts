@@ -18,6 +18,8 @@ export { EducationalObject } from './components/EducationalObject.js';
 export type { EducationalObjectProps, ObjectType } from './components/EducationalObject.js';
 
 export { ObjectGroup } from './components/ObjectGroup.js';
+export { ConceptDiagram } from './components/ConceptDiagram.js';
+export type { ConceptDiagramProps, ConceptDiagramItem } from './components/ConceptDiagram.js';
 export type { ObjectGroupProps, ObjectGroupItem } from './components/ObjectGroup.js';
 
 export { MultiplicationTable } from './components/MultiplicationTable.js';

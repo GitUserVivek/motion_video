@@ -70,7 +70,9 @@ echo   OK: Packages built
 echo [5/7] Creating storage directories...
 mkdir output\videos output\audio output\subtitles output\thumbnails 2>nul
 mkdir temp data\projects 2>nul
-mkdir assets\characters assets\backgrounds assets\animations assets\sounds logs 2>nul
+mkdir assets\characters assets\backgrounds assets\animations assets\sounds 2>nul
+mkdir resources\icons resources\images 2>nul
+mkdir logs 2>nul
 echo   OK: Directories created
 
 :: ---------- 6. Create .env ----------

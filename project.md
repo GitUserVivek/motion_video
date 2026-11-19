@@ -127,12 +127,22 @@ BACKEND API:
 VIDEO PIPELINE:
 Script approval -> storyboard -> local TTS -> audio alignment -> asset selection -> timeline -> Remotion render -> FFmpeg processing -> MP4 validation -> local storage -> download URL.
 
+RESOURCE ARTWORK (optional):
+Drop any .svg/.png/.jpg/.jpeg/.webp/.gif into resources/ (or assets/backgrounds,
+assets/characters). The file and folder names are the lookup key: a file named
+water-cycle.svg (or water/cycle.png) is used on a tile about water, weather/storm.png
+on one about storms. Matched files are inlined into the storyboard props as data:
+URLs, so the Remotion render never fetches anything; a tile without a match keeps
+its built-in SVG glyph, and files over 400 KB are skipped.
+
 STORAGE:
 Use the following directories:
 - assets/characters
 - assets/backgrounds
 - assets/animations
 - assets/sounds
+- resources/icons
+- resources/images
 - data/projects
 - output/videos
 - output/audio
