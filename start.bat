@@ -22,7 +22,7 @@ echo   OK: Ready
 :: ---------- 2. Start backend ----------
 echo [2/3] Starting backend server (port 3001)...
 if not exist logs mkdir logs
-start "EduMotion Backend" /b cmd /c "node packages\backend\dist\index.js >> logs\backend.log 2>&1"
+start "EduMotion Backend" /b cmd /c "node --env-file-if-exists=.env packages\backend\dist\index.js >> logs\backend.log 2>&1"
 
 echo   Waiting for backend...
 :wait_backend

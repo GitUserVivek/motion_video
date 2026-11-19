@@ -40,7 +40,7 @@ echo -e "  ${GREEN}OK: Ready${NC}"
 
 # ---------- 2. Start backend ----------
 echo "[2/3] Starting backend server (port 3001)..."
-node packages/backend/dist/index.js >> logs/backend.log 2>&1 &
+node --env-file-if-exists=.env packages/backend/dist/index.js >> logs/backend.log 2>&1 &
 BACKEND_PID=$!
 echo "$BACKEND_PID" > "$PID_DIR/backend.pid"
 
