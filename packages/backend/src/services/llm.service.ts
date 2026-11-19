@@ -55,8 +55,17 @@ class LlmService {
     // `gpu: false` selects the CPU-only build of llama.cpp, so it must only be
     // used when GPU offloading is explicitly disabled. "auto" resolves to CUDA
     // or Vulkan when the driver is usable and falls back to CPU otherwise.
+    if (config.localLlm.buildFromSource && config.localLlm.gpuLayers !== 0) {
+      console.log(
+        '[LLM] Building llama.cpp from source with the local CUDA toolkit ' +
+          '(first run only, this can take up to an hour)...',
+      );
+    }
     this.llama = await getLlama({
       gpu: config.localLlm.gpuLayers === 0 ? false : 'auto',
+      // Prebuilt CUDA binaries can require a newer driver than the machine has;
+      // building from source targets the installed toolkit and GPU instead.
+      ...(config.localLlm.buildFromSource ? { usePrebuiltBinaries: false } : {}),
     });
 
     const deviceNames = await this.llama.getGpuDeviceNames().catch(() => [] as string[]);

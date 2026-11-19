@@ -44,6 +44,13 @@ export const config = {
     contextSize: parseInt(process.env['LLM_CONTEXT_SIZE'] ?? '4096', 10),
     // GPU layers to offload ('auto'/max = offload what fits, 0 = CPU only)
     gpuLayers: parseGpuLayers(process.env['LLM_GPU_LAYERS']),
+    // Compile llama.cpp with the local CUDA toolkit instead of downloading the
+    // prebuilt binary. Needed when the prebuilt PTX is newer than the installed
+    // NVIDIA driver (CUDA aborts with "unsupported toolchain"). Cached after
+    // the first build.
+    buildFromSource: /^(1|true|yes)$/i.test(
+      process.env['LLM_BUILD_FROM_SOURCE'] ?? '',
+    ),
     // Max tokens to generate per request
     maxTokens: parseInt(process.env['LLM_MAX_TOKENS'] ?? '2048', 10),
     // Generation timeout in ms
