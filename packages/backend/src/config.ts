@@ -11,6 +11,20 @@ const ROOT_DIR = path.resolve(__dirname, '../../..');
 // Models live one level above the project root: <parent>/models/<model_name>/
 const MODELS_DIR = process.env['MODELS_DIR'] ?? path.resolve(ROOT_DIR, '..', 'models');
 
+export type GpuLayers = 'auto' | 'max' | number;
+
+/**
+ * LLM_GPU_LAYERS accepts "auto"/-1 (offload what fits), "max" (offload all
+ * layers) or a concrete layer count. 0 disables the GPU entirely.
+ */
+function parseGpuLayers(raw: string | undefined): GpuLayers {
+  const value = (raw ?? 'auto').trim().toLowerCase();
+  if (value === '' || value === 'auto' || value === '-1') return 'auto';
+  if (value === 'max') return 'max';
+  const layers = parseInt(value, 10);
+  return Number.isFinite(layers) && layers >= 0 ? layers : 'auto';
+}
+
 export const config = {
   port: parseInt(process.env['PORT'] ?? '3001', 10),
   nodeEnv: process.env['NODE_ENV'] ?? 'development',
@@ -28,8 +42,8 @@ export const config = {
     hfFile: process.env['LLM_HF_FILE'] ?? 'Qwen2.5-7B-Instruct-Q4_K_M.gguf',
     // Context window size (tokens)
     contextSize: parseInt(process.env['LLM_CONTEXT_SIZE'] ?? '4096', 10),
-    // GPU layers to offload (-1 = auto-detect, 0 = CPU only)
-    gpuLayers: parseInt(process.env['LLM_GPU_LAYERS'] ?? '0', 10),
+    // GPU layers to offload ('auto'/max = offload what fits, 0 = CPU only)
+    gpuLayers: parseGpuLayers(process.env['LLM_GPU_LAYERS']),
     // Max tokens to generate per request
     maxTokens: parseInt(process.env['LLM_MAX_TOKENS'] ?? '2048', 10),
     // Generation timeout in ms

@@ -52,11 +52,28 @@ class LlmService {
 
     console.log(`[LLM] Loading model from ${modelPath}`);
 
+    // `gpu: false` selects the CPU-only build of llama.cpp, so it must only be
+    // used when GPU offloading is explicitly disabled. "auto" resolves to CUDA
+    // or Vulkan when the driver is usable and falls back to CPU otherwise.
     this.llama = await getLlama({
-      gpu: config.localLlm.gpuLayers !== 0 ? 'auto' : false,
+      gpu: config.localLlm.gpuLayers === 0 ? false : 'auto',
     });
 
-    this.model = await this.llama.loadModel({ modelPath });
+    const deviceNames = await this.llama.getGpuDeviceNames().catch(() => [] as string[]);
+    if (this.llama.gpu) {
+      console.log(
+        `[LLM] GPU backend: ${this.llama.gpu}${deviceNames.length > 0 ? ` (${deviceNames.join(', ')})` : ''}`,
+      );
+    } else {
+      console.log('[LLM] GPU backend: none detected — running on CPU');
+    }
+
+    this.model = await this.llama.loadModel({
+      modelPath,
+      gpuLayers: config.localLlm.gpuLayers,
+    });
+
+    console.log(`[LLM] Offloaded layers: ${this.model.gpuLayers}`);
 
     this.context = await this.model.createContext({
       contextSize: config.localLlm.contextSize,
