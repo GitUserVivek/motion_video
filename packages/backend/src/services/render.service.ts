@@ -55,6 +55,7 @@ class RenderService {
 
       // Render the image sequence via the Remotion CLI
       await this.renderFrames(
+        jobId,
         propsPath,
         framesDir,
         storyboard.totalFrames,
@@ -101,6 +102,7 @@ class RenderService {
   }
 
   private async renderFrames(
+    jobId: string,
     propsPath: string,
     framesDir: string,
     totalFrames: number,
@@ -134,11 +136,12 @@ class RenderService {
         env: process.env,
       });
 
-      let stderr = '';
+      let output = '';
       const onData = (data: Buffer): void => {
-        stderr += data.toString();
+        const text = data.toString();
+        output += text;
         // Parse progress from remotion output
-        const match = /(?:Rendering|Rendered) frame (\d+)/i.exec(data.toString());
+        const match = /(?:Rendering|Rendered) frame (\d+)/i.exec(text);
         if (match?.[1]) {
           const frame = parseInt(match[1], 10);
           const pct = 10 + Math.round((frame / totalFrames) * 65);
@@ -154,7 +157,20 @@ class RenderService {
 
       child.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(`Remotion render failed (exit ${code}): ${stderr.slice(-500)}`));
+          // Keep the whole output on disk and surface the first real error line:
+          // slicing the tail of a stack trace hides the actual message.
+          const logPath = path.join(config.storage.tempDir, `${jobId}.remotion.log`);
+          try {
+            fs.mkdirSync(path.dirname(logPath), { recursive: true });
+            fs.writeFileSync(logPath, `$ ${cli.command} ${[...cli.args, ...args].join(' ')}\n\n${output}`, 'utf-8');
+          } catch { /* log is best-effort */ }
+
+          reject(
+            new Error(
+              `Remotion render failed (exit ${code}): ${this.summarizeRenderError(output)}\n` +
+                `Full log: ${logPath}`,
+            ),
+          );
           return;
         }
         try {
@@ -165,6 +181,18 @@ class RenderService {
         }
       });
     });
+  }
+
+  /**
+   * Pull the meaningful failure out of Remotion's output. The CLI prints
+   * webpack/browser errors first and the stack trace last, so the tail of the
+   * output is the least useful part.
+   */
+  private summarizeRenderError(output: string): string {
+    const lines = output.replace(/\r/g, '').split('\n');
+    const start = lines.findIndex((line) => /(^|\s)(Error:|Module not found)/i.test(line));
+    const from = start === -1 ? Math.max(0, lines.length - 15) : start;
+    return lines.slice(from, from + 12).join('\n').trim().slice(0, 1200);
   }
 
   /**
