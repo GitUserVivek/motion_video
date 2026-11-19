@@ -1,6 +1,7 @@
 import { ollamaService } from './ollama.service.js';
 import { subtitleService } from './subtitle.service.js';
 import { buildStoryboardPrompt } from '../prompts/storyboard.prompt.js';
+import { ensureSceneVisuals } from './storyboard.visuals.js';
 import { StoryboardPlanSchema } from '@edumotion/shared';
 import { AppError } from '../middleware/errorHandler.js';
 import type { StoryboardPlan, VideoConfig, SubtitleEntry, SceneInstruction } from '@edumotion/shared';
@@ -69,10 +70,29 @@ class StoryboardService {
           retryResult.error.errors,
         );
       }
-      return this.injectSubtitles(retryResult.data, subtitles);
+      return this.finalize(retryResult.data, subtitles, script, jobId);
     }
 
-    return this.injectSubtitles(result.data, subtitles);
+    return this.finalize(result.data, subtitles, script, jobId);
+  }
+
+  /**
+   * Attach captions and make sure each scene carries a topical graphic. The
+   * model is asked for visuals in the prompt, but it reliably falls back to
+   * text-only scenes, which renders as a slideshow of captions.
+   */
+  private finalize(
+    storyboard: StoryboardPlan,
+    subtitles: SubtitleEntry[],
+    script: string,
+    jobId: string,
+  ): StoryboardPlan {
+    const withCaptions = this.injectSubtitles(storyboard, subtitles);
+    const { storyboard: withVisuals, injected } = ensureSceneVisuals(withCaptions, script);
+    if (injected > 0) {
+      console.log(`[Storyboard] Job ${jobId}: added ${injected} topic visual(s)`);
+    }
+    return withVisuals;
   }
 
   /**

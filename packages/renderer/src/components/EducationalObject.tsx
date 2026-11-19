@@ -2,7 +2,9 @@ import React from 'react';
 import { useCurrentFrame } from 'remotion';
 import { fadeIn, bounce } from '../utils/animation.js';
 
-export type ObjectType = 'book' | 'apple' | 'globe' | 'atom' | 'lightbulb' | 'calculator' | 'pencil' | 'star';
+export type ObjectType =
+  | 'book' | 'apple' | 'globe' | 'atom' | 'lightbulb' | 'calculator' | 'pencil' | 'star'
+  | 'leaf' | 'plant' | 'sun' | 'water' | 'cloud' | 'rocket' | 'heart' | 'cell' | 'microscope';
 
 export interface EducationalObjectProps {
   type?: ObjectType;
@@ -88,6 +90,86 @@ const OBJECT_PATHS: Record<ObjectType, React.ReactElement> = {
       />
     </g>
   ),
+  leaf: (
+    <g>
+      <path d="M50 92 C18 70 14 28 50 8 C86 28 82 70 50 92 Z" fill="#2ECC71" />
+      <line x1="50" y1="18" x2="50" y2="88" stroke="#1E8449" strokeWidth="3" />
+      <line x1="50" y1="42" x2="32" y2="32" stroke="#1E8449" strokeWidth="2" />
+      <line x1="50" y1="56" x2="68" y2="46" stroke="#1E8449" strokeWidth="2" />
+    </g>
+  ),
+  plant: (
+    <g>
+      <rect x="28" y="72" width="44" height="22" rx="4" fill="#B5651D" />
+      <line x1="50" y1="72" x2="50" y2="34" stroke="#27AE60" strokeWidth="4" />
+      <ellipse cx="33" cy="46" rx="17" ry="9" fill="#2ECC71" transform="rotate(-25 33 46)" />
+      <ellipse cx="67" cy="38" rx="17" ry="9" fill="#27AE60" transform="rotate(25 67 38)" />
+      <circle cx="50" cy="27" r="8" fill="#F1C40F" />
+    </g>
+  ),
+  sun: (
+    <g>
+      <circle cx="50" cy="50" r="22" fill="#FFD700" />
+      <g stroke="#FFD700" strokeWidth="4" strokeLinecap="round">
+        <line x1="50" y1="6" x2="50" y2="18" />
+        <line x1="50" y1="82" x2="50" y2="94" />
+        <line x1="6" y1="50" x2="18" y2="50" />
+        <line x1="82" y1="50" x2="94" y2="50" />
+        <line x1="20" y1="20" x2="29" y2="29" />
+        <line x1="71" y1="71" x2="80" y2="80" />
+        <line x1="80" y1="20" x2="71" y2="29" />
+        <line x1="29" y1="71" x2="20" y2="80" />
+      </g>
+    </g>
+  ),
+  water: (
+    <g>
+      <path d="M50 6 C70 36 82 52 82 66 A32 32 0 1 1 18 66 C18 52 30 36 50 6 Z" fill="#3498DB" />
+      <ellipse cx="38" cy="62" rx="9" ry="14" fill="rgba(255,255,255,0.35)" transform="rotate(-20 38 62)" />
+    </g>
+  ),
+  cloud: (
+    <g>
+      <path
+        d="M26 74 A16 16 0 0 1 28 42 A20 20 0 0 1 64 34 A16 16 0 0 1 78 74 Z"
+        fill="#BDC3C7"
+      />
+      <circle cx="38" cy="58" r="4" fill="#8FA0A6" opacity="0.5" />
+    </g>
+  ),
+  rocket: (
+    <g>
+      <path d="M50 6 C66 24 70 46 70 62 L50 74 L30 62 C30 46 34 24 50 6 Z" fill="#ECF0F1" stroke="#95A5A6" strokeWidth="2" />
+      <circle cx="50" cy="38" r="9" fill="#3498DB" />
+      <path d="M30 62 L18 80 L32 74 Z" fill="#E74C3C" />
+      <path d="M70 62 L82 80 L68 74 Z" fill="#E74C3C" />
+      <path d="M44 74 L50 94 L56 74 Z" fill="#F39C12" />
+    </g>
+  ),
+  heart: (
+    <g>
+      <path d="M50 86 C20 64 12 44 22 30 C32 16 48 22 50 34 C52 22 68 16 78 30 C88 44 80 64 50 86 Z" fill="#E74C3C" />
+      <path d="M30 40 C32 34 38 32 42 36" stroke="rgba(255,255,255,0.4)" strokeWidth="4" fill="none" strokeLinecap="round" />
+    </g>
+  ),
+  cell: (
+    <g>
+      <circle cx="50" cy="50" r="40" fill="#9BD7F5" opacity="0.9" />
+      <circle cx="50" cy="50" r="14" fill="#2C3E50" />
+      <circle cx="32" cy="33" r="5" fill="#2E86C1" />
+      <circle cx="69" cy="62" r="4" fill="#2E86C1" />
+      <circle cx="62" cy="28" r="3" fill="#2E86C1" />
+    </g>
+  ),
+  microscope: (
+    <g>
+      <circle cx="44" cy="16" r="10" fill="#95A5A6" />
+      <rect x="40" y="24" width="9" height="34" rx="4" fill="#7F8C8D" />
+      <path d="M26 62 Q26 44 44 44 Q62 44 62 62 Z" fill="#95A5A6" />
+      <rect x="18" y="74" width="64" height="10" rx="4" fill="#5D6D7E" />
+      <rect x="64" y="52" width="14" height="18" rx="3" fill="#BDC3C7" />
+    </g>
+  ),
 };
 
 export function EducationalObject({
@@ -119,7 +201,7 @@ export function EducationalObject({
       }}
     >
       <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-        {OBJECT_PATHS[type]}
+        {OBJECT_PATHS[type] ?? OBJECT_PATHS.book}
       </svg>
     </div>
   );
