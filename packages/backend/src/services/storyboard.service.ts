@@ -4,7 +4,14 @@ import { buildStoryboardPrompt } from '../prompts/storyboard.prompt.js';
 import { ensureSceneVisuals } from './storyboard.visuals.js';
 import { StoryboardPlanSchema } from '@edumotion/shared';
 import { AppError } from '../middleware/errorHandler.js';
-import type { StoryboardPlan, VideoConfig, SubtitleEntry, SceneInstruction } from '@edumotion/shared';
+import type { StoryboardPlan, VideoConfig, SubtitleEntry, SceneInstruction, ComponentName } from '@edumotion/shared';
+
+/** Mirrors ComponentNameSchema; typed so a typo cannot drift from the union. */
+const VALID_COMPONENTS: ReadonlySet<string> = new Set<ComponentName>([
+  'AnimatedText', 'AnimatedNumber', 'Character', 'Teacher', 'EducationalObject',
+  'ObjectGroup', 'MultiplicationTable', 'ImageScene', 'BackgroundScene',
+  'Subtitle', 'QuestionCard', 'Confetti', 'EndScreen', 'ProgressBar',
+]);
 
 class StoryboardService {
   /**
@@ -175,10 +182,39 @@ class StoryboardService {
     raw: Record<string, unknown>,
     totalFrames: number,
   ): Record<string, unknown> {
-    const scenes = Array.isArray(raw['scenes']) ? raw['scenes'] : [];
-    const count = (scenes as unknown[]).length;
-    if (count === 0) {
-      // Build a minimal fallback storyboard
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+      typeof value === 'object' && value !== null && !Array.isArray(value);
+
+    // Drop scenes/children whose component name was invented rather than
+    // rejecting the whole storyboard: one bad name used to kill the job after a
+    // full LLM round trip.
+    const scenes = (Array.isArray(raw['scenes']) ? raw['scenes'] : [])
+      .filter(isRecord)
+      .map((scene, i) => {
+        const component =
+          typeof scene['component'] === 'string' && VALID_COMPONENTS.has(scene['component'])
+            ? scene['component']
+            : 'BackgroundScene';
+        const children = (Array.isArray(scene['children']) ? scene['children'] : [])
+          .filter(isRecord)
+          .filter((child) =>
+            typeof child['component'] === 'string' && VALID_COMPONENTS.has(child['component']),
+          )
+          .map((child) => ({
+            component: child['component'],
+            props: isRecord(child['props']) ? child['props'] : {},
+          }));
+
+        return {
+          id: typeof scene['id'] === 'string' && scene['id'] ? scene['id'] : `scene-${i + 1}`,
+          component,
+          props: isRecord(scene['props']) ? scene['props'] : {},
+          children,
+        };
+      });
+
+    if (scenes.length === 0) {
+      // Minimal deterministic storyboard so the job still produces a video.
       return {
         ...raw,
         scenes: [
@@ -199,15 +235,15 @@ class StoryboardService {
       };
     }
 
-    // Fix frame ranges
-    const framesPerScene = Math.floor(totalFrames / count);
-    const repairedScenes = (scenes as Record<string, unknown>[]).map((scene, i) => ({
+    // Rebuild a contiguous timeline so the schema's frame checks pass.
+    const framesPerScene = Math.max(1, Math.floor(totalFrames / scenes.length));
+    const repairedScenes = scenes.map((scene, i) => ({
       ...scene,
-      id: scene['id'] ?? `scene-${i + 1}`,
       startFrame: i * framesPerScene,
-      endFrame: i === count - 1 ? totalFrames : (i + 1) * framesPerScene,
-      component: scene['component'] ?? 'BackgroundScene',
-      props: (scene['props'] as Record<string, unknown>) ?? {},
+      endFrame:
+        i === scenes.length - 1
+          ? Math.max(i * framesPerScene + 1, totalFrames)
+          : (i + 1) * framesPerScene,
     }));
 
     return { ...raw, scenes: repairedScenes };

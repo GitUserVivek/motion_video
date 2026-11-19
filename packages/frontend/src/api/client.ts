@@ -73,5 +73,6 @@ export const api = {
     request('/settings', { method: 'PATCH', body: JSON.stringify(updates) }),
 
   downloadUrl: (videoId: string): string => `${BASE}/videos/${videoId}/download`,
+  streamUrl: (videoId: string): string => `${BASE}/videos/${videoId}/stream`,
   thumbnailUrl: (videoId: string): string => `${BASE}/videos/${videoId}/thumbnail`,
 };

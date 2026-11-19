@@ -18,6 +18,7 @@ import { EndScreen } from '../components/EndScreen.js';
 import { ProgressBar } from '../components/ProgressBar.js';
 import { ParticleField } from '../components/ParticleField.js';
 import { fadeIn, fadeOut } from '../utils/animation.js';
+import { sanitizeProps } from '../utils/sanitize.js';
 
 const COMPONENT_MAP: Record<ComponentName, React.ComponentType<Record<string, unknown>>> = {
   AnimatedText:        AnimatedText as unknown as React.ComponentType<Record<string, unknown>>,
@@ -87,7 +88,40 @@ function renderComponent(
     console.warn(`[EduVideo] Unknown component: ${name}`);
     return null;
   }
-  return <Comp key={key} {...props} />;
+  // Model-supplied props are untyped: one wrong type used to throw mid-render
+  // and destroy the whole render pass.
+  const safe = sanitizeProps(name, props);
+  if (!safe) {
+    console.warn(`[EduVideo] Dropped ${name}: props cannot be rendered`);
+    return null;
+  }
+  return <Comp key={key} {...safe} />;
+}
+
+/**
+ * Last line of defence: if a scene still throws while rendering, show an empty
+ * backdrop for that scene instead of aborting the entire video.
+ */
+class SceneBoundary extends React.Component<
+  { children: React.ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error): void {
+    console.warn('[EduVideo] Scene failed to render:', error.message);
+  }
+
+  render(): React.ReactNode {
+    if (this.state.failed) {
+      return <AbsoluteFill style={{ backgroundColor: '#0f0f1e' }} />;
+    }
+    return this.props.children;
+  }
 }
 
 /**
@@ -156,11 +190,8 @@ function SceneRenderer({
     <AbsoluteFill style={{ opacity, overflow: 'hidden' }}>
       {/* Background layer moves more than the foreground for parallax depth. */}
       <AbsoluteFill style={cameraStyle(camera, progress, 1)}>
-        {renderComponent(
-          scene.component,
-          { ...scene.props, _sceneStartFrame: start },
-          `${scene.id}-root`,
-        )}
+        {renderComponent(scene.component, { ...scene.props, _sceneStartFrame: start }, `${scene.id}-root`)
+          ?? renderComponent('BackgroundScene', { theme: 'educational' }, `${scene.id}-fallback`)}
       </AbsoluteFill>
 
       <ParticleField seed={index + 1} opacity={0.45} />
@@ -201,12 +232,13 @@ export function EduVideo({ storyboard }: EduVideoProps): React.ReactElement {
       }}
     >
       {scenes.map((scene, index) => (
-        <SceneRenderer
-          key={scene.id}
-          scene={scene}
-          index={index}
-          totalScenes={scenes.length}
-        />
+        <SceneBoundary key={scene.id}>
+          <SceneRenderer
+            scene={scene}
+            index={index}
+            totalScenes={scenes.length}
+          />
+        </SceneBoundary>
       ))}
     </AbsoluteFill>
   );

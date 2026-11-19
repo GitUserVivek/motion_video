@@ -189,10 +189,22 @@ class RenderService {
    * output is the least useful part.
    */
   private summarizeRenderError(output: string): string {
-    const lines = output.replace(/\r/g, '').split('\n');
-    const start = lines.findIndex((line) => /(^|\s)(Error:|Module not found)/i.test(line));
-    const from = start === -1 ? Math.max(0, lines.length - 15) : start;
-    return lines.slice(from, from + 12).join('\n').trim().slice(0, 1200);
+    // Strip ANSI colour codes first: Remotion wraps the useful message in them,
+    // which breaks line-prefix matching.
+    const lines = output
+      .replace(/\x1b\[[0-9;]*m/g, '')
+      .replace(/\r/g, '')
+      .split('\n');
+
+    // "TypeError:" / "Minified React error #185" carry no space before `Error:`,
+    // so the previous pattern skipped them and reported a bare stack trace.
+    const start = lines.findIndex((line) =>
+      /(Minified React error|Module not found|\bTypeError\b|\bRangeError\b|\bReferenceError\b|\bSyntaxError\b|\bUncaught\b|is not a function|Cannot read propert|\bError:)/.test(
+        line,
+      ),
+    );
+    const from = start === -1 ? Math.max(0, lines.length - 20) : start;
+    return lines.slice(from, from + 18).join('\n').trim().slice(0, 1600);
   }
 
   /**
