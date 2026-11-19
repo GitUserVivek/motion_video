@@ -195,6 +195,14 @@ class LlmService {
   getModelPath(): string { return resolveModelPath(); }
   getModelName(): string { return config.localLlm.modelName; }
 
+  /**
+   * Load the model ahead of the first request. Otherwise the first script
+   * generation pays the whole load, which can outlast browser/proxy timeouts.
+   */
+  async preload(): Promise<void> {
+    await this.ensureInitialized();
+  }
+
   async dispose(): Promise<void> {
     if (this.context) await this.context.dispose();
     if (this.model) await this.model.dispose();

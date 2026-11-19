@@ -6,6 +6,7 @@ import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { runMigrations } from './db/migrations.js';
+import { llmService } from './services/llm.service.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
@@ -113,6 +114,17 @@ async function bootstrap(): Promise<void> {
   // Worker imported lazily to avoid circular deps
   const { startRenderWorker } = await import('./workers/render.worker.js');
   startRenderWorker();
+
+  // Warm the LLM in the background so the first script request does not spend
+  // its whole lifetime loading the model (or running a one-time source build).
+  if (llmService.isModelAvailable()) {
+    void llmService.preload().catch((err: unknown) => {
+      console.error(
+        '[LLM] Preload failed — will retry on the first request:',
+        err instanceof Error ? err.message : err,
+      );
+    });
+  }
 }
 
 bootstrap().catch((err) => {

@@ -59,7 +59,11 @@ async function processJob(job: JobRow): Promise<void> {
   // 2. Generate TTS audio
   const audioPath = path.join(config.storage.audioDir, `${job.id}.wav`);
   console.log(`[Worker] Job ${job.id} [1/4] synthesizing audio (${script.length} chars)`);
-  const { audioPath: finalAudioPath, durationMs } = await ttsService.synthesize(
+  const {
+    audioPath: finalAudioPath,
+    durationMs,
+    subtitles: measuredSubtitles,
+  } = await ttsService.synthesize(
     script,
     config.tts.voice,
     audioPath,
@@ -69,7 +73,11 @@ async function processJob(job: JobRow): Promise<void> {
   updateJob(job.id, 'processing', 20, 'aligning_subtitles');
 
   // 3. Generate subtitles
-  const subtitles = subtitleService.generateSubtitles(script, durationMs);
+  // edge-tts reports real word boundaries; only estimate from the audio length
+  // when the engine cannot provide them (e.g. espeak).
+  const subtitles = measuredSubtitles && measuredSubtitles.length > 0
+    ? measuredSubtitles
+    : subtitleService.generateSubtitles(script, durationMs);
   const srtPath = path.join(config.storage.subtitlesDir, `${job.id}.srt`);
   const jsonSubPath = path.join(config.storage.subtitlesDir, `${job.id}.json`);
   subtitleService.writeSrt(subtitles, srtPath);

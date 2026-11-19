@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config.js';
-import type { TtsEngine } from '@edumotion/shared';
+import type { SubtitleEntry, TtsEngine } from '@edumotion/shared';
 
 // Augment PATH to include common pip install locations
 const EXTRA_PATHS = [
@@ -21,22 +21,39 @@ const ENV_WITH_PATH = {
 export interface TtsSynthesisResult {
   audioPath: string;
   durationMs: number;
+  /** Caption cues measured by the TTS engine itself, when it provides them. */
+  subtitles?: SubtitleEntry[];
 }
 
 class TtsService {
   private detectedEngine: TtsEngine | null = null;
   private edgeTtsCmd: string = 'edge-tts';
+  private edgeTtsSupportsSubtitles = false;
 
   async selectEngine(): Promise<TtsEngine> {
     if (this.detectedEngine) return this.detectedEngine;
 
     // Try edge-tts binary (direct or via augmented PATH)
     for (const cmd of ['edge-tts', 'python3 -m edge_tts', 'python -m edge_tts']) {
+      const [bin, ...prefix] = cmd.split(' ');
+      if (!bin) continue;
+
       try {
-        await this.runCommand(cmd, ['--version'], 10000);
+        await this.runCommand(bin, [...prefix, '--version'], 10000);
+
+        // Word-boundary captions are exact timings from the TTS engine; only
+        // enabled when this build of edge-tts advertises the option, so an old
+        // CLI never breaks synthesis.
+        const help = await this.runCommand(bin, [...prefix, '--help'], 10000).catch(() => null);
+        this.edgeTtsSupportsSubtitles = help != null &&
+          /--write-subtitles/.test(`${help.stdout}\n${help.stderr}`);
+
         this.edgeTtsCmd = cmd;
         this.detectedEngine = 'edge-tts';
-        console.log(`[TTS] Using edge-tts via: ${cmd}`);
+        console.log(
+          `[TTS] Using edge-tts via: ${cmd}` +
+            `${this.edgeTtsSupportsSubtitles ? ' (word-boundary captions)' : ''}`,
+        );
         return 'edge-tts';
       } catch { /* try next */ }
     }
@@ -75,21 +92,25 @@ class TtsService {
 
     const wavPath = outputPath.endsWith('.wav') ? outputPath : `${outputPath}.wav`;
     const mp3Path = wavPath.replace(/\.wav$/, '.mp3');
+    const srtPath = wavPath.replace(/\.wav$/, '.srt');
 
     fs.mkdirSync(path.dirname(wavPath), { recursive: true });
     // Never reuse audio from an earlier attempt: a stale file would hide a
     // failed synthesis and desync subtitles against the previous narration.
     this.removeIfExists(wavPath);
     this.removeIfExists(mp3Path);
+    this.removeIfExists(srtPath);
 
     const textFile = `${wavPath}.input.txt`;
     fs.writeFileSync(textFile, text, 'utf-8');
 
     const startedAt = Date.now();
+    let measuredCues: SubtitleEntry[] = [];
+
     try {
       if (engine === 'edge-tts') {
         // edge-tts only writes MP3, so it always needs the WAV conversion below.
-        await this.synthesizeEdgeTts(textFile, voice, mp3Path);
+        await this.synthesizeEdgeTts(textFile, voice, mp3Path, srtPath);
       } else {
         await this.synthesizeEspeak(textFile, wavPath);
       }
@@ -101,6 +122,19 @@ class TtsService {
       if (!fs.existsSync(mp3Path) || fs.statSync(mp3Path).size === 0) {
         throw new Error(`edge-tts produced no audio file at ${mp3Path}`);
       }
+
+      if (this.edgeTtsSupportsSubtitles) {
+        try {
+          measuredCues = this.readSrt(srtPath);
+        } catch (err) {
+          console.warn(
+            '[TTS] Could not parse edge-tts captions, falling back to proportional timing:',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+        this.removeIfExists(srtPath);
+      }
+
       await this.convertToWav(mp3Path, wavPath);
       this.removeIfExists(mp3Path);
     }
@@ -110,12 +144,27 @@ class TtsService {
     }
 
     const durationMs = await this.detectDuration(wavPath);
+
+    // Clamp cues to the actual audio length so no caption outlives the video.
+    const subtitles = measuredCues
+      .filter((cue) => cue.startMs < durationMs)
+      .map((cue, index) => ({
+        ...cue,
+        index,
+        endMs: Math.min(cue.endMs, durationMs),
+      }));
+
     console.log(
       `[TTS] Synthesized ${(durationMs / 1000).toFixed(1)}s of audio with ${engine} in ${
         Date.now() - startedAt
-      }ms`,
+      }ms` + (subtitles.length > 0 ? ` (${subtitles.length} measured caption cues)` : ''),
     );
-    return { audioPath: wavPath, durationMs };
+
+    return {
+      audioPath: wavPath,
+      durationMs,
+      ...(subtitles.length > 0 ? { subtitles } : {}),
+    };
   }
 
   /**
@@ -198,15 +247,22 @@ class TtsService {
     textFile: string,
     voice: string,
     mp3Path: string,
+    srtPath: string,
   ): Promise<void> {
     const [bin, ...prefix] = this.edgeTtsCmd.split(' ');
     if (!bin) throw new Error('edge-tts command is empty');
 
-    const { stderr } = await this.runCommand(
-      bin,
-      [...prefix, '--voice', voice, '--file', textFile, '--write-media', mp3Path],
-      120000,
-    );
+    const args = [
+      ...prefix,
+      '--voice', voice,
+      '--file', textFile,
+      '--write-media', mp3Path,
+    ];
+    if (this.edgeTtsSupportsSubtitles) {
+      args.push('--write-subtitles', srtPath);
+    }
+
+    const { stderr } = await this.runCommand(bin, args, 120000);
     if (stderr) console.warn('[TTS] edge-tts stderr:', stderr.slice(0, 300));
   }
 
@@ -238,6 +294,57 @@ class TtsService {
         }`,
       );
     }
+  }
+
+  /**
+   * Parse the SRT that edge-tts writes from its WordBoundary events. Those
+   * timings come from the engine, so captions land on the spoken words instead
+   * of being estimated from character counts.
+   */
+  private readSrt(srtPath: string): SubtitleEntry[] {
+    if (!fs.existsSync(srtPath)) return [];
+
+    const entries: SubtitleEntry[] = [];
+    const blocks = fs.readFileSync(srtPath, 'utf-8').replace(/\r/g, '').split(/\n{2,}/);
+
+    for (const block of blocks) {
+      const lines = block.split('\n').filter((line) => line.trim().length > 0);
+      const timeLine = lines.find((line) => line.includes('-->'));
+      if (!timeLine) continue;
+
+      const match =
+        /(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/.exec(
+          timeLine,
+        );
+      if (!match) continue;
+
+      const startMs = this.srtTimeToMs(match[1], match[2], match[3], match[4]);
+      const endMs = this.srtTimeToMs(match[5], match[6], match[7], match[8]);
+      const text = lines
+        .slice(lines.indexOf(timeLine) + 1)
+        .join(' ')
+        .replace(/<[^>]+>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!text || endMs <= startMs) continue;
+      entries.push({ index: entries.length, startMs, endMs, text });
+    }
+
+    return entries;
+  }
+
+  private srtTimeToMs(
+    hours?: string,
+    minutes?: string,
+    seconds?: string,
+    millis?: string,
+  ): number {
+    const ms = Number((millis ?? '0').padEnd(3, '0'));
+    return (
+      (Number(hours ?? 0) * 3600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0)) * 1000 +
+      ms
+    );
   }
 
   async detectDuration(audioPath: string): Promise<number> {
