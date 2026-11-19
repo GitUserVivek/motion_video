@@ -1,5 +1,6 @@
 import React from 'react';
-import { useCurrentFrame, useVideoConfig } from 'remotion';
+import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { fadeIn } from '../utils/animation.js';
 import type { SubtitleEntry } from '@edumotion/shared';
 
 export interface SubtitleProps {
@@ -32,13 +33,22 @@ export function Subtitle({
 
   if (!activeEntry?.text) return <></> as React.ReactElement;
 
+  // Each cue animates in on its own first frame, so captions change with a beat
+  // instead of blinking from one sentence to the next.
+  const cueStart = (activeEntry.startMs / 1000) * fps;
+  const opacity = fadeIn(frame, cueStart, 10);
+  const rise = interpolate(frame, [cueStart, cueStart + 12], [24, 0], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
+
   return (
     <div
       style={{
         position: 'absolute',
         bottom,
         left: '50%',
-        transform: 'translateX(-50%)',
+        transform: `translateX(-50%) translateY(${rise}px)`,
         backgroundColor,
         color,
         fontSize,
@@ -49,7 +59,9 @@ export function Subtitle({
         borderRadius: '8px',
         maxWidth,
         lineHeight: 1.4,
+        opacity,
         userSelect: 'none',
+        borderLeft: '4px solid rgba(255,215,0,0.9)',
       }}
     >
       {activeEntry.text}

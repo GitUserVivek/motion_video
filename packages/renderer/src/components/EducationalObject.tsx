@@ -189,17 +189,37 @@ export function EducationalObject({
     ? fadeIn(frame, startFrame, 20)
     : 1;
 
+  const elapsed = frame - startFrame;
+  // Continuous idle motion keeps every icon alive for its whole scene.
+  const floatY = elapsed > 0 ? Math.sin(elapsed * 0.06) * size * 0.035 : 0;
+  const tilt = elapsed > 0 ? Math.sin(elapsed * 0.045) * 3 : 0;
+  const glow = 0.4 + Math.sin(elapsed * 0.05) * 0.15;
+
   return (
     <div
       style={{
         position: 'absolute',
         top,
         left,
-        transform: `translate(-50%, -50%) scale(${scale})`,
+        transform: `translate(-50%, -50%) translateY(${floatY}px) rotate(${tilt}deg) scale(${scale})`,
         opacity,
         willChange: 'opacity, transform',
       }}
     >
+      <div
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          width: size * 0.95,
+          height: size * 0.95,
+          transform: 'translate(-50%, -50%)',
+          background: 'radial-gradient(circle, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 70%)',
+          filter: 'blur(12px)',
+          opacity: glow,
+          pointerEvents: 'none',
+        }}
+      />
       <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
         {OBJECT_PATHS[type] ?? OBJECT_PATHS.book}
       </svg>

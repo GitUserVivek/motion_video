@@ -2,23 +2,22 @@ import type { SceneChild, SceneInstruction, StoryboardPlan } from '@edumotion/sh
 
 /**
  * Icon set rendered by packages/renderer/src/components/EducationalObject.tsx.
- * Keep the two lists in sync: an unknown type renders nothing.
+ * Keep the two lists in sync: an unknown type renders a generic book.
  */
 type TopicObjectType =
   | 'book' | 'apple' | 'globe' | 'atom' | 'lightbulb' | 'calculator' | 'pencil' | 'star'
   | 'leaf' | 'plant' | 'sun' | 'water' | 'cloud' | 'rocket' | 'heart' | 'cell' | 'microscope';
 
-/** Components that actually draw something, as opposed to text/captions. */
-const VISUAL_COMPONENTS = new Set<string>([
-  'Teacher',
-  'Character',
+/** Components that depict the topic itself (as opposed to people or text). */
+const TOPIC_COMPONENTS = new Set<string>([
   'EducationalObject',
   'ObjectGroup',
   'MultiplicationTable',
   'ImageScene',
   'QuestionCard',
-  'Confetti',
 ]);
+
+const LAYOUTS = ['50%', '68%', '32%', '60%', '40%'];
 
 // Ordered: the first match wins, so more specific topics are listed first.
 const TOPIC_KEYWORDS: Array<[TopicObjectType, RegExp]> = [
@@ -39,6 +38,8 @@ const TOPIC_KEYWORDS: Array<[TopicObjectType, RegExp]> = [
   ['pencil', /\b(draw\w*|pencils?|art|sketch\w*|design)\b/i],
   ['star', /\b(stars?|constellations?|night sky|awards?)\b/i],
 ];
+
+const NUMBER_PATTERN = /\b(\d[\d,]*(?:\.\d+)?)\s*(%|percent|billion|million|thousand)?/i;
 
 export function pickTopicObject(text: string, fallback: TopicObjectType = 'book'): TopicObjectType {
   for (const [type, pattern] of TOPIC_KEYWORDS) {
@@ -63,13 +64,45 @@ function childText(children: SceneChild[]): string {
     .join(' ');
 }
 
+function numberVisual(text: string, scene: SceneInstruction): SceneChild | null {
+  const match = text.match(NUMBER_PATTERN);
+  if (!match?.[1]) return null;
+  const target = Number.parseFloat(match[1].replace(/,/g, ''));
+  if (!Number.isFinite(target) || target <= 0) return null;
+  const unit = match[2]?.toLowerCase();
+  const suffix = unit === '%' || unit === 'percent'
+    ? '%'
+    : unit === 'billion'
+    ? 'B'
+    : unit === 'million'
+    ? 'M'
+    : unit === 'thousand'
+    ? 'K'
+    : '';
+
+  return {
+    component: 'AnimatedNumber',
+    props: {
+      target,
+      suffix,
+      startFrame: scene.startFrame + 18,
+      duration: 45,
+      fontSize: 96,
+      color: '#FFD700',
+      top: '33%',
+      left: '50%',
+    },
+  };
+}
+
 /**
- * Insert an EducationalObject into scenes that only contain text.
+ * Make sure the scene shows the topic, not just words about it.
  *
- * A 7B model regularly plans `BackgroundScene + AnimatedText + Subtitle` and
- * ignores instructions to add visuals, which yields a video of talking text.
- * This guarantees at least one topical graphic per scene while leaving scenes
- * that already have a visual untouched.
+ * A 7B model tends to plan `BackgroundScene + AnimatedText + Subtitle`, and even
+ * when it adds a Teacher it rarely adds an object that depicts the subject. This
+ * adds a topic illustration to every scene that lacks one, plus an animated
+ * number when the narration contains one, and alternates placement so consecutive
+ * scenes do not look like the same template.
  */
 export function ensureSceneVisuals(
   storyboard: StoryboardPlan,
@@ -81,30 +114,39 @@ export function ensureSceneVisuals(
   const scenes: SceneInstruction[] = storyboard.scenes.map((scene, index) => {
     const children = scene.children ?? [];
 
-    const hasVisual = children.some((child) => VISUAL_COMPONENTS.has(child.component));
     const isClosing = scene.component === 'EndScreen'
       || children.some((child) => child.component === 'EndScreen');
-    if (hasVisual || isClosing) return { ...scene, children };
+    if (isClosing) return { ...scene, children };
 
-    const type = pickTopicObject(childText(children) || script, fallback);
+    const narration = childText(children) || script;
+    const extra: SceneChild[] = [];
 
-    // Keep the graphic clear of the title (top) and captions (bottom 8%), and
-    // alternate sides so consecutive scenes do not look identical.
-    const visual: SceneChild = {
-      component: 'EducationalObject',
-      props: {
-        type,
-        size: 260,
-        top: index % 2 === 0 ? '54%' : '58%',
-        left: index % 2 === 0 ? '50%' : '32%',
-        startFrame: scene.startFrame + 8,
-        animation: 'bounce',
-      },
-    };
+    if (!children.some((child) => TOPIC_COMPONENTS.has(child.component))) {
+      const type = pickTopicObject(narration, fallback);
+      // Keep the graphic clear of the title (top ~15%) and captions (bottom 8%).
+      extra.push({
+        component: 'EducationalObject',
+        props: {
+          type,
+          size: 250,
+          top: index % 2 === 0 ? '56%' : '60%',
+          left: LAYOUTS[index % LAYOUTS.length],
+          startFrame: scene.startFrame + 8,
+          animation: 'bounce',
+        },
+      });
+    }
 
-    injected += 1;
-    // Prepended so captions and text painted afterwards stay on top.
-    return { ...scene, children: [visual, ...children] };
+    if (!children.some((child) => child.component === 'AnimatedNumber')) {
+      const number = numberVisual(narration, scene);
+      if (number) extra.push(number);
+    }
+
+    if (extra.length === 0) return { ...scene, children };
+
+    injected += extra.length;
+    // Prepended so captions and titles painted afterwards stay on top.
+    return { ...scene, children: [...extra, ...children] };
   });
 
   return { storyboard: { ...storyboard, scenes }, injected };
