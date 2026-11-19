@@ -57,8 +57,8 @@ class LlmService {
     // or Vulkan when the driver is usable and falls back to CPU otherwise.
     if (config.localLlm.buildFromSource && config.localLlm.gpuLayers !== 0) {
       console.log(
-        '[LLM] Building llama.cpp from source with the local CUDA toolkit ' +
-          '(first run only, this can take up to an hour)...',
+        '[LLM] Source build enabled — reusing the cached llama.cpp build if one ' +
+          'exists (only a first-time build can take up to an hour)...',
       );
     }
     this.llama = await getLlama({
