@@ -16,6 +16,8 @@ interface JobRow {
   updated_at: string;
   retry_count: number;
   video_id: string | null;
+  scenes_completed?: number;
+  scenes_total?: number;
 }
 
 function rowToResponse(row: JobRow): JobResponse {
@@ -26,6 +28,8 @@ function rowToResponse(row: JobRow): JobResponse {
     currentStep: row.current_step,
     error: row.error,
     videoId: row.video_id ?? undefined,
+    scenesCompleted: typeof row.scenes_completed === 'number' ? row.scenes_completed : undefined,
+    scenesTotal: typeof row.scenes_total === 'number' ? row.scenes_total : undefined,
   };
 }
 

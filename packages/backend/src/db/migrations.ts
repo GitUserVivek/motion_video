@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   error         TEXT,
   config_json   TEXT NOT NULL DEFAULT '{}',
   retry_count   INTEGER NOT NULL DEFAULT 0,
+  scenes_completed INTEGER NOT NULL DEFAULT 0,
+  scenes_total     INTEGER NOT NULL DEFAULT 0,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );

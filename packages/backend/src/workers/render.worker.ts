@@ -40,6 +40,15 @@ function updateJob(
   `).run(status, progress, step, error ?? null, jobId);
 }
 
+/** Persist scene render progress so the UI can show "scene 3 / 8". */
+function updateSceneProgress(jobId: string, completed: number, total: number): void {
+  getDb().prepare(`
+    UPDATE jobs
+    SET scenes_completed = ?, scenes_total = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(completed, total, jobId);
+}
+
 async function processJob(job: JobRow): Promise<void> {
   const db = getDb();
   const videoConfig = JSON.parse(job.config_json) as VideoConfig;
@@ -111,6 +120,9 @@ async function processJob(job: JobRow): Promise<void> {
     `[Worker] Job ${job.id} storyboard ready: ${storyboard.scenes.length} scenes, ${storyboard.totalFrames} frames`,
   );
 
+  // Seed scene counters before rendering so the UI can show 0 / N immediately.
+  updateSceneProgress(job.id, 0, storyboard.scenes.length);
+
   updateJob(job.id, 'processing', 40, 'rendering');
 
   // 5. Check for cancellation before heavy render
@@ -123,7 +135,10 @@ async function processJob(job: JobRow): Promise<void> {
   }
 
   // 6. Render video
-  console.log(`[Worker] Job ${job.id} [4/4] rendering`);
+  console.log(
+    `[Worker] Job ${job.id} [4/4] rendering ${storyboard.scenes.length} scenes ` +
+      `(${storyboard.totalFrames} frames)`,
+  );
   const result = await renderService.renderVideo(
     job.id,
     storyboard,
@@ -133,6 +148,9 @@ async function processJob(job: JobRow): Promise<void> {
       // Map render progress (0-100) to job progress (40-95)
       const jobPct = 40 + Math.round(pct * 0.55);
       updateJob(job.id, 'processing', jobPct, 'rendering');
+    },
+    ({ completed, total }) => {
+      updateSceneProgress(job.id, completed, total);
     },
   );
 

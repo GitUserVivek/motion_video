@@ -145,6 +145,9 @@ export interface JobResponse {
   currentStep: string;
   error: string | null;
   videoId?: string;
+  /** Scenes rendered so far — only meaningful while `currentStep` is `rendering`. */
+  scenesCompleted?: number;
+  scenesTotal?: number;
 }
 
 export interface VideoListItem {

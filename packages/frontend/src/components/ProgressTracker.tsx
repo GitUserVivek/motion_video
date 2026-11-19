@@ -6,6 +6,9 @@ interface ProgressTrackerProps {
   currentStep: string;
   status: string;
   error?: string | null;
+  /** Scene render progress, reported by the backend while rendering. */
+  scenesCompleted?: number;
+  scenesTotal?: number;
 }
 
 export function ProgressTracker({
@@ -13,6 +16,8 @@ export function ProgressTracker({
   currentStep,
   status,
   error,
+  scenesCompleted,
+  scenesTotal,
 }: ProgressTrackerProps): React.ReactElement {
   const pct = Math.round(progress);
   const label = STEP_LABELS[currentStep] ?? currentStep;
@@ -42,6 +47,33 @@ export function ProgressTracker({
           boxShadow: `0 0 12px ${barColor}80`,
         }} />
       </div>
+      {typeof scenesTotal === 'number' && scenesTotal > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+            <span style={{ fontSize: 12, color: '#a0a0c0' }}>
+              {isDone ? 'Scenes rendered' : 'Rendering scenes'}
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#8f7be0' }}>
+              {scenesCompleted ?? 0} / {scenesTotal}
+            </span>
+          </div>
+          <div style={{
+            width: '100%', height: 6,
+            backgroundColor: '#2a2a4a',
+            borderRadius: 6,
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              width: `${Math.round(Math.min(1, (scenesCompleted ?? 0) / scenesTotal) * 100)}%`,
+              height: '100%',
+              backgroundColor: '#8f7be0',
+              borderRadius: 6,
+              transition: 'width 0.4s ease',
+            }} />
+          </div>
+        </div>
+      )}
+
       {isError && error && (
         <div style={{
           marginTop: 12, padding: '12px 16px',

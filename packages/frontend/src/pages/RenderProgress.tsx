@@ -60,6 +60,8 @@ export function RenderProgress(): React.ReactElement {
             currentStep={job.currentStep}
             status={job.status}
             error={job.error}
+            scenesCompleted={job.scenesCompleted}
+            scenesTotal={job.scenesTotal}
           />
 
           {/* Step list */}
@@ -80,6 +82,11 @@ export function RenderProgress(): React.ReactElement {
                 }}>
                   <span>{done ? '✓' : active ? '⏳' : '○'}</span>
                   {STEP_LABELS[step] ?? step}
+                  {step === 'rendering' && typeof job.scenesTotal === 'number' && job.scenesTotal > 0 && (
+                    <span style={{ fontSize: 11, color: '#8f7be0' }}>
+                      scene {job.scenesCompleted ?? 0}/{job.scenesTotal}
+                    </span>
+                  )}
                 </div>
               );
             })}
