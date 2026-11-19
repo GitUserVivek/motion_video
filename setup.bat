@@ -10,6 +10,15 @@ echo.
 
 set ERRORS=0
 
+:: ---------- 0. CUDA build environment ----------
+:: node-llama-cpp's prebuilt CUDA binaries are compiled with CUDA 13.1; on hosts
+:: with an older toolkit llama.cpp has to be compiled from source
+:: (LLM_BUILD_FROM_SOURCE=true). These variables make that build work and keep
+:: the cached build reusable.
+if not defined CUDA_PATH if exist "%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v13.1" set "CUDA_PATH=%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v13.1"
+if not defined CUDACXX if defined CUDA_PATH if exist "%CUDA_PATH%\bin\nvcc.exe" set "CUDACXX=%CUDA_PATH%\bin\nvcc.exe"
+if not defined NODE_LLAMA_CPP_CMAKE_OPTION_GGML_CUDA_NO_VMM set "NODE_LLAMA_CPP_CMAKE_OPTION_GGML_CUDA_NO_VMM=ON"
+
 :: ---------- 1. Node.js ----------
 echo [1/7] Checking Node.js...
 node --version >nul 2>&1

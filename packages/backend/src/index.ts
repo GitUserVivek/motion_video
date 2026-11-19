@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import { execFileSync } from 'child_process';
+import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { runMigrations } from './db/migrations.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -35,7 +37,40 @@ function ensureDirectories(): void {
   }
 }
 
+/**
+ * Print which commit and which build of the code is actually running, so a stale
+ * `dist/` or an un-pulled change is visible in the log instead of being guessed.
+ */
+function logBuildInfo(): void {
+  const distPath = fileURLToPath(import.meta.url);
+  const builtAt = fs.statSync(distPath).mtime;
+
+  let commit = 'unknown (no git metadata)';
+  let commitTime = 0;
+  try {
+    const out = execFileSync('git', ['log', '-1', '--pretty=%h%n%s%n%ct'], {
+      cwd: config.storage.rootDir,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const [hash, subject, timestamp] = out.split('\n');
+    commit = `${hash ?? ''} ${subject ?? ''}`.trim();
+    commitTime = Number(timestamp) * 1000 || 0;
+  } catch {
+    // git or .git is not available (e.g. sources copied without history).
+  }
+
+  console.log(`[Server] Code:  ${commit}`);
+  console.log(`[Server] Built: ${builtAt.toISOString()}`);
+  if (commitTime > 0 && builtAt.getTime() + 1000 < commitTime) {
+    console.warn(
+      '[Server] WARNING: built code is older than the latest commit — run ./start.sh to rebuild',
+    );
+  }
+}
+
 async function bootstrap(): Promise<void> {
+  logBuildInfo();
   ensureDirectories();
   runMigrations();
 

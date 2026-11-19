@@ -13,6 +13,25 @@ NC='\033[0m'
 PID_DIR="$SCRIPT_DIR/.pids"
 mkdir -p "$PID_DIR" logs
 
+# ---------- 0. CUDA build environment ----------
+# node-llama-cpp's prebuilt CUDA binaries are compiled with CUDA 13.1; on hosts
+# with an older toolkit (e.g. Kaggle's 13.0) llama.cpp has to be compiled from
+# source (LLM_BUILD_FROM_SOURCE=true). These exports make that build work—and
+# must stay set so the cached build is reused instead of rebuilt.
+default_cuda_home="/usr/local/cuda"
+if [[ -z "${CUDACXX:-}" && -x "$default_cuda_home/bin/nvcc" ]]; then
+  export CUDACXX="$default_cuda_home/bin/nvcc"
+fi
+if [[ -z "${CUDA_PATH:-}" && -d "$default_cuda_home" ]]; then
+  export CUDA_PATH="$default_cuda_home"
+fi
+# CUDA 13 ships no driver stub, so CMake cannot create CUDA::cuda_driver;
+# ggml only needs it when VMM is enabled, so build without VMM.
+export NODE_LLAMA_CPP_CMAKE_OPTION_GGML_CUDA_NO_VMM="${NODE_LLAMA_CPP_CMAKE_OPTION_GGML_CUDA_NO_VMM:-ON}"
+if [[ -n "${CUDACXX:-}" ]]; then
+  echo "  CUDA build env: CUDACXX=$CUDACXX CUDA_PATH=${CUDA_PATH:-}"
+fi
+
 echo ""
 echo "============================================"
 echo " EduMotion AI — Starting Services"
