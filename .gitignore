@@ -2,8 +2,8 @@ node_modules/
 dist/
 build/
 *.js.map
-.env
-.env.local
+# .env
+# .env.local
 output/
 temp/
 data/
