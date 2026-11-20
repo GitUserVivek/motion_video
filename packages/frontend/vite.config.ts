@@ -22,6 +22,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // Static mount of the backend's output directory (videos, thumbnails, …)
+      '/output': {
+        target: backendUrl,
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
   resolve: {
