@@ -1,10 +1,21 @@
 import { z } from 'zod';
 
-// Import from storyboard.schema to avoid duplication
-export { ComponentNameSchema, SubtitleEntrySchema, StoryboardPlanSchema } from './storyboard.schema.js';
-export type { ComponentName, SubtitleEntry, StoryboardPlan } from './storyboard.schema.js';
+// Re-export from storyboard.schema to avoid duplication
+export {
+  ComponentNameSchema,
+  SubtitleEntrySchema,
+  StoryboardPlanSchema,
+  EducationalObjectTypeSchema,
+} from './storyboard.schema.js';
 
-// Re-export SceneChildSchema and SceneInstructionSchema for backward compatibility
+export type {
+  ComponentName,
+  SubtitleEntry,
+  StoryboardPlan,
+  EducationalObjectType,
+} from './storyboard.schema.js';
+
+// Scene-specific schemas
 export const SceneChildSchema = z.object({
   component: ComponentNameSchema,
   props: z.record(z.unknown()),

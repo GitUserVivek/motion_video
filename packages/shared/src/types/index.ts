@@ -6,6 +6,15 @@ export type AspectRatio = '9:16' | '16:9' | '1:1';
 export type AnimationTheme = 'modern' | 'playful' | 'minimal' | 'educational';
 export type TtsEngine = 'kokoro' | 'edge-tts' | 'espeak';
 
+// Re-export from schemas to avoid duplication
+export type {
+  ComponentName,
+  SubtitleEntry,
+  StoryboardPlan,
+  SceneChild,
+  SceneInstruction,
+} from '../schemas/storyboard.schema.js';
+
 export interface Project {
   id: string;
   title: string;
@@ -45,52 +54,6 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
   retryCount: number;
-}
-
-export interface SubtitleEntry {
-  index: number;
-  startMs: number;
-  endMs: number;
-  text: string;
-}
-
-export interface SceneChild {
-  component: ComponentName;
-  props: Record<string, unknown>;
-}
-
-export type ComponentName =
-  | 'AnimatedText'
-  | 'AnimatedNumber'
-  | 'Character'
-  | 'Teacher'
-  | 'EducationalObject'
-  | 'ObjectGroup'
-  | 'ConceptDiagram'
-  | 'MultiplicationTable'
-  | 'ImageScene'
-  | 'BackgroundScene'
-  | 'Subtitle'
-  | 'QuestionCard'
-  | 'Confetti'
-  | 'EndScreen'
-  | 'ProgressBar';
-
-export interface SceneInstruction {
-  id: string;
-  startFrame: number;
-  endFrame: number;
-  component: ComponentName;
-  props: Record<string, unknown>;
-  children?: SceneChild[];
-}
-
-export interface StoryboardPlan {
-  jobId: string;
-  totalFrames: number;
-  fps: number;
-  audioDurationMs: number;
-  scenes: SceneInstruction[];
 }
 
 export interface Video {
