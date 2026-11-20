@@ -222,3 +222,15 @@ Check `logs/backend.log` for the render error. Usually a Remotion or FFmpeg issu
 
 **Out of memory during render**
 Reduce `MAX_CONCURRENT_JOBS` to 1 in `.env` (already the default).
+
+**Rendering is slow**
+Frames are painted by Chromium on the CPU, so the two levers are parallelism and the GL
+backend. `RENDER_CONCURRENCY` defaults to your core count (capped at 8) — going above it
+normally makes renders slower. To try the GPU, set `RENDER_GL` to one of `angle`,
+`angle-egl`, `egl`, `swiftshader`, `swangle`, `vulkan` (leave it unset for Chrome's default):
+```bash
+# inside packages/renderer — reports whether Chrome is really hardware accelerated
+npx remotion gpu --gl=angle
+```
+`angle-egl` is the best candidate on a Linux box with a real GPU. Without one, Chrome falls
+back to software and the render speed is unchanged, so compare logs before keeping it.

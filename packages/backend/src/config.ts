@@ -11,6 +11,36 @@ const ROOT_DIR = path.resolve(__dirname, '../../..');
 // Models live one level above the project root: <parent>/models/<model_name>/
 const MODELS_DIR = process.env['MODELS_DIR'] ?? path.resolve(ROOT_DIR, '..', 'models');
 
+/** Chromium OpenGL backends Remotion accepts for `--gl`. */
+export type RenderGl = 'angle' | 'egl' | 'swiftshader' | 'swangle' | 'vulkan' | 'angle-egl';
+
+export const VALID_RENDER_GL: readonly RenderGl[] = [
+  'angle',
+  'egl',
+  'swiftshader',
+  'swangle',
+  'vulkan',
+  'angle-egl',
+];
+
+/**
+ * RENDER_GL opts the renderer into a specific Chromium GL backend. Unset means
+ * "let Chrome decide" (Remotion's default); the value is validated up front so
+ * a typo fails loudly here instead of quietly rendering on the software path.
+ */
+function parseRenderGl(raw: string | undefined): RenderGl | null {
+  const value = raw?.trim().toLowerCase();
+  if (!value || value === 'null' || value === 'default' || value === 'none') return null;
+  const match = VALID_RENDER_GL.find((candidate) => candidate === value);
+  if (!match) {
+    console.warn(
+      `[Config] Ignoring RENDER_GL="${raw}": expected one of ${VALID_RENDER_GL.join(', ')}`,
+    );
+    return null;
+  }
+  return match;
+}
+
 export type GpuLayers = 'auto' | 'max' | number;
 
 /**
@@ -88,6 +118,9 @@ export const config = {
         10,
       ) || 1,
     ),
+    // Chromium's GL backend. 'angle'/'angle-egl' can use a real GPU; leaving it
+    // unset lets Chrome pick (software SwiftShader on most headless boxes).
+    gl: parseRenderGl(process.env['RENDER_GL']),
     maxConcurrentJobs: parseInt(process.env['MAX_CONCURRENT_JOBS'] ?? '1', 10),
     maxRetryCount: parseInt(process.env['MAX_RETRY_COUNT'] ?? '2', 10),
   },

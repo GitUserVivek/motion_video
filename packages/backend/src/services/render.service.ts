@@ -65,7 +65,8 @@ class RenderService {
       console.log(
         `[Render] Job ${jobId}: ${storyboard.scenes.length} scenes, ` +
           `${storyboard.totalFrames} frames @ ${videoConfig.fps}fps, ` +
-          `${config.render.concurrency} parallel frame renders`,
+          `${config.render.concurrency} parallel frame renders, ` +
+          `GL backend: ${config.render.gl ?? 'chrome-default'}`,
       );
 
       // Render the image sequence via the Remotion CLI
@@ -152,6 +153,9 @@ class RenderService {
         // Remotion defaults to half the CPU cores, so the rest of the box idles
         // for the whole render.
         '--concurrency', String(config.render.concurrency),
+        // Opt-in GPU backend: only passed when RENDER_GL is set, so the default
+        // run keeps Chrome's own choice and the A/B comparison stays clean.
+        ...(config.render.gl ? ['--gl', config.render.gl] : []),
         '--props', propsPath,
         '--log', 'verbose',
       ];
