@@ -1,5 +1,6 @@
 import { ollamaService } from './ollama.service.js';
 import { subtitleService } from './subtitle.service.js';
+import { storyboardValidator } from './storyboard.validation.js';
 import { buildStoryboardPrompt } from '../prompts/storyboard.prompt.js';
 import { ensureSceneVisuals } from './storyboard.visuals.js';
 import { parseLooseJson } from './json.repair.js';
@@ -13,6 +14,20 @@ const VALID_COMPONENTS: ReadonlySet<ComponentName> = new Set<ComponentName>([
   'ObjectGroup', 'ConceptDiagram', 'MultiplicationTable', 'ImageScene',
   'BackgroundScene', 'Subtitle', 'QuestionCard', 'Confetti', 'EndScreen',
   'ProgressBar',
+  'SplitScreenComparison',
+  'ProcessFlow',
+  'Timeline',
+  'HighlightedRegion',
+  'AnimatedDiagram',
+  'NumberCounter',
+  'KineticTypography',
+  'ObjectZoom',
+  'Callout',
+  'QuestionReveal',
+  'FactHighlight',
+  'ScientificVisualization',
+  'ChartAnimation',
+  'BeforeAfterComparison',
 ]);
 
 /** Case-insensitive lookup: the model writes "animatedtext" as often as "AnimatedText". */
@@ -20,11 +35,13 @@ const COMPONENT_LOOKUP: ReadonlyMap<string, ComponentName> = new Map(
   [...VALID_COMPONENTS].map((name) => [name.toLowerCase(), name]),
 );
 
+/**
+ * Enhanced Storyboard Service with educational validation and improved planning
+ */
 class StoryboardService {
   /**
    * Generate a storyboard from an approved script and audio duration.
-   * Calls the local LLM with a structured JSON output prompt, then validates
-   * with Zod, repairing what the model got wrong before retrying it.
+   * Now includes validation, repair, and educational enhancement.
    */
   async planStoryboard(
     jobId: string,
@@ -40,21 +57,23 @@ class StoryboardService {
       {
         role: 'system' as const,
         content:
-          'You are a video storyboard planner. You output only valid JSON with no markdown fences, no explanation. ' +
+          'You are a professional educational video storyboard planner. You output only valid JSON with no markdown fences, no explanation. ' +
+          'Every scene MUST have relevant visuals that explain the narration. ' +
+          'Use diverse layouts and animations. ' +
           'Separate every array element and every object property with a comma and never leave a trailing comma.',
       },
       { role: 'user' as const, content: prompt },
     ];
 
-    // A small local model hits the token budget or slips a comma often enough
-    // that one cold retry is much cheaper than failing the job — the worker's
-    // retry re-runs TTS from scratch.
-    const attempts = 2;
+    // Try multiple attempts with different strategies
+    const attempts = 3;
     let lastFailure = 'no attempt was made';
+    let bestAttempt: StoryboardPlan | null = null;
+    let bestScore = 0;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
       const raw = await ollamaService.chat(messages, {
-        temperature: attempt === 1 ? 0.4 : 0.1,
+        temperature: attempt === 1 ? 0.3 : attempt === 2 ? 0.1 : 0.05,
         num_predict: 4096,
       });
 
@@ -77,45 +96,197 @@ class StoryboardService {
       };
 
       const direct = StoryboardPlanSchema.safeParse(withMeta);
-      if (direct.success) return this.finalize(direct.data, subtitles, script, jobId);
+      if (direct.success) {
+        const withCaptions = this.injectSubtitles(direct.data, subtitles);
+        const { storyboard: withVisuals, injected } = ensureSceneVisuals(withCaptions, script);
+
+        // Validate the storyboard
+        const validation = storyboardValidator.validate(withVisuals, script);
+        const relevanceScore = validation.sceneResults.reduce((sum, s) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
+
+        if (validation.isValid && relevanceScore > bestScore) {
+          bestScore = relevanceScore;
+          bestAttempt = withVisuals;
+          console.log(`[Storyboard] Job ${jobId}: attempt ${attempt} valid with relevance score: ${relevanceScore.toFixed(2)}`);
+
+          // If we have a perfect or near-perfect score, stop here
+          if (relevanceScore >= 0.8) {
+            console.log(`[Storyboard] Job ${jobId}: high relevance score achieved, stopping early`);
+            break;
+          }
+        } else {
+          console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt} validation failed: ${validation.overallIssues.join('; ')}`);
+        }
+
+        continue;
+      }
 
       // Attempt to auto-repair common issues before giving up
       const retryResult = StoryboardPlanSchema.safeParse(
         this.repairStoryboard(withMeta, totalFrames),
       );
       if (retryResult.success) {
-        console.warn(`[Storyboard] Job ${jobId}: repaired a malformed storyboard`);
-        return this.finalize(retryResult.data, subtitles, script, jobId);
+        const withCaptions = this.injectSubtitles(retryResult.data, subtitles);
+        const { storyboard: withVisuals, injected } = ensureSceneVisuals(withCaptions, script);
+
+        const validation = storyboardValidator.validate(withVisuals, script);
+        const relevanceScore = validation.sceneResults.reduce((sum, s) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
+
+        if (relevanceScore > bestScore) {
+          bestScore = relevanceScore;
+          bestAttempt = withVisuals;
+          console.log(`[Storyboard] Job ${jobId}: repaired attempt ${attempt} with relevance score: ${relevanceScore.toFixed(2)}`);
+        }
       }
 
-      lastFailure = this.describeIssues(retryResult.error.errors);
+      lastFailure = this.describeIssues(retryResult?.error?.errors || []);
       console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt}/${attempts} — ${lastFailure}`);
     }
 
-    throw new AppError(
-      'STORYBOARD_INVALID',
-      `Generated storyboard failed schema validation: ${lastFailure}`,
-      500,
-    );
+    if (bestAttempt) {
+      // Final validation and enhancement
+      const finalValidation = storyboardValidator.validate(bestAttempt, script);
+      if (finalValidation.isValid) {
+        console.log(`[Storyboard] Job ${jobId}: final storyboard valid with ${finalValidation.validScenes}/${finalValidation.totalScenes} scenes`);
+        return bestAttempt;
+      }
+    }
+
+    // If all attempts failed, create a minimal valid storyboard
+    console.warn(`[Storyboard] Job ${jobId}: all attempts failed, creating fallback storyboard`);
+    return this.createFallbackStoryboard(jobId, script, config, totalFrames, subtitles);
   }
 
   /**
-   * Attach captions and make sure each scene carries a topical graphic. The
-   * model is asked for visuals in the prompt, but it reliably falls back to
-   * text-only scenes, which renders as a slideshow of captions.
+   * Create a fallback storyboard when all generation attempts fail
    */
-  private finalize(
-    storyboard: StoryboardPlan,
-    subtitles: SubtitleEntry[],
-    script: string,
+  private createFallbackStoryboard(
     jobId: string,
+    script: string,
+    config: VideoConfig,
+    totalFrames: number,
+    subtitles: SubtitleEntry[],
   ): StoryboardPlan {
-    const withCaptions = this.injectSubtitles(storyboard, subtitles);
-    const { storyboard: withVisuals, injected } = ensureSceneVisuals(withCaptions, script);
-    if (injected > 0) {
-      console.log(`[Storyboard] Job ${jobId}: added ${injected} topic visual(s)`);
+    const sentences = script.split('\n').filter(s => s.trim().length > 0);
+    const sceneCount = Math.min(6, Math.max(3, sentences.length));
+    const framesPerScene = Math.floor(totalFrames / sceneCount);
+
+    const scenes: SceneInstruction[] = [];
+
+    for (let i = 0; i < sceneCount; i++) {
+      const startFrame = i * framesPerScene;
+      const endFrame = i === sceneCount - 1 ? totalFrames : (i + 1) * framesPerScene;
+
+      // Get sentence for this scene
+      const sentence = sentences[Math.min(i, sentences.length - 1)];
+
+      // Infer visual type from sentence
+      const visualType = this.inferVisualType(sentence);
+
+      scenes.push({
+        id: `scene-${i + 1}`,
+        startFrame,
+        endFrame,
+        component: 'BackgroundScene',
+        props: { theme: config.animationTheme || 'educational' },
+        children: [
+          {
+            component: 'EducationalObject',
+            props: {
+              type: visualType,
+              size: 200,
+              top: '50%',
+              left: '50%',
+              startFrame: startFrame + 10,
+              animation: 'fadeIn',
+            },
+          },
+          {
+            component: 'AnimatedText',
+            props: {
+              text: this.extractKeyPhrase(sentence),
+              animation: 'words',
+              fontSize: 56,
+              top: '20%',
+              startFrame: startFrame + 15,
+            },
+          },
+          {
+            component: 'Subtitle',
+            props: { entries: [] },
+          },
+        ],
+      });
     }
-    return withVisuals;
+
+    // Inject subtitles
+    const withCaptions = this.injectSubtitles(
+      { jobId, totalFrames, fps: config.fps, audioDurationMs: totalFrames * 1000 / config.fps, scenes },
+      subtitles
+    );
+
+    return withCaptions;
+  }
+
+  /**
+   * Infer visual type from sentence
+   */
+  private inferVisualType(sentence: string): string {
+    const lower = sentence.toLowerCase();
+
+    const typeMap: Array<[RegExp, string]> = [
+      [/photo\w*|chlorophyll|leaf|plant|sunlight|green/, 'leaf'],
+      [/bone|skeleton|femur|skull|rib|206/, 'skeleton'],
+      [/cell|dna|gene|nucleus|organism/, 'cell'],
+      [/atom|molecule|electron|proton|neutron|chemistry/, 'atom'],
+      [/computer|network|internet|server|technology|digital/, 'computer'],
+      [/brain|neuron|mind|thinking|synaptic/, 'brain'],
+      [/heart|circulation|blood|pump|cardiovascular/, 'heart'],
+      [/water|liquid|ocean|river|rain|drink|h2o/, 'water'],
+      [/sun|light|solar|energy|star|day/, 'sun'],
+      [/math|mathematics|equation|algebra|geometry|calculus/, 'calculator'],
+      [/space|planet|moon|mars|rocket|astronaut|galaxy/, 'rocket'],
+      [/history|war|discovery|exploration|civilization|past/, 'book'],
+      [/map|country|continent|geography|location|place/, 'globe'],
+      [/food|nutrition|cooking|recipe|ingredient|eat/, 'apple'],
+    ];
+
+    for (const [pattern, type] of typeMap) {
+      if (pattern.test(lower)) {
+        return type;
+      }
+    }
+
+    // Default based on common words
+    if (lower.includes('life') || lower.includes('organism') || lower.includes('body')) {
+      return 'cell';
+    }
+    if (lower.includes('earth') || lower.includes('world') || lower.includes('planet')) {
+      return 'globe';
+    }
+    if (lower.includes('idea') || lower.includes('think') || lower.includes('learn')) {
+      return 'lightbulb';
+    }
+
+    return 'book'; // Default
+  }
+
+  /**
+   * Extract key phrase from sentence
+   */
+  private extractKeyPhrase(sentence: string): string {
+    // Remove leading questions
+    let text = sentence.replace(/^(have|do|does|did|can|could|would|what|why|how|when|where|who|is|are|was|were|will)\s+/i, '');
+
+    // Remove trailing punctuation
+    text = text.replace(/[.!?]$/, '');
+
+    // Limit length
+    if (text.length > 40) {
+      text = text.substring(0, 37) + '...';
+    }
+
+    return text;
   }
 
   /**

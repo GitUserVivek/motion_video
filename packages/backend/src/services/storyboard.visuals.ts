@@ -8,7 +8,9 @@ import { matchAssetImage } from './asset.library.js';
  */
 type TopicObjectType =
   | 'book' | 'apple' | 'globe' | 'atom' | 'lightbulb' | 'calculator' | 'pencil' | 'star'
-  | 'leaf' | 'plant' | 'sun' | 'water' | 'cloud' | 'rocket' | 'heart' | 'cell' | 'microscope';
+  | 'leaf' | 'plant' | 'sun' | 'water' | 'cloud' | 'rocket' | 'heart' | 'cell' | 'microscope'
+  | 'brain' | 'bone' | 'skeleton' | 'dna' | 'neuron' | 'circuit' | 'server' | 'network'
+  | 'equation' | 'chart' | 'timeline' | 'beaker' | 'molecule' | 'femur' | 'skull' | 'ribcage';
 
 /** Components that depict the topic itself (as opposed to people or text). */
 const TOPIC_COMPONENTS = new Set<string>([

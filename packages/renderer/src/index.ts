@@ -46,4 +46,32 @@ export type { EndScreenProps } from './components/EndScreen.js';
 export { ProgressBar } from './components/ProgressBar.js';
 export type { ProgressBarProps } from './components/ProgressBar.js';
 
+// New educational components
+export { SplitScreenComparison } from './components/SplitScreenComparison.js';
+export type { SplitScreenComparisonProps } from './components/SplitScreenComparison.js';
+
+export { ProcessFlow } from './components/ProcessFlow.js';
+export type { ProcessFlowProps, ProcessStep } from './components/ProcessFlow.js';
+
+export { Timeline } from './components/Timeline.js';
+export type { TimelineProps, TimelineEvent } from './components/Timeline.js';
+
+export { HighlightedRegion } from './components/HighlightedRegion.js';
+export type { HighlightedRegionProps } from './components/HighlightedRegion.js';
+
+export { NumberCounter } from './components/NumberCounter.js';
+export type { NumberCounterProps } from './components/NumberCounter.js';
+
+export { AnimatedDiagram } from './components/AnimatedDiagram.js';
+export type { AnimatedDiagramProps, DiagramItem } from './components/AnimatedDiagram.js';
+
+export { KineticTypography } from './components/KineticTypography.js';
+export type { KineticTypographyProps, WordAnimation } from './components/KineticTypography.js';
+
+export { ObjectZoom } from './components/ObjectZoom.js';
+export type { ObjectZoomProps } from './components/ObjectZoom.js';
+
+export { Callout } from './components/Callout.js';
+export type { CalloutProps } from './components/Callout.js';
+
 export * from './utils/animation.js';

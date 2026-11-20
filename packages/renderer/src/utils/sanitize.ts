@@ -16,6 +16,9 @@ type Props = Record<string, unknown>;
 const OBJECT_TYPES = new Set<string>([
   'book', 'apple', 'globe', 'atom', 'lightbulb', 'calculator', 'pencil', 'star',
   'leaf', 'plant', 'sun', 'water', 'cloud', 'rocket', 'heart', 'cell', 'microscope',
+  'brain', 'bone', 'skeleton', 'dna', 'neuron', 'circuit', 'server', 'network',
+  'equation', 'chart', 'timeline', 'beaker', 'testtube', 'molecule', 'electron',
+  'proton', 'neutron', 'bacteria', 'virus', 'organ', 'femur', 'skull', 'ribcage'
 ]);
 const OBJECT_ANIMATIONS = new Set(['fadeIn', 'bounce', 'none']);
 const CHARACTER_STATES = new Set(['idle', 'wave', 'point', 'thinking']);

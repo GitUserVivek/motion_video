@@ -37,6 +37,16 @@ const COMPONENT_MAP: Record<ComponentName, React.ComponentType<Record<string, un
   Confetti:            Confetti as unknown as React.ComponentType<Record<string, unknown>>,
   EndScreen:           EndScreen as unknown as React.ComponentType<Record<string, unknown>>,
   ProgressBar:         ProgressBar as unknown as React.ComponentType<Record<string, unknown>>,
+  // New educational components
+  SplitScreenComparison: SplitScreenComparison as unknown as React.ComponentType<Record<string, unknown>>,
+  ProcessFlow:         ProcessFlow as unknown as React.ComponentType<Record<string, unknown>>,
+  Timeline:            Timeline as unknown as React.ComponentType<Record<string, unknown>>,
+  HighlightedRegion:    HighlightedRegion as unknown as React.ComponentType<Record<string, unknown>>,
+  NumberCounter:       NumberCounter as unknown as React.ComponentType<Record<string, unknown>>,
+  AnimatedDiagram:     AnimatedDiagram as unknown as React.ComponentType<Record<string, unknown>>,
+  KineticTypography:   KineticTypography as unknown as React.ComponentType<Record<string, unknown>>,
+  ObjectZoom:          ObjectZoom as unknown as React.ComponentType<Record<string, unknown>>,
+  Callout:             Callout as unknown as React.ComponentType<Record<string, unknown>>,
 };
 
 /** Frames of cross-fade overlap between consecutive scenes. */

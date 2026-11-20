@@ -1,33 +1,15 @@
 import { z } from 'zod';
 
-export const ComponentNameSchema = z.enum([
-  'AnimatedText',
-  'AnimatedNumber',
-  'Character',
-  'Teacher',
-  'EducationalObject',
-  'ObjectGroup',
-  'ConceptDiagram',
-  'MultiplicationTable',
-  'ImageScene',
-  'BackgroundScene',
-  'Subtitle',
-  'QuestionCard',
-  'Confetti',
-  'EndScreen',
-  'ProgressBar',
-]);
+// Import from storyboard.schema to avoid duplication
+export { ComponentNameSchema, SubtitleEntrySchema, StoryboardPlanSchema } from './storyboard.schema.js';
+export type { ComponentName, SubtitleEntry, StoryboardPlan } from './storyboard.schema.js';
 
-export const SubtitleEntrySchema = z.object({
-  index: z.number().int().nonnegative(),
-  startMs: z.number().nonnegative(),
-  endMs: z.number().nonnegative(),
-  text: z.string().min(1),
-});
-
+// Re-export SceneChildSchema and SceneInstructionSchema for backward compatibility
 export const SceneChildSchema = z.object({
   component: ComponentNameSchema,
   props: z.record(z.unknown()),
+  educationalRole: z.string().optional(),
+  concept: z.string().optional(),
 });
 
 export const SceneInstructionSchema = z.object({
@@ -37,16 +19,11 @@ export const SceneInstructionSchema = z.object({
   component: ComponentNameSchema,
   props: z.record(z.unknown()),
   children: z.array(SceneChildSchema).optional(),
+  concept: z.string().optional(),
+  visualStrategy: z.string().optional(),
+  cameraMovement: z.enum(['zoomIn', 'zoomOut', 'panLeft', 'panRight', 'static']).optional(),
 }).refine((s) => s.endFrame > s.startFrame, {
   message: 'endFrame must be greater than startFrame',
-});
-
-export const StoryboardPlanSchema = z.object({
-  jobId: z.string().min(1),
-  totalFrames: z.number().int().positive(),
-  fps: z.number().int().positive(),
-  audioDurationMs: z.number().nonnegative(),
-  scenes: z.array(SceneInstructionSchema).min(1),
 });
 
 export type SceneInstructionInput = z.input<typeof SceneInstructionSchema>;

@@ -1,0 +1,153 @@
+import React from 'react';
+import { useCurrentFrame } from 'remotion';
+import { fadeIn, pop } from '../utils/animation.js';
+
+export interface ProcessStep {
+  label: string;
+  icon?: React.ReactNode;
+  description?: string;
+  color?: string;
+}
+
+export interface ProcessFlowProps {
+  steps: ProcessStep[];
+  direction?: 'horizontal' | 'vertical';
+  top?: string;
+  left?: string;
+  startFrame?: number;
+  stepSpacing?: number;
+}
+
+export function ProcessFlow({
+  steps,
+  direction = 'horizontal',
+  top = '50%',
+  left = '50%',
+  startFrame = 0,
+  stepSpacing = 150,
+}: ProcessFlowProps): React.ReactElement {
+  const frame = useCurrentFrame();
+
+  const containerStyle: React.CSSProperties = {
+    position: 'absolute',
+    top,
+    left,
+    transform: 'translate(-50%, -50%)',
+    display: 'flex',
+    flexDirection: direction === 'horizontal' ? 'row' : 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: stepSpacing,
+  };
+
+  return (
+    <div style={containerStyle}>
+      {steps.map((step, index) => {
+        const appearFrame = startFrame + index * 15;
+        const opacity = fadeIn(frame, appearFrame, 20);
+        const scale = pop(frame, appearFrame);
+
+        const isActive = frame >= appearFrame && frame < appearFrame + 60;
+
+        return (
+          <React.Fragment key={`step-${index}`}>
+            {/* Step container */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 12,
+                opacity,
+                transform: `scale(${scale})`,
+                willChange: 'opacity, transform',
+              }}
+            >
+              {/* Step circle */}
+              <div
+                style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: '50%',
+                  background: step.color || '#4A90D9',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: isActive
+                    ? '0 0 30px rgba(255,255,255,0.8)'
+                    : '0 0 15px rgba(0,0,0,0.3)',
+                  transition: 'box-shadow 0.3s ease',
+                }}
+              >
+                {step.icon || (
+                  <span
+                    style={{
+                      fontSize: 36,
+                      fontWeight: 'bold',
+                      color: '#ffffff',
+                    }}
+                  >
+                    {index + 1}
+                  </span>
+                )}
+              </div>
+
+              {/* Step label */}
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: '#eef2ff',
+                  textAlign: 'center',
+                  textShadow: '0 2px 8px rgba(0,0,0,0.6)',
+                }}
+              >
+                {step.label}
+              </div>
+
+              {/* Step description */}
+              {step.description && (
+                <div
+                  style={{
+                    fontSize: 16,
+                    color: 'rgba(255,255,255,0.7)',
+                    textAlign: 'center',
+                    maxWidth: 200,
+                  }}
+                >
+                  {step.description}
+                </div>
+              )}
+            </div>
+
+            {/* Connector line (not for last step) */}
+            {index < steps.length - 1 && direction === 'horizontal' && (
+              <div
+                style={{
+                  width: stepSpacing - 40,
+                  height: 4,
+                  background: 'linear-gradient(to right, rgba(255,255,255,0.4), rgba(255,255,255,0.1))',
+                  borderRadius: 2,
+                  marginBottom: 40,
+                  opacity: fadeIn(frame, appearFrame + 10, 15),
+                }}
+              />
+            )}
+
+            {index < steps.length - 1 && direction === 'vertical' && (
+              <div
+                style={{
+                  width: 4,
+                  height: stepSpacing - 40,
+                  background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), rgba(255,255,255,0.1))',
+                  borderRadius: 2,
+                  opacity: fadeIn(frame, appearFrame + 10, 15),
+                }}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
