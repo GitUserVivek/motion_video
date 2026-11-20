@@ -36,12 +36,14 @@ export function QuestionCard({
         transform: `translateX(-50%) scale(${scale})`,
         width,
         opacity,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        backdropFilter: 'blur(10px)',
+        // Static translucency instead of backdrop-filter: blur() repainted the
+        // entire card area every frame to re-sample the background behind it.
+        backgroundColor: 'rgba(255,255,255,0.14)',
         borderRadius: '20px',
         border: `2px solid ${accentColor}`,
         padding: '40px',
-        boxShadow: `0 20px 60px rgba(0,0,0,0.3)`,
+        // A 60px shadow blur is re-rasterized on every frame of the bounce.
+        boxShadow: `0 16px 40px rgba(0,0,0,0.35)`,
       }}
     >
       <div

@@ -67,9 +67,10 @@ export function ParticleField({
             marginLeft: -orb.radius / 2,
             marginTop: -orb.radius / 2,
             borderRadius: '50%',
-            background: `radial-gradient(circle, ${color} 0%, ${color}00 70%)`,
+            // The gradient already fades to transparent, so the 30px blur only
+            // re-rasterized a full-width layer on every single frame.
+            background: `radial-gradient(circle, ${color} 0%, ${color}00 64%)`,
             opacity: orb.alpha,
-            filter: 'blur(30px)',
           }}
         />
       ))}

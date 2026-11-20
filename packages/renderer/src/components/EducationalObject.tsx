@@ -57,8 +57,9 @@ export function EducationalObject({
           width: size * 0.95,
           height: size * 0.95,
           transform: 'translate(-50%, -50%)',
-          background: 'radial-gradient(circle, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 70%)',
-          filter: 'blur(12px)',
+          // Gradient already gives the soft edge; blurring it again repainted
+          // the glow every frame for no visible difference.
+          background: 'radial-gradient(circle, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 62%)',
           opacity: glow,
           pointerEvents: 'none',
         }}

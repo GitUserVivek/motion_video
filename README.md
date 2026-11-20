@@ -234,3 +234,9 @@ npx remotion gpu --gl=angle
 ```
 `angle-egl` is the best candidate on a Linux box with a real GPU. Without one, Chrome falls
 back to software and the render speed is unchanged, so compare logs before keeping it.
+
+On Kaggle the T4s are visible to CUDA (the LLM uses them) but not to Chrome: the image ships
+Mesa's EGL only, with no NVIDIA EGL vendor entry, so `RENDER_GL=angle-egl` stays on the
+software path. Check `ls /usr/share/glvnd/egl_vendor.d/` — without a `10_nvidia.json` there
+is nothing for ANGLE to accelerate with. `npx remotion gpu` cannot answer this either:
+Chrome Headless Shell blocks `chrome://gpu`, so the command fails with `net::ERR_FAILED`.
