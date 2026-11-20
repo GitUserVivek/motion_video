@@ -106,9 +106,12 @@ export const StoryboardPlanSchema = z.object({
 }).refine((plan) => {
   // Validate frame continuity
   const scenes = plan.scenes;
-  if (!scenes || scenes.length === 0) return false;
+  if (!scenes || scenes.length < 2) return true; // No continuity needed for 0 or 1 scene
   for (let i = 0; i < scenes.length - 1; i++) {
-    if (scenes[i].endFrame !== scenes[i + 1].startFrame) {
+    const current = scenes[i];
+    const next = scenes[i + 1];
+    if (!current || !next) return false;
+    if (current.endFrame !== next.startFrame) {
       return false;
     }
   }
@@ -120,6 +123,7 @@ export const StoryboardPlanSchema = z.object({
   const scenes = plan.scenes;
   if (!scenes || scenes.length === 0) return false;
   const lastScene = scenes[scenes.length - 1];
+  if (!lastScene) return false;
   return lastScene.endFrame === plan.totalFrames;
 }, {
   message: 'Last scene must end at totalFrames',
