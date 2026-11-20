@@ -121,8 +121,7 @@ export class StoryboardValidator {
       'EducationalObject', 'ObjectGroup', 'ConceptDiagram', 'MultiplicationTable',
       'ImageScene', 'Character', 'Teacher', 'SplitScreenComparison',
       'ProcessFlow', 'Timeline', 'HighlightedRegion', 'AnimatedDiagram',
-      'NumberCounter', 'ScientificVisualization', 'ChartAnimation',
-      'BeforeAfterComparison'
+      'NumberCounter', 'ObjectZoom', 'Callout'
     ];
 
     if (visualComponents.includes(scene.component)) {
@@ -237,8 +236,7 @@ export class StoryboardValidator {
       'EducationalObject', 'ObjectGroup', 'ConceptDiagram', 'MultiplicationTable',
       'ImageScene', 'Character', 'Teacher', 'AnimatedText', 'SplitScreenComparison',
       'ProcessFlow', 'Timeline', 'HighlightedRegion', 'AnimatedDiagram',
-      'NumberCounter', 'ScientificVisualization', 'ChartAnimation',
-      'BeforeAfterComparison'
+      'NumberCounter', 'ObjectZoom', 'Callout'
     ];
 
     const result: SceneChild[] = [];

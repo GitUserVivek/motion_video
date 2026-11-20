@@ -153,6 +153,7 @@ export function AnimatedDiagram({
             {item.connections?.map((connIndex) => {
               if (connIndex >= items.length) return null;
               const connItem = items[connIndex];
+              if (!connItem) return null;
               const connX = centerX + connItem.position.x;
               const connY = centerY + connItem.position.y;
 

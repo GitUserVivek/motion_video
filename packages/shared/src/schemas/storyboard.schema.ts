@@ -18,7 +18,7 @@ export const ComponentNameSchema = z.enum([
   'Confetti',
   'EndScreen',
   'ProgressBar',
-  // New educational components
+  // New educational components (all implemented in @edumotion/renderer)
   'SplitScreenComparison',
   'ProcessFlow',
   'Timeline',
@@ -28,11 +28,6 @@ export const ComponentNameSchema = z.enum([
   'KineticTypography',
   'ObjectZoom',
   'Callout',
-  'QuestionReveal',
-  'FactHighlight',
-  'ScientificVisualization',
-  'ChartAnimation',
-  'BeforeAfterComparison',
 ]);
 
 export type ComponentName = z.infer<typeof ComponentNameSchema>;

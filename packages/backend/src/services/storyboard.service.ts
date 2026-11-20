@@ -23,11 +23,6 @@ const VALID_COMPONENTS: ReadonlySet<ComponentName> = new Set<ComponentName>([
   'KineticTypography',
   'ObjectZoom',
   'Callout',
-  'QuestionReveal',
-  'FactHighlight',
-  'ScientificVisualization',
-  'ChartAnimation',
-  'BeforeAfterComparison',
 ]);
 
 /** Case-insensitive lookup: the model writes "animatedtext" as often as "AnimatedText". */

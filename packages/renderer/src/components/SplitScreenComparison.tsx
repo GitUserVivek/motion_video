@@ -1,6 +1,6 @@
 import React from 'react';
 import { useCurrentFrame, AbsoluteFill } from 'remotion';
-import { fadeIn, slideIn } from '../utils/animation.js';
+import { fadeIn } from '../utils/animation.js';
 
 export interface SplitScreenComparisonProps {
   left: {
@@ -26,14 +26,12 @@ export function SplitScreenComparison({
   duration = 120,
 }: SplitScreenComparisonProps): React.ReactElement {
   const frame = useCurrentFrame();
-  const progress = Math.min(1, Math.max(0, (frame - startFrame) / duration));
-
   const leftOpacity = fadeIn(frame, startFrame, 20);
   const rightOpacity = fadeIn(frame, startFrame + 10, 20);
   const labelOpacity = fadeIn(frame, startFrame + 20, 20);
 
   // Divider line animation
-  const dividerProgress = slideIn(frame, startFrame + 30, 15);
+  const dividerProgress = fadeIn(frame, startFrame + 30, 15);
 
   return (
     <AbsoluteFill style={{ overflow: 'hidden' }}>

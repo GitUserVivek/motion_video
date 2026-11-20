@@ -33,12 +33,15 @@ export function KineticTypography({
   const frame = useCurrentFrame();
 
   // If custom words provided, use them
-  const wordAnimations = customWords.length > 0
+  const defaultAnimations: NonNullable<WordAnimation['animation']>[] = [
+    'fadeIn', 'slideUp', 'bounce', 'zoom',
+  ];
+  const wordAnimations: WordAnimation[] = customWords.length > 0
     ? customWords
     : text.split(' ').map((word, index) => ({
         word,
         startFrame: startFrame + index * 5,
-        animation: ['fadeIn', 'slideUp', 'bounce', 'zoom'][index % 4] as const,
+        animation: defaultAnimations[index % defaultAnimations.length],
       }));
 
   const alignStyle = {
