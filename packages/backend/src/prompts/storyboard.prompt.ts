@@ -37,12 +37,13 @@ RULES:
 7. Use Teacher or Character in at most 1-2 scenes, not every scene
 8. End with an EndScreen component in the final scene
 9. Visual elements must not overlap the title area (top 15%) or the caption area (bottom 15%) — place graphics around 45-65% height
-10. Vary the layout between scenes: alternate graphics left/right of centre and change the composition so consecutive scenes do not look identical. Add an AnimatedNumber when the narration contains a number or percentage.
+10. Vary the layout between scenes: alternate graphics left/right of centre and change the composition so consecutive scenes do not look identical. Add an AnimatedNumber ONLY for a real measurement with a unit (30%, 5 km, 2 million) — never for a bare count like "3".
 11. Keep props simple — text strings, color hex codes, boolean flags, number values only
 12. The scenes array must be ordered by startFrame
 13. Each scene endFrame must equal the next scene startFrame
 14. Last scene endFrame must equal ${totalFrames}
-15. Return one object, one line, strict JSON: double-quoted keys, a comma between every element, no trailing commas, no comments, no markdown fences
+15. Every scene's AnimatedText must name the idea that scene teaches (2-8 words), not a greeting or filler. Consecutive scenes must teach different ideas instead of repeating the topic name.
+16. Return one object, one line, strict JSON: double-quoted keys, a comma between every element, no trailing commas, no comments, no markdown fences
 
 Subtitle entries format: {"index": 0, "startMs": 0, "endMs": 3000, "text": "narration text"}
 
