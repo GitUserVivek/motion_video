@@ -63,13 +63,13 @@ export const config = {
     // Directory that contains model sub-folders: <MODELS_DIR>/<modelName>/<file>.gguf
     modelsDir: MODELS_DIR,
     // Sub-folder name inside modelsDir (also used as the HuggingFace repo slug default)
-    modelName: process.env['LLM_MODEL_NAME'] ?? 'qwen2.5-7b-instruct-q4',
+    modelName: process.env['LLM_MODEL_NAME'] ?? 'qwen3-8b-instruct-q4',
     // Explicit filename override; if omitted the downloader uses hfFile
     modelFile: process.env['LLM_MODEL_FILE'] ?? '',
     // HuggingFace repo to download from (owner/repo)
-    hfRepo: process.env['LLM_HF_REPO'] ?? 'bartowski/Qwen2.5-7B-Instruct-GGUF',
+    hfRepo: process.env['LLM_HF_REPO'] ?? 'Qwen/Qwen3-8B-GGUF',
     // Which GGUF file inside that repo to fetch
-    hfFile: process.env['LLM_HF_FILE'] ?? 'Qwen2.5-7B-Instruct-Q4_K_M.gguf',
+    hfFile: process.env['LLM_HF_FILE'] ?? 'qwen3-8b-instruct-q4_k_m.gguf',
     // Context window size (tokens)
     contextSize: parseInt(process.env['LLM_CONTEXT_SIZE'] ?? '4096', 10),
     // GPU layers to offload ('auto'/max = offload what fits, 0 = CPU only)

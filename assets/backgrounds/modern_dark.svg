@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <defs>
+    <linearGradient id="modernGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0c29;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#302b63;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#24243e;stop-opacity:1" />
+    </linearGradient>
+    <pattern id="grid" patternUnits="userSpaceOnUse" width="100" height="100">
+      <path d="M 0 0 L 100 0 100 100 0 100 Z" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1" />
+    </pattern>
+  </defs>
+
+  <!-- Background Gradient -->
+  <rect width="1920" height="1080" fill="url(#modernGradient)" />
+
+  <!-- Grid Pattern -->
+  <rect width="1920" height="1080" fill="url(#grid)" />
+
+  <!-- Floating Particles -->
+  <g opacity="0.6">
+    <circle cx="100" cy="200" r="2" fill="rgba(255,255,255,0.3)" />
+    <circle cx="300" cy="150" r="1.5" fill="rgba(255,255,255,0.2)" />
+    <circle cx="500" cy="300" r="2.5" fill="rgba(255,255,255,0.4)" />
+    <circle cx="700" cy="100" r="1" fill="rgba(255,255,255,0.15)" />
+    <circle cx="900" cy="250" r="2" fill="rgba(255,255,255,0.3)" />
+    <circle cx="1100" cy="180" r="1.5" fill="rgba(255,255,255,0.2)" />
+    <circle cx="1300" cy="350" r="2.5" fill="rgba(255,255,255,0.4)" />
+    <circle cx="1500" cy="120" r="1" fill="rgba(255,255,255,0.15)" />
+    <circle cx="1700" cy="280" r="2" fill="rgba(255,255,255,0.3)" />
+  </g>
+</svg>

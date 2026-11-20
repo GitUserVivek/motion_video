@@ -37,9 +37,9 @@ export function resolveTtsVoice(value: string | undefined): { voice: string; eng
   return { voice: trimmed || 'en-US-AriaNeural', engine: 'edge-tts' };
 }
 
-export const LOCAL_LLM_MODEL_NAME = 'qwen2.5-7b-instruct-q4';
-export const LOCAL_LLM_HF_REPO = 'bartowski/Qwen2.5-7B-Instruct-GGUF';
-export const LOCAL_LLM_HF_FILE = 'Qwen2.5-7B-Instruct-Q4_K_M.gguf';
+export const LOCAL_LLM_MODEL_NAME = 'qwen3-8b-instruct-q4';
+export const LOCAL_LLM_HF_REPO = 'Qwen/Qwen3-8B-GGUF';
+export const LOCAL_LLM_HF_FILE = 'qwen3-8b-instruct-q4_k_m.gguf';
 export const LOCAL_LLM_CONTEXT_SIZE = 4096;
 
 /** @deprecated — Ollama is no longer used. Kept for reference only. */
