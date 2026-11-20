@@ -42,6 +42,7 @@ RULES:
 12. The scenes array must be ordered by startFrame
 13. Each scene endFrame must equal the next scene startFrame
 14. Last scene endFrame must equal ${totalFrames}
+15. Return one object, one line, strict JSON: double-quoted keys, a comma between every element, no trailing commas, no comments, no markdown fences
 
 Subtitle entries format: {"index": 0, "startMs": 0, "endMs": 3000, "text": "narration text"}
 

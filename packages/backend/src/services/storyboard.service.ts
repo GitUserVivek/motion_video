@@ -2,22 +2,29 @@ import { ollamaService } from './ollama.service.js';
 import { subtitleService } from './subtitle.service.js';
 import { buildStoryboardPrompt } from '../prompts/storyboard.prompt.js';
 import { ensureSceneVisuals } from './storyboard.visuals.js';
+import { parseLooseJson } from './json.repair.js';
 import { StoryboardPlanSchema } from '@edumotion/shared';
 import { AppError } from '../middleware/errorHandler.js';
 import type { StoryboardPlan, VideoConfig, SubtitleEntry, SceneInstruction, ComponentName } from '@edumotion/shared';
 
 /** Mirrors ComponentNameSchema; typed so a typo cannot drift from the union. */
-const VALID_COMPONENTS: ReadonlySet<string> = new Set<ComponentName>([
+const VALID_COMPONENTS: ReadonlySet<ComponentName> = new Set<ComponentName>([
   'AnimatedText', 'AnimatedNumber', 'Character', 'Teacher', 'EducationalObject',
   'ObjectGroup', 'ConceptDiagram', 'MultiplicationTable', 'ImageScene',
   'BackgroundScene', 'Subtitle', 'QuestionCard', 'Confetti', 'EndScreen',
   'ProgressBar',
 ]);
 
+/** Case-insensitive lookup: the model writes "animatedtext" as often as "AnimatedText". */
+const COMPONENT_LOOKUP: ReadonlyMap<string, ComponentName> = new Map(
+  [...VALID_COMPONENTS].map((name) => [name.toLowerCase(), name]),
+);
+
 class StoryboardService {
   /**
    * Generate a storyboard from an approved script and audio duration.
-   * Calls Ollama with a structured JSON output prompt, then validates with Zod.
+   * Calls the local LLM with a structured JSON output prompt, then validates
+   * with Zod, repairing what the model got wrong before retrying it.
    */
   async planStoryboard(
     jobId: string,
@@ -27,61 +34,69 @@ class StoryboardService {
     subtitles: SubtitleEntry[],
   ): Promise<StoryboardPlan> {
     const prompt = buildStoryboardPrompt(script, config, audioDurationMs);
-
-    const raw = await ollamaService.chat(
-      [
-        {
-          role: 'system',
-          content:
-            'You are a video storyboard planner. You output only valid JSON with no markdown fences, no explanation.',
-        },
-        { role: 'user', content: prompt },
-      ],
-      { temperature: 0.4, num_predict: 4096 },
-    );
-
-    // Extract JSON from the response (strip any accidental markdown)
-    const jsonText = this.extractJson(raw);
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(jsonText);
-    } catch (err) {
-      throw new AppError(
-        'STORYBOARD_PARSE_ERROR',
-        `Storyboard JSON parse failed: ${String(err)}`,
-        500,
-        { raw: raw.slice(0, 500) },
-      );
-    }
-
-    // Inject jobId and computed totals before validation
     const totalFrames = Math.ceil((audioDurationMs / 1000) * config.fps);
-    const withMeta = {
-      ...(parsed as Record<string, unknown>),
-      jobId,
-      totalFrames,
-      fps: config.fps,
-      audioDurationMs,
-    };
 
-    const result = StoryboardPlanSchema.safeParse(withMeta);
-    if (!result.success) {
-      // Attempt to auto-repair common issues before giving up
-      const repaired = this.repairStoryboard(withMeta, totalFrames);
-      const retryResult = StoryboardPlanSchema.safeParse(repaired);
-      if (!retryResult.success) {
-        throw new AppError(
-          'STORYBOARD_INVALID',
-          'Generated storyboard failed schema validation',
-          500,
-          retryResult.error.errors,
-        );
+    const messages = [
+      {
+        role: 'system' as const,
+        content:
+          'You are a video storyboard planner. You output only valid JSON with no markdown fences, no explanation. ' +
+          'Separate every array element and every object property with a comma and never leave a trailing comma.',
+      },
+      { role: 'user' as const, content: prompt },
+    ];
+
+    // A small local model hits the token budget or slips a comma often enough
+    // that one cold retry is much cheaper than failing the job — the worker's
+    // retry re-runs TTS from scratch.
+    const attempts = 2;
+    let lastFailure = 'no attempt was made';
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const raw = await ollamaService.chat(messages, {
+        temperature: attempt === 1 ? 0.4 : 0.1,
+        num_predict: 4096,
+      });
+
+      let parsed: unknown;
+      try {
+        parsed = parseLooseJson(raw);
+      } catch (err) {
+        lastFailure = `JSON parse failed: ${(err as Error).message}`;
+        console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt}/${attempts} — ${lastFailure}`);
+        continue;
       }
-      return this.finalize(retryResult.data, subtitles, script, jobId);
+
+      // Inject jobId and computed totals before validation
+      const withMeta = {
+        ...this.normalizeRoot(parsed),
+        jobId,
+        totalFrames,
+        fps: config.fps,
+        audioDurationMs,
+      };
+
+      const direct = StoryboardPlanSchema.safeParse(withMeta);
+      if (direct.success) return this.finalize(direct.data, subtitles, script, jobId);
+
+      // Attempt to auto-repair common issues before giving up
+      const retryResult = StoryboardPlanSchema.safeParse(
+        this.repairStoryboard(withMeta, totalFrames),
+      );
+      if (retryResult.success) {
+        console.warn(`[Storyboard] Job ${jobId}: repaired a malformed storyboard`);
+        return this.finalize(retryResult.data, subtitles, script, jobId);
+      }
+
+      lastFailure = this.describeIssues(retryResult.error.errors);
+      console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt}/${attempts} — ${lastFailure}`);
     }
 
-    return this.finalize(result.data, subtitles, script, jobId);
+    throw new AppError(
+      'STORYBOARD_INVALID',
+      `Generated storyboard failed schema validation: ${lastFailure}`,
+      500,
+    );
   }
 
   /**
@@ -164,19 +179,28 @@ class StoryboardService {
 
   // ---- Private helpers ----
 
-  private extractJson(text: string): string {
-    // Strip markdown code fences
-    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch?.[1]) return fenceMatch[1].trim();
+  /**
+   * Models wrap the storyboard in "storyboard" or return the bare scene array;
+   * both are unwrapped into the object shape the schema expects.
+   */
+  private normalizeRoot(parsed: unknown): Record<string, unknown> {
+    if (Array.isArray(parsed)) return { scenes: parsed };
+    if (typeof parsed !== 'object' || parsed === null) return {};
 
-    // Find first { and last }
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start !== -1 && end !== -1 && end > start) {
-      return text.slice(start, end + 1);
+    const record = parsed as Record<string, unknown>;
+    const nested = record['storyboard'];
+    if (typeof nested === 'object' && nested !== null && !Array.isArray(nested)) {
+      return nested as Record<string, unknown>;
     }
+    return record;
+  }
 
-    return text.trim();
+  /** Compact, log-friendly description of the first few schema problems. */
+  private describeIssues(issues: Array<{ path: Array<string | number>; message: string }>): string {
+    return issues
+      .slice(0, 3)
+      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('; ');
   }
 
   private repairStoryboard(
@@ -186,25 +210,33 @@ class StoryboardService {
     const isRecord = (value: unknown): value is Record<string, unknown> =>
       typeof value === 'object' && value !== null && !Array.isArray(value);
 
+    const toComponent = (value: unknown): ComponentName | null =>
+      typeof value === 'string'
+        ? COMPONENT_LOOKUP.get(value.trim().toLowerCase()) ?? null
+        : null;
+
     // Drop scenes/children whose component name was invented rather than
     // rejecting the whole storyboard: one bad name used to kill the job after a
     // full LLM round trip.
     const scenes = (Array.isArray(raw['scenes']) ? raw['scenes'] : [])
       .filter(isRecord)
       .map((scene, i) => {
-        const component =
-          typeof scene['component'] === 'string' && VALID_COMPONENTS.has(scene['component'])
-            ? scene['component']
-            : 'BackgroundScene';
+        const component = toComponent(scene['component']) ?? 'BackgroundScene';
+
         const children = (Array.isArray(scene['children']) ? scene['children'] : [])
-          .filter(isRecord)
-          .filter((child) =>
-            typeof child['component'] === 'string' && VALID_COMPONENTS.has(child['component']),
-          )
-          .map((child) => ({
-            component: child['component'],
-            props: isRecord(child['props']) ? child['props'] : {},
-          }));
+          .map((child) => {
+            if (!isRecord(child)) return null;
+            const childComponent = toComponent(child['component']);
+            if (!childComponent) return null;
+            return {
+              component: childComponent,
+              props: isRecord(child['props']) ? child['props'] : {},
+            };
+          })
+          .filter(
+            (child): child is { component: ComponentName; props: Record<string, unknown> } =>
+              child !== null,
+          );
 
         return {
           id: typeof scene['id'] === 'string' && scene['id'] ? scene['id'] : `scene-${i + 1}`,
