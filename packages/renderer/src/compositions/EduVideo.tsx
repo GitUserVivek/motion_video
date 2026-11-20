@@ -126,6 +126,26 @@ class SceneBoundary extends React.Component<
   }
 }
 
+/** Clamp a percentage `top` so a model-placed element cannot cover the title. */
+function clampTopPercent(value: unknown, maxPercent: number): string | null {
+  if (typeof value !== 'string') return null;
+  const match = /^\s*(-?\d+(?:\.\d+)?)\s*%\s*$/.exec(value);
+  if (!match?.[1]) return null;
+  const pct = Number(match[1]);
+  if (!Number.isFinite(pct)) return null;
+  return `${Math.max(2, Math.min(pct, maxPercent))}%`;
+}
+
+/** Clamp a percentage `bottom` so nothing is drawn in the caption band. */
+function clampBottomPercent(value: unknown, minPercent: number): string | null {
+  if (typeof value !== 'string') return null;
+  const match = /^\s*(-?\d+(?:\.\d+)?)\s*%\s*$/.exec(value);
+  if (!match?.[1]) return null;
+  const pct = Number(match[1]);
+  if (!Number.isFinite(pct)) return null;
+  return `${Math.max(minPercent, Math.min(pct, 92))}%`;
+}
+
 /**
  * The storyboard model picks startFrame values relative to the video or to the
  * scene, inconsistently. Anything before the scene start would already be fully
@@ -152,6 +172,29 @@ function normalizeProps(
   // Give titles a word-by-word reveal when the model did not ask for anything.
   if (child.component === 'AnimatedText' && !child.props['animation']) {
     props['animation'] = 'words';
+  }
+
+  // Titles own the top band and captions own the bottom band. A model-placed
+  // element that drifts outside its band used to cover the other text.
+  const clampTop = (max: number): void => {
+    const clamped = clampTopPercent(props['top'], max);
+    if (clamped !== null) props['top'] = clamped;
+  };
+  const clampBottom = (min: number): void => {
+    const clamped = clampBottomPercent(props['bottom'], min);
+    if (clamped !== null) props['bottom'] = clamped;
+  };
+
+  if (child.component === 'AnimatedText') {
+    clampTop(26);
+    clampBottom(20);
+  } else if (child.component === 'QuestionCard') {
+    clampTop(24);
+  } else if (child.component === 'AnimatedNumber') {
+    clampTop(42);
+  } else {
+    clampTop(62);
+    clampBottom(20);
   }
 
   return props;

@@ -33,6 +33,14 @@ export function Subtitle({
 
   if (!activeEntry?.text) return <></> as React.ReactElement;
 
+  // Long cues shrink instead of wrapping down into the graphic area.
+  const length = activeEntry.text.length;
+  const fittedFontSize = length > 120
+    ? Math.round(fontSize * 0.68)
+    : length > 80
+      ? Math.round(fontSize * 0.8)
+      : fontSize;
+
   // Each cue animates in on its own first frame, so captions change with a beat
   // instead of blinking from one sentence to the next.
   const cueStart = (activeEntry.startMs / 1000) * fps;
@@ -51,7 +59,7 @@ export function Subtitle({
         transform: `translateX(-50%) translateY(${rise}px)`,
         backgroundColor,
         color,
-        fontSize,
+        fontSize: fittedFontSize,
         fontFamily: '\'Segoe UI\', system-ui, sans-serif',
         fontWeight: 600,
         textAlign: 'center',

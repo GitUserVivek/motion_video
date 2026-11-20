@@ -24,7 +24,7 @@ export interface ConceptDiagramProps {
 }
 
 const MAX_ITEMS = 5;
-const TILE_WIDTH_PADDING = 22;
+const TILE_WIDTH_PADDING = 26;
 
 function Tile({
   icon,
@@ -97,11 +97,15 @@ function Tile({
       <div
         style={{
           marginTop: 10,
-          fontSize: Math.max(17, Math.round(size * 0.15)),
+          // Constrain the label to its own tile so long words cannot spill over
+          // the neighbouring label.
+          width: size + TILE_WIDTH_PADDING,
+          fontSize: Math.max(15, Math.round(size * 0.13)),
           fontWeight: 700,
           color: '#eef2ff',
           textAlign: 'center',
-          lineHeight: 1.15,
+          lineHeight: 1.2,
+          overflowWrap: 'anywhere',
           textShadow: '0 2px 10px rgba(0,0,0,0.6)',
         }}
       >
@@ -214,7 +218,7 @@ export function ConceptDiagram({
           flexWrap: isGrid ? 'wrap' : 'nowrap',
           justifyContent: 'center',
           alignItems: 'flex-start',
-          columnGap: 12,
+          columnGap: 18,
           rowGap: 14,
           maxWidth: isGrid ? iconSize * 2.9 : undefined,
         }}

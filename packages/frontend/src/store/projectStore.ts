@@ -34,7 +34,7 @@ const defaultConfig: VideoConfig = {
   duration: DEFAULT_DURATION,
   aspectRatio: DEFAULT_ASPECT_RATIO,
   language: 'en',
-  voice: 'en-US-AriaNeural',
+  voice: 'en-US-female-1',
   animationTheme: 'educational',
   subtitles: true,
   backgroundMusic: false,

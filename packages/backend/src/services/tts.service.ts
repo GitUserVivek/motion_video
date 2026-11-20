@@ -78,8 +78,10 @@ class TtsService {
    * is honoured, anything else probes edge-tts first and falls back to espeak
    * so a missing binary degrades instead of failing the job.
    */
-  private async resolveEngine(): Promise<TtsEngine> {
-    if (config.tts.engine === 'espeak') return 'espeak';
+  private async resolveEngine(override?: TtsEngine): Promise<TtsEngine> {
+    if (override === 'espeak' || config.tts.engine === 'espeak') return 'espeak';
+    // 'edge-tts' and 'kokoro' both mean "prefer edge-tts": selectEngine still
+    // falls back to espeak when the binary is missing, instead of failing.
     return this.selectEngine();
   }
 
@@ -87,8 +89,10 @@ class TtsService {
     text: string,
     voice: string,
     outputPath: string,
+    engineOverride?: TtsEngine,
   ): Promise<TtsSynthesisResult> {
-    const engine = await this.resolveEngine();
+    const engine = await this.resolveEngine(engineOverride);
+    console.log(`[TTS] Requested voice: ${voice} (engine: ${engine})`);
 
     const wavPath = outputPath.endsWith('.wav') ? outputPath : `${outputPath}.wav`;
     const mp3Path = wavPath.replace(/\.wav$/, '.mp3');

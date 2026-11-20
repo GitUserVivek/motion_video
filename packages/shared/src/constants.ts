@@ -18,12 +18,24 @@ export const ANIMATION_THEMES: AnimationTheme[] = ['modern', 'playful', 'minimal
 
 export const TTS_ENGINES: TtsEngine[] = ['kokoro', 'edge-tts', 'espeak'];
 
-export const VOICES: Record<string, { label: string; lang: string; engine: TtsEngine }> = {
-  'en-US-female-1': { label: 'Emma (US Female)', lang: 'en', engine: 'edge-tts' },
-  'en-US-male-1':   { label: 'James (US Male)',  lang: 'en', engine: 'edge-tts' },
-  'en-GB-female-1': { label: 'Sophie (UK Female)', lang: 'en', engine: 'edge-tts' },
-  'espeak-en':      { label: 'eSpeak English',   lang: 'en', engine: 'espeak' },
+export const VOICES: Record<string, { label: string; lang: string; engine: TtsEngine; voice: string }> = {
+  'en-US-female-1': { label: 'Emma (US Female)', lang: 'en', engine: 'edge-tts', voice: 'en-US-AriaNeural' },
+  'en-US-male-1':   { label: 'James (US Male)',  lang: 'en', engine: 'edge-tts', voice: 'en-US-GuyNeural' },
+  'en-GB-female-1': { label: 'Sophie (UK Female)', lang: 'en', engine: 'edge-tts', voice: 'en-GB-SoniaNeural' },
+  'espeak-en':      { label: 'eSpeak English',   lang: 'en', engine: 'espeak', voice: 'en' },
 };
+
+/**
+ * Turn the voice picked in the UI into the engine's own voice name. The UI sends
+ * preset ids ('en-US-male-1'); edge-tts needs 'en-US-GuyNeural'. A value that is
+ * already an engine voice name is passed through unchanged.
+ */
+export function resolveTtsVoice(value: string | undefined): { voice: string; engine: TtsEngine } {
+  const preset = value ? VOICES[value] : undefined;
+  if (preset) return { voice: preset.voice, engine: preset.engine };
+  const trimmed = value?.trim();
+  return { voice: trimmed || 'en-US-AriaNeural', engine: 'edge-tts' };
+}
 
 export const LOCAL_LLM_MODEL_NAME = 'qwen2.5-7b-instruct-q4';
 export const LOCAL_LLM_HF_REPO = 'bartowski/Qwen2.5-7B-Instruct-GGUF';

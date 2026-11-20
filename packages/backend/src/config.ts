@@ -79,6 +79,15 @@ export const config = {
 
   render: {
     fps: parseInt(process.env['RENDER_FPS'] ?? '30', 10),
+    // Parallel frame renders. Remotion defaults to half the CPU cores, which
+    // leaves most of a 4-vCPU box idle while a 40s video takes minutes.
+    concurrency: Math.max(
+      1,
+      parseInt(
+        process.env['RENDER_CONCURRENCY'] ?? String(Math.min(os.cpus().length, 8)),
+        10,
+      ) || 1,
+    ),
     maxConcurrentJobs: parseInt(process.env['MAX_CONCURRENT_JOBS'] ?? '1', 10),
     maxRetryCount: parseInt(process.env['MAX_RETRY_COUNT'] ?? '2', 10),
   },

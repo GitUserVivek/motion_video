@@ -6,6 +6,7 @@ import { renderService } from '../services/render.service.js';
 import { config } from '../config.js';
 import path from 'path';
 import fs from 'fs';
+import { resolveTtsVoice } from '@edumotion/shared';
 import type { VideoConfig, StoryboardPlan } from '@edumotion/shared';
 
 const POLL_INTERVAL_MS = 2000;
@@ -68,14 +69,19 @@ async function processJob(job: JobRow): Promise<void> {
   // 2. Generate TTS audio
   const audioPath = path.join(config.storage.audioDir, `${job.id}.wav`);
   console.log(`[Worker] Job ${job.id} [1/4] synthesizing audio (${script.length} chars)`);
+  // The per-video voice wins over the server default, and preset ids from the
+  // UI ('en-US-male-1') are translated into the engine's own voice name.
+  const ttsVoice = resolveTtsVoice(videoConfig.voice ?? config.tts.voice);
+  console.log(`[Worker] Job ${job.id} voice: ${videoConfig.voice ?? 'default'} -> ${ttsVoice.voice}`);
   const {
     audioPath: finalAudioPath,
     durationMs,
     subtitles: measuredSubtitles,
   } = await ttsService.synthesize(
     script,
-    config.tts.voice,
+    ttsVoice.voice,
     audioPath,
+    ttsVoice.engine,
   );
   console.log(`[Worker] Job ${job.id} [2/4] subtitles for ${(durationMs / 1000).toFixed(1)}s of audio`);
 

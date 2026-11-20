@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client.js';
 import { useProjectStore } from '../store/projectStore.js';
 import { ProgressTracker } from '../components/ProgressTracker.js';
+import { VideoPlayer } from '../components/VideoPlayer.js';
 import { STEP_LABELS } from '@edumotion/shared';
 
 const STEPS = [
@@ -19,7 +20,7 @@ const STEPS = [
 
 export function RenderProgress(): React.ReactElement {
   const navigate = useNavigate();
-  const { activeJobId, setCompletedVideo } = useProjectStore();
+  const { activeJobId, setCompletedVideo, reset } = useProjectStore();
 
   const { data: job } = useQuery({
     queryKey: ['job', activeJobId],
@@ -32,12 +33,13 @@ export function RenderProgress(): React.ReactElement {
     },
   });
 
+  // Stay on this page and play the result here; the preview route is still
+  // reachable from the link below for sharing/download details.
   useEffect(() => {
     if (job?.status === 'completed' && job.videoId) {
       setCompletedVideo(job.videoId);
-      setTimeout(() => navigate('/preview'), 500);
     }
-  }, [job?.status, job?.videoId, navigate, setCompletedVideo]);
+  }, [job?.status, job?.videoId, setCompletedVideo]);
 
   if (!activeJobId) {
     navigate('/create');
@@ -48,10 +50,14 @@ export function RenderProgress(): React.ReactElement {
     if (activeJobId) await api.cancelJob(activeJobId);
   }
 
+  const ready = job?.status === 'completed' && Boolean(job.videoId);
+
   return (
-    <div style={{ maxWidth: 640 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, color: '#fff' }}>Rendering Video</h1>
-      <p style={{ color: '#666', marginBottom: 32, fontSize: 13 }}>Job ID: {activeJobId}</p>
+    <div style={{ maxWidth: 720 }}>
+      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, color: '#fff' }}>
+        {ready ? 'Your Video Is Ready' : 'Rendering Video'}
+      </h1>
+      <p style={{ color: '#666', marginBottom: 24, fontSize: 13 }}>Job ID: {activeJobId}</p>
 
       {job ? (
         <>
@@ -65,7 +71,7 @@ export function RenderProgress(): React.ReactElement {
           />
 
           {/* Step list */}
-          <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {STEPS.map((step) => {
               const stepIndex = STEPS.indexOf(step);
               const currentIndex = STEPS.indexOf(job.currentStep);
@@ -91,6 +97,42 @@ export function RenderProgress(): React.ReactElement {
               );
             })}
           </div>
+
+          {/* Finished: play the video right here instead of leaving the page. */}
+          {ready && job.videoId ? (
+            <section style={{ marginTop: 28 }}>
+              <div style={{
+                padding: '12px 16px', marginBottom: 16, borderRadius: 10,
+                backgroundColor: '#2ecc7115', border: '1px solid #2ecc71',
+                color: '#2ecc71', fontSize: 13, fontWeight: 700,
+              }}>
+                ✓ Render complete — the video is ready to watch
+              </div>
+
+              <VideoPlayer videoId={job.videoId} poster={api.thumbnailUrl(job.videoId)} />
+
+              <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
+                <button
+                  onClick={() => { reset(); navigate('/create'); }}
+                  style={{ flex: 1, padding: '12px', backgroundColor: '#4A90D9', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700 }}
+                >
+                  + Create Another
+                </button>
+                <Link
+                  to="/preview"
+                  style={{ flex: 1, padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
+                >
+                  Video details
+                </Link>
+                <Link
+                  to="/history"
+                  style={{ flex: 1, padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
+                >
+                  History
+                </Link>
+              </div>
+            </section>
+          ) : null}
 
           {['pending', 'processing'].includes(job.status) && (
             <button

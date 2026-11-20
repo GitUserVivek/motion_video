@@ -64,7 +64,8 @@ class RenderService {
 
       console.log(
         `[Render] Job ${jobId}: ${storyboard.scenes.length} scenes, ` +
-          `${storyboard.totalFrames} frames @ ${videoConfig.fps}fps`,
+          `${storyboard.totalFrames} frames @ ${videoConfig.fps}fps, ` +
+          `${config.render.concurrency} parallel frame renders`,
       );
 
       // Render the image sequence via the Remotion CLI
@@ -146,7 +147,11 @@ class RenderService {
         // below finds nothing to encode.
         '--sequence',
         '--image-format', 'jpeg',
-        '--jpeg-quality', '85',
+        // Higher quality source frames; the encoder below keeps the file small.
+        '--jpeg-quality', '92',
+        // Remotion defaults to half the CPU cores, so the rest of the box idles
+        // for the whole render.
+        '--concurrency', String(config.render.concurrency),
         '--props', propsPath,
         '--log', 'verbose',
       ];
@@ -399,7 +404,7 @@ class RenderService {
       '-i', path.join(framesDir, 'frame%06d.jpeg'),
       ...audioArgs,
       '-c:v', 'libx264',
-      '-crf', '23',
+      '-crf', '20',
       '-preset', 'fast',
       '-pix_fmt', 'yuv420p',
       '-movflags', '+faststart',
