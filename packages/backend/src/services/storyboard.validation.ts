@@ -301,19 +301,24 @@ export class StoryboardValidator {
 
     // Check frame continuity
     for (let i = 0; i < scenes.length - 1; i++) {
-      if (scenes[i].endFrame !== scenes[i + 1].startFrame) {
-        issues.push(`Frame gap between scene ${scenes[i].id} (ends at ${scenes[i].endFrame}) and scene ${scenes[i + 1].id} (starts at ${scenes[i + 1].startFrame})`);
+      const current = scenes[i];
+      const next = scenes[i + 1];
+      if (!current || !next) continue;
+      if (current.endFrame !== next.startFrame) {
+        issues.push(`Frame gap between scene ${current.id} (ends at ${current.endFrame}) and scene ${next.id} (starts at ${next.startFrame})`);
       }
     }
 
     // Check last scene
-    if (scenes.length > 0 && scenes[scenes.length - 1].endFrame !== storyboard.totalFrames) {
-      issues.push(`Last scene should end at totalFrames (${storyboard.totalFrames}), but ends at ${scenes[scenes.length - 1].endFrame}`);
+    const lastScene = scenes[scenes.length - 1];
+    if (lastScene && lastScene.endFrame !== storyboard.totalFrames) {
+      issues.push(`Last scene should end at totalFrames (${storyboard.totalFrames}), but ends at ${lastScene.endFrame}`);
     }
 
     // Check first scene
-    if (scenes.length > 0 && scenes[0].startFrame !== 0) {
-      issues.push(`First scene should start at frame 0, but starts at ${scenes[0].startFrame}`);
+    const firstScene = scenes[0];
+    if (firstScene && firstScene.startFrame !== 0) {
+      issues.push(`First scene should start at frame 0, but starts at ${firstScene.startFrame}`);
     }
 
     // Check for end screen
@@ -356,15 +361,19 @@ export class StoryboardValidator {
 
     // Check for repeated visuals in consecutive scenes
     for (let i = 0; i < storyboard.scenes.length - 1; i++) {
-      const currentVisuals = this.getVisualComponents(storyboard.scenes[i]);
-      const nextVisuals = this.getVisualComponents(storyboard.scenes[i + 1]);
+      const currentScene = storyboard.scenes[i];
+      const nextScene = storyboard.scenes[i + 1];
+      if (!currentScene || !nextScene) continue;
+
+      const currentVisuals = this.getVisualComponents(currentScene);
+      const nextVisuals = this.getVisualComponents(nextScene);
 
       const repeated = currentVisuals.filter(cv =>
         nextVisuals.some(nv => nv.component === cv.component)
       );
 
       if (repeated.length > 1) {
-        recommendations.push(`Scenes ${storyboard.scenes[i].id} and ${storyboard.scenes[i + 1].id} use similar visuals - consider varying the composition`);
+        recommendations.push(`Scenes ${currentScene.id} and ${nextScene.id} use similar visuals - consider varying the composition`);
       }
     }
 

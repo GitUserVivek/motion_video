@@ -190,7 +190,7 @@ function inferTopicFromScript(script: string): string {
   const sentences = script.split('\n').filter(s => s.trim().length > 0);
   if (sentences.length === 0) return 'general';
 
-  const firstSentence = sentences[0].toLowerCase();
+  const firstSentence = (sentences[0] ?? '').toLowerCase();
 
   // Check for common topic patterns
   const topicPatterns = [
@@ -213,7 +213,7 @@ function inferTopicFromScript(script: string): string {
   }
 
   // Return first few words as topic
-  return sentences[0].split(' ').slice(0, 3).join(' ').toLowerCase();
+  return firstSentence.split(' ').slice(0, 3).join(' ');
 }
 
 /**
@@ -234,5 +234,5 @@ function getTopicSpecificVisuals(topic: string): string {
     'general': 'Use: lightbulb (idea), book (knowledge), globe (world). Show: relevant concepts from narration'
   };
 
-  return visuals[topic] || visuals['general'];
+  return visuals[topic] ?? visuals['general'] ?? 'Use: lightbulb (idea), book (knowledge), globe (world)';
 }

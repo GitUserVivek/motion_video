@@ -7,6 +7,8 @@ export * from './constants.js';
 // Re-export schemas (these already include the types)
 export * from './schemas/job.schema.js';
 export * from './schemas/script.schema.js';
+export * from './schemas/storyboard.schema.js';
 
 // Note: ComponentName, SubtitleEntry, StoryboardPlan, etc. are exported from types/index.js
-// which re-exports them from schemas/storyboard.schema.js
+// which re-exports them from schemas/storyboard.schema.js (explicit type exports take
+// precedence over the star export above, so the names are not ambiguous)

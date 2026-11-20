@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ComponentNameSchema, StoryboardPlanSchema } from './storyboard.schema.js';
 
 // Re-export from storyboard.schema to avoid duplication
 export {

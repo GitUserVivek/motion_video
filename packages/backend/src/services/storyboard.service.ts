@@ -178,7 +178,7 @@ class StoryboardService {
       const endFrame = i === sceneCount - 1 ? totalFrames : (i + 1) * framesPerScene;
 
       // Get sentence for this scene
-      const sentence = sentences[Math.min(i, sentences.length - 1)];
+      const sentence = sentences[Math.min(i, sentences.length - 1)] ?? '';
 
       // Infer visual type from sentence
       const visualType = this.inferVisualType(sentence);
