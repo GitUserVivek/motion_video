@@ -106,6 +106,7 @@ export const StoryboardPlanSchema = z.object({
 }).refine((plan) => {
   // Validate frame continuity
   const scenes = plan.scenes;
+  if (!scenes || scenes.length === 0) return false;
   for (let i = 0; i < scenes.length - 1; i++) {
     if (scenes[i].endFrame !== scenes[i + 1].startFrame) {
       return false;
@@ -116,7 +117,9 @@ export const StoryboardPlanSchema = z.object({
   message: 'Scene frames must be contiguous',
 }).refine((plan) => {
   // Validate last scene ends at totalFrames
-  const lastScene = plan.scenes[plan.scenes.length - 1];
+  const scenes = plan.scenes;
+  if (!scenes || scenes.length === 0) return false;
+  const lastScene = scenes[scenes.length - 1];
   return lastScene.endFrame === plan.totalFrames;
 }, {
   message: 'Last scene must end at totalFrames',
