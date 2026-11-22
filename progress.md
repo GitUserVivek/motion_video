@@ -111,6 +111,11 @@ Every artefact of a job now lives in **`output/<jobId>/`** instead of the type-b
 
 Paths are built in one place (`packages/backend/src/services/job.files.ts`), which rejects a job id that could escape `output/`, so `/output` now lists one folder per video that can be opened, browsed and downloaded from as a unit. The LLM log is written after each attempt as well as at the end, so a job that hangs or fails still shows what the model returned.
 
+### Resource usage ✅ (2026-11-22)
+- Each ConceptDiagram now takes up to two important terms per narration segment (was one), so more of the words the script names become tiles.
+- `matchAssetImage` now falls back to a narration-token match when no icon/label match exists, so a downloaded or hand-placed file named after a word the scene says is used instead of the built-in glyph.
+- `EducationalObject` gained an `image` prop (renderer + backend attach step), so the object on screen can carry artwork too, not only ConceptDiagram tiles.
+
 ---
 
 ## Remaining work

@@ -229,7 +229,11 @@ export function matchAssetImage(options: {
       else if (labelTokens.has(token)) score = Math.max(score, 2);
       else if (narrationTokens.has(token) && token.length >= 4) score = Math.max(score, 1);
     }
-    if (score < 2) continue;
+    // Allow a weak (narration-only) match as a fallback so a downloaded or
+    // hand-placed file that is named after a word the scene actually says is
+    // still used instead of the built-in glyph. A strong match (score >= 2)
+    // always wins because it is preferred first by the score comparison below.
+    if (score < 1) continue;
 
     const priority = EXT_PRIORITY[asset.ext] ?? 9;
     const bestPriority = best ? (EXT_PRIORITY[best.ext] ?? 9) : 9;

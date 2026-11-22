@@ -1,22 +1,21 @@
 import React from 'react';
-import { useCurrentFrame } from 'remotion';
+import { useCurrentFrame, Img } from 'remotion';
 import { ICON_PATHS, type ObjectType } from '../utils/icons.js';
 import { fadeIn, bounce } from '../utils/animation.js';
 
-export type { ObjectType } from '../utils/icons.js';
-
-export interface EducationalObjectProps {
+export type { ObjectType } from '../utils/icons.js';export interface EducationalObjectProps {
   type?: ObjectType;
+  /** Optional artwork (data URL from resources/), drawn instead of the glyph. */
+  image?: string;
   size?: number;
   color?: string;
   top?: string;
   left?: string;
   startFrame?: number;
   animation?: 'fadeIn' | 'bounce' | 'none';
-}
-
-export function EducationalObject({
+}export function EducationalObject({
   type = 'book',
+  image,
   size = 100,
   color: _color,
   top = '50%',
@@ -63,10 +62,20 @@ export function EducationalObject({
           opacity: glow,
           pointerEvents: 'none',
         }}
-      />
-      <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-        {ICON_PATHS[type] ?? ICON_PATHS.book}
-      </svg>
+      />      {image ? (
+        <Img
+          src={image}
+          style={{
+            width: size * 0.78,
+            height: size * 0.78,
+            objectFit: 'contain',
+          }}
+        />
+      ) : (
+        <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          {ICON_PATHS[type] ?? ICON_PATHS.book}
+        </svg>
+      )}
     </div>
   );
 }

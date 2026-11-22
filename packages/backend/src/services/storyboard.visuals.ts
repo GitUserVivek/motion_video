@@ -113,7 +113,7 @@ function describePick(tile: { icon: string; label: string }, asset: string | nul
   };
 }
 
-const MAX_CONCEPT_ITEMS = 4;
+const MAX_CONCEPT_ITEMS = 5;
 
 /** Last-resort labels so a diagram never collapses to a single shape. */
 const CONCEPT_FILLERS: Array<[TopicObjectType, string]> = [
@@ -324,9 +324,13 @@ export function buildConceptItems(
   };
 
   const addSegment = (segment: string): void => {
-    const [term] = bestTerms(segment, blocked);
-    if (!term) return;
-    push(pickDistinctIcon(segment, usedIcons, fallback), titleCase(term));
+    // Use up to two important terms per segment so the diagram covers more of
+    // the words the script actually names, instead of one tile per sentence.
+    const terms = bestTerms(segment, blocked, 2);
+    for (const term of terms) {
+      if (items.length >= MAX_CONCEPT_ITEMS) return;
+      push(pickDistinctIcon(segment, usedIcons, fallback), titleCase(term));
+    }
   };
 
   // Pass 1: this scene's own wording, avoiding labels an earlier scene used.
@@ -467,9 +471,23 @@ export function ensureSceneVisuals(
     const alignedProps = scene.component === 'EducationalObject'
       ? alignObjectChild({ component: scene.component, props: scene.props }, narration).props
       : scene.props;
-    const enriched = aligned.map((child) =>
-      child.component === 'ConceptDiagram' ? attachDiagramImages(child, narration, record) : child,
-    );
+    const enriched = aligned.map((child) => {
+      if (child.component === 'ConceptDiagram') return attachDiagramImages(child, narration, record);
+      if (child.component !== 'EducationalObject') return child;
+      if (typeof child.props['image'] === 'string' && child.props['image'].startsWith('data:image/')) {
+        return child;
+      }
+      const type = typeof child.props['type'] === 'string' ? child.props['type'] : fallback;
+      const match = matchAssetImage({ icon: type, label: type, narration });
+      if (!match) return child;
+      record?.({
+        label: type,
+        icon: type,
+        asset: match.id,
+        source: assetSource(match.id),
+      });
+      return { ...child, props: { ...child.props, image: match.dataUrl } };
+    });
     const extra: SceneChild[] = [];
 
     // Every scene names the idea it teaches.
