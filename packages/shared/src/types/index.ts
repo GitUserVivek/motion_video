@@ -102,6 +102,16 @@ export interface GenerateVideoRequest {
   config: VideoConfig;
 }
 
+/** One diagram tile of one scene and the artwork it ended up with. */
+export interface SceneAssetUsage {
+  sceneIndex: number;
+  label: string;
+  icon: string;
+  /** Library-relative file, e.g. `auto/heart-1a2b3c4d.svg`; null = built-in glyph. */
+  asset: string | null;
+  source: 'downloaded' | 'library' | 'builtin';
+}
+
 export interface JobResponse {
   jobId: string;
   status: JobStatus;
@@ -112,6 +122,8 @@ export interface JobResponse {
   /** Scenes rendered so far — only meaningful while `currentStep` is `rendering`. */
   scenesCompleted?: number;
   scenesTotal?: number;
+  /** Artwork picked per scene, available once the storyboard is planned. */
+  assets?: SceneAssetUsage[];
 }
 
 export interface VideoListItem {

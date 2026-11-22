@@ -63,6 +63,7 @@ New `packages/backend/src/services/quality.service.ts`:
 - **Failure behaviour**: 8 s timeout + one retry per request; any error is logged and the job continues with the built-in SVG glyphs. Rendering never depends on a provider being reachable.
 - **Visible progress**: new `discovering_assets` step between subtitle alignment and storyboard planning.
 - **Tests**: `packages/backend/src/__tests__/assets.test.ts` covers query building, stopwords/dedup, SVG sanitisation, scoring and slugs (cannot be executed in this sandbox — see limitations).
+- **Visibility**: `ensureSceneVisuals` now returns a per-tile report (`SceneAssetUse`), stored in `jobs.assets_json` and exposed as `JobResponse.assets`. The render page lists every scene's tiles with the file that was used (`auto/heart-…svg`, a local library file) or `built-in glyph (heart)` when nothing matched; the worker logs the same counts.
 
 ### Phase 7 — Word-level captions ✅ (code complete, needs a real render to confirm)
 - `subtitle.service.ts`: `groupWordCues()` merges edge-tts' one-cue-per-word SRT into phrases of ≤7 words / ≤48 chars, glues punctuation back on, and keeps every word's own `startMs`/`endMs` on the phrase.

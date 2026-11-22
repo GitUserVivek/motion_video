@@ -1,5 +1,5 @@
 import type { SceneChild, SceneInstruction, StoryboardPlan } from '@edumotion/shared';
-import { matchAssetImage } from './asset.library.js';
+import { assetSource, matchAssetImage } from './asset.library.js';
 
 /**
  * Icon set rendered by packages/renderer/src/utils/icons.tsx (and therefore by
@@ -83,6 +83,28 @@ export interface ConceptItem {
   label: string;
   /** Artwork from resources/ or assets/, inlined as a data URL when one matches. */
   image?: string;
+}
+
+/** Where one tile's artwork came from, shown on the render page. */
+export interface SceneAssetUse {
+  sceneIndex: number;
+  label: string;
+  icon: string;
+  /** Library-relative file, e.g. `auto/heart-1a2b3c4d.svg`; null = built-in glyph. */
+  asset: string | null;
+  source: 'downloaded' | 'library' | 'builtin';
+}
+
+export type AssetPick = Omit<SceneAssetUse, 'sceneIndex'>;
+export type AssetRecorder = (pick: AssetPick) => void;
+
+function describePick(tile: { icon: string; label: string }, asset: string | null): AssetPick {
+  return {
+    label: tile.label,
+    icon: tile.icon,
+    asset,
+    source: asset ? assetSource(asset) : 'builtin',
+  };
 }
 
 const MAX_CONCEPT_ITEMS = 4;
@@ -192,20 +214,27 @@ function pickDistinctIcon(
 function attachImages<T extends { icon: string; label: string; image?: string }>(
   tiles: T[],
   narration: string,
+  record?: AssetRecorder,
 ): T[] {
   const used = new Set<string>();
   for (const tile of tiles) {
     if (tile.image) continue;
     const match = matchAssetImage({ icon: tile.icon, label: tile.label, narration, exclude: used });
-    if (!match) continue;
-    tile.image = match.dataUrl;
-    used.add(match.id);
+    if (match) {
+      tile.image = match.dataUrl;
+      used.add(match.id);
+    }
+    record?.(describePick(tile, match?.id ?? null));
   }
   return tiles;
 }
 
 /** Same artwork lookup for a ConceptDiagram the model planned itself. */
-function attachDiagramImages(child: SceneChild, narration: string): SceneChild {
+function attachDiagramImages(
+  child: SceneChild,
+  narration: string,
+  record?: AssetRecorder,
+): SceneChild {
   const items = child.props['items'];
   if (!Array.isArray(items)) return child;
 
@@ -224,6 +253,14 @@ function attachDiagramImages(child: SceneChild, narration: string): SceneChild {
       narration,
       exclude: used,
     });
+
+    record?.({
+      label: typeof item.label === 'string' && item.label ? item.label : item.icon,
+      icon: item.icon,
+      asset: match?.id ?? null,
+      source: match ? assetSource(match.id) : 'builtin',
+    });
+
     if (!match) return raw;
 
     used.add(match.id);
@@ -247,6 +284,7 @@ export function buildConceptItems(
   script: string,
   fallback: TopicObjectType,
   reserved: Set<string> = new Set(),
+  record?: AssetRecorder,
 ): ConceptItem[] {
   const items: ConceptItem[] = [];
   const blocked = new Set(reserved);
@@ -307,7 +345,7 @@ export function buildConceptItems(
       seenIcons.add(item.icon);
     }
     for (const item of items) reserved.add(item.label.toLowerCase());
-    return attachImages(items, narration);
+    return attachImages(items, narration, record);
   }
   return [];
 }
@@ -383,13 +421,16 @@ function numberVisual(measurement: Measurement, scene: SceneInstruction): SceneC
 export function ensureSceneVisuals(
   storyboard: StoryboardPlan,
   script: string,
-): { storyboard: StoryboardPlan; injected: number } {
+): { storyboard: StoryboardPlan; injected: number; assetUses: SceneAssetUse[] } {
   const fallback = pickTopicObject(script);
   const reserved = new Set<string>();
+  const assetUses: SceneAssetUse[] = [];
   let injected = 0;
 
   const scenes: SceneInstruction[] = storyboard.scenes.map((scene, index) => {
     const children = scene.children ?? [];
+    const picks: AssetPick[] = [];
+    const record: AssetRecorder = (pick) => picks.push(pick);
 
     const isClosing = scene.component === 'EndScreen'
       || children.some((child) => child.component === 'EndScreen');
@@ -397,7 +438,7 @@ export function ensureSceneVisuals(
 
     const narration = childText(children) || script;
     const enriched = children.map((child) =>
-      child.component === 'ConceptDiagram' ? attachDiagramImages(child, narration) : child,
+      child.component === 'ConceptDiagram' ? attachDiagramImages(child, narration, record) : child,
     );
     const extra: SceneChild[] = [];
 
@@ -419,7 +460,7 @@ export function ensureSceneVisuals(
     }
 
     if (!children.some((child) => TOPIC_COMPONENTS.has(child.component))) {
-      const items = buildConceptItems(narration, script, fallback, reserved);
+      const items = buildConceptItems(narration, script, fallback, reserved, record);
       if (items.length >= 2) {
         // Keep the graphic clear of the heading (~12%) and captions (bottom 8%).
         extra.push({
@@ -441,6 +482,9 @@ export function ensureSceneVisuals(
       if (measurement) extra.push(numberVisual(measurement, scene));
     }
 
+    // Record what this scene's tiles ended up with, downloaded or not.
+    assetUses.push(...picks.map((pick) => ({ sceneIndex: index, ...pick })));
+
     if (extra.length === 0) return { ...scene, children: enriched };
 
     injected += extra.length;
@@ -448,5 +492,5 @@ export function ensureSceneVisuals(
     return { ...scene, children: [...extra, ...enriched] };
   });
 
-  return { storyboard: { ...storyboard, scenes }, injected };
+  return { storyboard: { ...storyboard, scenes }, injected, assetUses };
 }

@@ -5,7 +5,7 @@ import { api } from '../api/client.js';
 import { useProjectStore } from '../store/projectStore.js';
 import { ProgressTracker } from '../components/ProgressTracker.js';
 import { VideoPlayer } from '../components/VideoPlayer.js';
-import { STEP_LABELS } from '@edumotion/shared';
+import { STEP_LABELS, type SceneAssetUsage } from '@edumotion/shared';
 
 const STEPS = [
   'generating_audio',
@@ -18,6 +18,17 @@ const STEPS = [
   'saving',
   'completed',
 ];
+
+/** Group the flat per-tile report into one block per scene. */
+function groupByScene(assets: SceneAssetUsage[]): Array<[number, SceneAssetUsage[]]> {
+  const scenes = new Map<number, SceneAssetUsage[]>();
+  for (const use of assets) {
+    const picks = scenes.get(use.sceneIndex);
+    if (picks) picks.push(use);
+    else scenes.set(use.sceneIndex, [use]);
+  }
+  return [...scenes.entries()].sort((a, b) => a[0] - b[0]);
+}
 
 export function RenderProgress(): React.ReactElement {
   const navigate = useNavigate();
@@ -52,6 +63,11 @@ export function RenderProgress(): React.ReactElement {
   }
 
   const ready = job?.status === 'completed' && Boolean(job.videoId);
+
+  const assets = job?.assets ?? [];
+  const downloadedCount = assets.filter((use) => use.source === 'downloaded').length;
+  const libraryCount = assets.filter((use) => use.source === 'library').length;
+  const builtinCount = assets.filter((use) => use.source === 'builtin').length;
 
   return (
     <div style={{ maxWidth: 720 }}>
@@ -98,6 +114,68 @@ export function RenderProgress(): React.ReactElement {
               );
             })}
           </div>
+
+          {/* Which artwork each scene took: a newly downloaded file, one already
+              in the local library, or the built-in glyph when nothing matched. */}
+          {assets.length > 0 ? (
+            <section style={{ marginTop: 24 }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: '#e0e0f0', marginBottom: 4 }}>
+                Artwork used
+              </h2>
+              <p style={{ color: '#666', fontSize: 12, marginTop: 0, marginBottom: 12 }}>
+                {downloadedCount} downloaded · {libraryCount} from the local library ·{' '}
+                {builtinCount} built-in glyph{builtinCount === 1 ? '' : 's'}
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {groupByScene(assets).map(([sceneIndex, picks]) => (
+                  <div
+                    key={sceneIndex}
+                    style={{
+                      backgroundColor: '#16162a',
+                      border: '1px solid #2a2a44',
+                      borderRadius: 10,
+                      padding: '10px 14px',
+                    }}
+                  >
+                    <div style={{ fontSize: 11, letterSpacing: 0.6, color: '#7a7a9a', marginBottom: 6 }}>
+                      SCENE {sceneIndex + 1}
+                    </div>
+                    {picks.map((pick, i) => (
+                      <div
+                        key={`${pick.label}-${i}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 0' }}
+                      >
+                        <span style={{ flex: 1, color: '#e6e6f0' }}>{pick.label}</span>
+                        <span
+                          style={{
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: pick.asset ? '#8f7be0' : '#6a6a85',
+                          }}
+                        >
+                          {pick.asset ?? `built-in glyph (${pick.icon})`}
+                        </span>
+                        {pick.source === 'downloaded' ? (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: '#4A90D9',
+                              border: '1px solid #4A90D9',
+                              borderRadius: 4,
+                              padding: '1px 5px',
+                            }}
+                          >
+                            NEW
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           {/* Finished: play the video right here instead of leaving the page. */}
           {ready && job.videoId ? (

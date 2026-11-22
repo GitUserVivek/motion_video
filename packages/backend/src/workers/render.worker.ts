@@ -10,7 +10,7 @@ import { config } from '../config.js';
 import path from 'path';
 import fs from 'fs';
 import { ASPECT_RATIOS, resolveTtsVoice } from '@edumotion/shared';
-import type { VideoConfig, StoryboardPlan } from '@edumotion/shared';
+import type { VideoConfig } from '@edumotion/shared';
 
 const POLL_INTERVAL_MS = 2000;
 let workerTimer: ReturnType<typeof setTimeout> | null = null;
@@ -119,7 +119,7 @@ async function processJob(job: JobRow): Promise<void> {
 
   // 4. Plan storyboard
   console.log(`[Worker] Job ${job.id} [3/4] planning storyboard (LLM)`);
-  const storyboard: StoryboardPlan = await storyboardService.planStoryboard(
+  const { storyboard, assetUses } = await storyboardService.planStoryboard(
     job.id,
     script,
     videoConfig,
@@ -139,6 +139,16 @@ async function processJob(job: JobRow): Promise<void> {
     });
   });
   insertAllScenes();
+
+  // Persist which artwork each scene took so the render page can show it while
+  // the video is still being rendered.
+  db.prepare("UPDATE jobs SET assets_json = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(JSON.stringify(assetUses), job.id);
+  console.log(
+    `[Worker] Job ${job.id} artwork: ${assetUses.filter((use) => use.source === 'downloaded').length} downloaded, ` +
+      `${assetUses.filter((use) => use.source === 'library').length} local, ` +
+      `${assetUses.filter((use) => use.source === 'builtin').length} built-in glyph(s)`,
+  );
   console.log(
     `[Worker] Job ${job.id} storyboard ready: ${storyboard.scenes.length} scenes, ${storyboard.totalFrames} frames`,
   );

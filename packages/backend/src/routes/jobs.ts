@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/db.js';
-import type { JobResponse, ApiResponse } from '@edumotion/shared';
+import type { JobResponse, ApiResponse, SceneAssetUsage } from '@edumotion/shared';
 import { AppError } from '../middleware/errorHandler.js';
 
 const router = Router();
@@ -18,6 +18,18 @@ interface JobRow {
   video_id: string | null;
   scenes_completed?: number;
   scenes_total?: number;
+  assets_json?: string | null;
+}
+
+function parseAssetUses(raw: string | null | undefined): SceneAssetUsage[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as SceneAssetUsage[]) : undefined;
+  } catch {
+    // A corrupt report must not break job polling.
+    return undefined;
+  }
 }
 
 function rowToResponse(row: JobRow): JobResponse {
@@ -30,6 +42,7 @@ function rowToResponse(row: JobRow): JobResponse {
     videoId: row.video_id ?? undefined,
     scenesCompleted: typeof row.scenes_completed === 'number' ? row.scenes_completed : undefined,
     scenesTotal: typeof row.scenes_total === 'number' ? row.scenes_total : undefined,
+    assets: parseAssetUses(row.assets_json),
   };
 }
 

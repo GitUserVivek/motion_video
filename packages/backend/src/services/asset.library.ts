@@ -90,6 +90,14 @@ interface Cache {
 let cache: Cache | null = null;
 const dataUrlCache = new Map<string, { mtimeMs: number; dataUrl: string | null }>();
 
+/**
+ * Downloaded artwork lives under `resources/auto/`, so the folder itself tells
+ * the UI where a file came from.
+ */
+export function assetSource(id: string): 'downloaded' | 'library' {
+  return id.startsWith('auto/') ? 'downloaded' : 'library';
+}
+
 /** Tests and long-running jobs can call this after dropping files in. */
 export function resetAssetCache(): void {
   cache = null;

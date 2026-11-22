@@ -2,7 +2,7 @@ import { ollamaService } from './ollama.service.js';
 import { subtitleService } from './subtitle.service.js';
 import { storyboardValidator } from './storyboard.validation.js';
 import { buildStoryboardPrompt } from '../prompts/storyboard.prompt.js';
-import { ensureSceneVisuals } from './storyboard.visuals.js';
+import { ensureSceneVisuals, type SceneAssetUse } from './storyboard.visuals.js';
 import { directStoryboard } from './scene.director.js';
 import { parseLooseJson } from './json.repair.js';
 import { StoryboardPlanSchema, type StoryboardPlan, type VideoConfig, type SubtitleEntry, type SceneInstruction, type ComponentName } from '@edumotion/shared';
@@ -30,6 +30,12 @@ const COMPONENT_LOOKUP: ReadonlyMap<string, ComponentName> = new Map(
   [...VALID_COMPONENTS].map((name) => [name.toLowerCase(), name]),
 );
 
+export interface PlannedStoryboard {
+  storyboard: StoryboardPlan;
+  /** Which artwork each scene's diagram tiles took, for the render page. */
+  assetUses: SceneAssetUse[];
+}
+
 /**
  * Enhanced Storyboard Service with educational validation and improved planning
  */
@@ -44,7 +50,7 @@ class StoryboardService {
     config: VideoConfig,
     audioDurationMs: number,
     subtitles: SubtitleEntry[],
-  ): Promise<StoryboardPlan> {
+  ): Promise<PlannedStoryboard> {
     const prompt = buildStoryboardPrompt(script, config, audioDurationMs);
     const totalFrames = Math.ceil((audioDurationMs / 1000) * config.fps);
 
@@ -64,6 +70,7 @@ class StoryboardService {
     const attempts = 3;
     let lastFailure = 'no attempt was made';
     let bestAttempt: StoryboardPlan | null = null;
+    let bestAssetUses: SceneAssetUse[] = [];
     let bestScore = 0;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -93,7 +100,7 @@ class StoryboardService {
       const direct = StoryboardPlanSchema.safeParse(withMeta);
       if (direct.success) {
         const withCaptions = this.injectSubtitles(direct.data, subtitles);
-        const { storyboard: withVisuals, injected } = ensureSceneVisuals(withCaptions, script);
+        const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(withCaptions, script);
 
         // Validate the storyboard
         const validation = storyboardValidator.validate(withVisuals, script);
@@ -102,6 +109,7 @@ class StoryboardService {
         if (validation.isValid && relevanceScore > bestScore) {
           bestScore = relevanceScore;
           bestAttempt = withVisuals;
+          bestAssetUses = assetUses;
           console.log(`[Storyboard] Job ${jobId}: attempt ${attempt} valid with relevance score: ${relevanceScore.toFixed(2)}`);
 
           // If we have a perfect or near-perfect score, stop here
@@ -122,7 +130,7 @@ class StoryboardService {
       );
       if (retryResult.success) {
         const withCaptions = this.injectSubtitles(retryResult.data, subtitles);
-        const { storyboard: withVisuals, injected } = ensureSceneVisuals(withCaptions, script);
+        const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(withCaptions, script);
 
         const validation = storyboardValidator.validate(withVisuals, script);
         const relevanceScore = validation.sceneResults.reduce((sum: number, s: { visualRelevance?: number }) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
@@ -130,6 +138,7 @@ class StoryboardService {
         if (relevanceScore > bestScore) {
           bestScore = relevanceScore;
           bestAttempt = withVisuals;
+          bestAssetUses = assetUses;
           console.log(`[Storyboard] Job ${jobId}: repaired attempt ${attempt} with relevance score: ${relevanceScore.toFixed(2)}`);
         }
       }
@@ -169,14 +178,15 @@ class StoryboardService {
           `[Storyboard] Job ${jobId}: using directed storyboard despite ${finalValidation.overallIssues.length} issue(s)`,
         );
       }
-      return directed;
+      return { storyboard: directed, assetUses: bestAssetUses };
     }
 
     // No attempt produced a usable storyboard: build a deterministic one and give
     // it the same visual direction so the output still looks designed.
     console.warn(`[Storyboard] Job ${jobId}: all attempts failed, creating fallback storyboard`);
     const fallback = this.createFallbackStoryboard(jobId, script, config, totalFrames, subtitles);
-    return directStoryboard(fallback, script).storyboard;
+    // The fallback has no diagram tiles, so there is no artwork to report.
+    return { storyboard: directStoryboard(fallback, script).storyboard, assetUses: [] };
   }
 
   /**

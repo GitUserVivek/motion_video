@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   retry_count   INTEGER NOT NULL DEFAULT 0,
   scenes_completed INTEGER NOT NULL DEFAULT 0,
   scenes_total     INTEGER NOT NULL DEFAULT 0,
+  assets_json      TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -129,6 +130,29 @@ function repairLegacyRows(): void {
   }
 }
 
+/**
+ * `CREATE TABLE IF NOT EXISTS` does not touch a table that already exists, so
+ * columns added after the first release need an explicit ALTER. SQLite has no
+ * `ADD COLUMN IF NOT EXISTS`, hence the PRAGMA check.
+ */
+function ensureColumns(): void {
+  const db = getDb();
+  const columns = db.prepare('PRAGMA table_info(jobs)').all() as Array<{ name: string }>;
+  const names = new Set(columns.map((column) => column.name));
+
+  const additions: Array<[string, string]> = [
+    ['scenes_completed', 'ALTER TABLE jobs ADD COLUMN scenes_completed INTEGER NOT NULL DEFAULT 0'],
+    ['scenes_total', 'ALTER TABLE jobs ADD COLUMN scenes_total INTEGER NOT NULL DEFAULT 0'],
+    ['assets_json', 'ALTER TABLE jobs ADD COLUMN assets_json TEXT'],
+  ];
+
+  for (const [name, sql] of additions) {
+    if (names.has(name)) continue;
+    db.exec(sql);
+    console.log(`[DB] Added jobs.${name}`);
+  }
+}
+
 export function runMigrations(): void {
   const db = getDb();
 
@@ -141,6 +165,8 @@ export function runMigrations(): void {
   for (const statement of statements) {
     db.exec(statement + ';');
   }
+
+  ensureColumns();
 
   // Seed default settings (INSERT OR IGNORE — never overwrites user changes)
   const upsert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
