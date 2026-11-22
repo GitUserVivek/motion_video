@@ -52,7 +52,7 @@ class ScriptService {
     // overshoot, and an oversized script silently turns a 40s video into a 2min one.
     const targetWords = Math.round(duration * WORDS_PER_SECOND);
     const budgeted = this.enforceWordBudget(cleaned, Math.round(targetWords * 1.2));
-    return this.removeUnsupportedClaims(budgeted);
+    return this.removeUnsupportedClaims(budgeted, Math.round(targetWords * 1.2));
   }
 
   /**
@@ -62,7 +62,7 @@ class ScriptService {
    * explicitly not to add new facts. If the rewrite fails, the original script
    * is kept and the unverified claims are logged for review.
    */
-  private async removeUnsupportedClaims(script: string): Promise<string> {
+  private async removeUnsupportedClaims(script: string, maxWords: number): Promise<string> {
     try {
       const analysis = await contentAnalysisService.analyze({
         script,
@@ -91,7 +91,7 @@ class ScriptService {
         { temperature: 0.2, num_predict: 1024 },
       );
       const cleaned = this.cleanScriptOutput(rewritten);
-      return cleaned.length >= 20 ? cleaned : script;
+      return cleaned.length >= 20 ? this.enforceWordBudget(cleaned, maxWords) : script;
     } catch (err) {
       console.warn(
         '[Script] Claim verification failed; keeping the generated script: ' +

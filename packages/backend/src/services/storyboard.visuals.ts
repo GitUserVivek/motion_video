@@ -431,16 +431,8 @@ export function buildConceptItems(
   }
 
   if (items.length >= 2) {
-    // Two tiles with the same glyph read as a mistake; give the later one an
-    // unused glyph.
-    const seenIcons = new Set<TopicObjectType>();
-    for (const item of items) {
-      if (seenIcons.has(item.icon)) {
-        const alternative = TOPIC_KEYWORDS.find(([icon]) => !seenIcons.has(icon))?.[0];
-        if (alternative) item.icon = alternative;
-      }
-      seenIcons.add(item.icon);
-    }
+    // A repeated neutral glyph is preferable to inventing an unrelated icon just
+    // to make the row look varied; the labels carry the meaning.
     for (const item of items) reserved.add(item.label.toLowerCase());
     return attachImages(items, narration, keyTerms, record);
   }

@@ -164,7 +164,13 @@ async function processJob(job: JobRow): Promise<void> {
   const assetUses = attached.assetUses;
 
   // Persist the scene/asset audit for the render page and later verification.
-  const downloadedManifest = assetDiscovery.getManifest();
+  const selectedAssetIds = new Set(
+    assetUses.map((use) => use.asset).filter((asset): asset is string => Boolean(asset)),
+  );
+  const downloadedManifest = assetDiscovery.getManifest().filter(
+    (entry) =>
+      selectedAssetIds.has(entry.relativePath) || sceneDiscovery.queries.includes(entry.query),
+  );
   try {
     fs.mkdirSync(jobFiles.dir(job.id), { recursive: true });
     fs.writeFileSync(

@@ -160,7 +160,12 @@ class SubtitleService {
     const words = cue.words;
     if (words && words.length > 0) {
       const keptWords = words
-        .filter((word) => word.endMs > startMs && word.startMs < endMs)
+        .filter((word) => {
+          // Assign each word to exactly one scene by its midpoint, so a word
+          // that straddles a boundary is not repeated in both captions.
+          const midpoint = (word.startMs + word.endMs) / 2;
+          return midpoint >= startMs && midpoint < endMs;
+        })
         .map((word) => ({
           ...word,
           startMs: Math.max(word.startMs, startMs),
@@ -183,18 +188,24 @@ class SubtitleService {
     return { ...cue, startMs, endMs, text };
   }
 
-  /** Split a cue without word timings at a proportional word boundary. */
+  /**
+   * Split a cue without word timings by estimated word midpoints. Each word is
+   * assigned to exactly one scene, so a boundary cue cannot be duplicated whole
+   * in both scenes. A very short sliver may have no word midpoint; it is dropped
+   * rather than repeating the neighbouring scene's text.
+   */
   private textForWindow(cue: SubtitleEntry, startMs: number, endMs: number): string {
     const words = cue.text.trim().split(/\s+/).filter(Boolean);
     if (words.length === 0) return '';
 
     const duration = Math.max(1, cue.endMs - cue.startMs);
-    const from = Math.max(0, Math.floor(((startMs - cue.startMs) / duration) * words.length));
-    const to = Math.min(
-      words.length,
-      Math.max(from + 1, Math.ceil(((endMs - cue.startMs) / duration) * words.length)),
-    );
-    return words.slice(from, to).join(' ');
+    const wordDuration = duration / words.length;
+    const kept = words.filter((_, index) => {
+      const midpoint = cue.startMs + (index + 0.5) * wordDuration;
+      return midpoint >= startMs && midpoint < endMs;
+    });
+
+    return kept.join(' ');
   }
 
   /**

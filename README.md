@@ -196,6 +196,10 @@ Edit `.env` to customize settings:
 | `RENDER_FPS` | `30` | Video FPS |
 | `RENDER_CONCURRENCY` | `auto` | Parallel frame renders |
 | `MAX_CONCURRENT_JOBS` | `1` | Max simultaneous render jobs |
+| `RESEARCH_PROVIDER` | `wikipedia` | Keyless fact research (`none` disables it) |
+| `RESEARCH_TIMEOUT_MS` | `7000` | Research request timeout |
+| `RESEARCH_MAX_SOURCES` | `3` | Max sources kept per job |
+| `ASSET_DISCOVERY` | `on` | Automatic artwork search/download |
 
 You can also change most settings at runtime from the **Settings** page in the app.
 
@@ -335,11 +339,16 @@ project/
 │   └── images/
 │       └── characters/
 │
-├── output/               # Generated files
-│   ├── videos/
-│   ├── audio/
-│   ├── subtitles/
-│   └── thumbnails/
+├── output/               # One folder per job
+│   └── <jobId>/          # video, thumbnail, audio, subtitles, reports
+│       ├── content-analysis.json
+│       ├── research.json
+│       ├── assets.json
+│       ├── timing-report.json
+│       ├── subtitle-report.json
+│       ├── validation-report.json
+│       ├── quality-report.json
+│       └── frames/       # sampled scene frames
 │
 ├── data/                 # SQLite database
 │   └── projects/

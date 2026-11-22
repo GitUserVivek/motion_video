@@ -2,8 +2,10 @@
 
 Source of truth: [`Update_Instructions.md`](./Update_Instructions.md)
 Last rewritten: 2026-11-22
-Status: **plan only** — the phases below are the new work. Existing features listed under
-“Baseline” are reused, not rebuilt. Implementation progress is tracked in `progress.md`.
+Status: **implemented in code (2026-11-22)** — Phases 1–6 and 8 are complete at the code/typecheck
+level. Phase 7 unit tests are added; the real GPU render review is still blocked because this
+sandbox cannot run TTS, the LLM, Remotion, or ffmpeg. Existing features listed under “Baseline”
+are reused, not rebuilt. Progress details are in `progress.md`.
 
 Legend: `[ ]` planned · `[~]` in progress · `[x]` done and verified
 
@@ -86,7 +88,7 @@ These are the specific defects the phases must remove:
 
 ---
 
-## Phase 1 — Content intelligence, topic understanding, and factual grounding
+## Phase 1 — Content intelligence, topic understanding, and factual grounding ✅
 
 Goal: understand the actual narration before a storyboard is planned, for any topic.
 
@@ -140,7 +142,7 @@ network dependency is mandatory.
 
 ---
 
-## Phase 2 — Narration-grounded storyboard and scene-specific asset selection
+## Phase 2 — Narration-grounded storyboard and scene-specific asset selection ✅
 
 Goal: every scene’s visual plan explains that scene’s narration, and every selected asset
 is tied to the concept it was selected for.
@@ -214,7 +216,7 @@ image is traceable to a scene concept; generic unrelated icons are rejected.
 
 ---
 
-## Phase 3 — One frame-timing contract
+## Phase 3 — One frame-timing contract ✅
 
 Goal: scene frames are absolute; every child animation is scene-relative; conversion happens
 once in the renderer; invalid timing is rejected before rendering.
@@ -257,7 +259,7 @@ renders at 310; no child animation is scheduled outside its scene.
 
 ---
 
-## Phase 4 — Subtitle synchronization
+## Phase 4 — Subtitle synchronization ✅
 
 Goal: measured TTS word timings are the source of truth; captions are assigned once to the
 correct scene and never duplicated at boundaries.
@@ -291,7 +293,7 @@ split rather than duplicate cues.
 
 ---
 
-## Phase 5 — Educational storytelling, composition, and layout
+## Phase 5 — Educational storytelling, composition, and layout ✅
 
 Goal: scenes explain through examples, relationships, and progression instead of static
 icons plus labels.
@@ -325,7 +327,7 @@ icons plus labels.
 
 ---
 
-## Phase 6 — Validation and quality gates
+## Phase 6 — Validation and quality gates ✅
 
 Goal: reject a storyboard that merely parses but does not explain the narration or cannot
 render correctly.
@@ -371,7 +373,7 @@ rendering with a report explaining why; every check has a deterministic fixture.
 
 ---
 
-## Phase 7 — End-to-end verification on real renders
+## Phase 7 — End-to-end verification on real renders 🟡
 
 Goal: prove the fixes on actual output, not only on JSON.
 
@@ -405,7 +407,7 @@ in the sampled frames.
 
 ---
 
-## Phase 8 — Compatibility, artifacts, and documentation
+## Phase 8 — Compatibility, artifacts, and documentation ✅
 
 - [ ] Preserve the public API and schema:
   - optional new fields only;
@@ -426,6 +428,26 @@ in the sampled frames.
   complete. Do not mark a phase `[x]` until its tests and E2E checks pass.
 
 ---
+
+## Implementation notes (2026-11-22)
+
+- New services: `content.analysis.ts`, `research.service.ts`, `fact.check.ts`,
+  `asset.verify.ts`, `timing.service.ts`, `content.validation.ts`, `math.check.ts`,
+  `layout.validation.ts`, `subtitle.validation.ts`.
+- New shared modules: `schemas/content.schema.ts` and `utils/text-metrics.ts`; storyboard
+  schema gained optional `purpose`, `visualBrief`, `keyTerms`, `assetQueries`,
+  `animationIntent`, `transition`, `domain` and `timingMode` fields.
+- Scene discovery now runs after storyboard planning and writes `assets.json`; the old
+  whole-script discovery call was removed so scenes do not inherit unrelated downloads.
+- Backdrop folders remain excluded from foreground artwork matching.
+- Asset verification is deterministic and offline (key-term/token + backdrop checks). An
+  optional local-LLM judge was left out to avoid an extra LLM call per tile; the deterministic
+  verdict is recorded in the logs and the manifest.
+- Phase 7 tests were added under `packages/backend/src/__tests__/` (`timing`, `subtitles`,
+  `content`, `validation`). They are type-checked here but cannot run in this sandbox because
+  `@rollup/rollup-linux-x64-gnu` is missing; run them on the GPU box.
+- Not verified here: real TTS timings, real research network calls, Remotion rendering,
+  sampled frames, and the three-topic visual review.
 
 ## Verification commands
 

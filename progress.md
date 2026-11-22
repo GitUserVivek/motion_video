@@ -2,7 +2,47 @@
 
 > Last updated: 2026-11-22
 > Plan: [`update_phases.md`](./update_phases.md) · Request: [`Update_Instructions.md`](./Update_Instructions.md)
-> Status: 🟡 visual upgrade in progress — phases 0–7 implemented, verification pending on the GPU box
+> Status: 🟡 dynamic-content upgrade implemented in code — GPU render verification pending
+
+---
+
+## Dynamic content & rendering correctness (2026-11-22)
+
+Implemented the new plan in `update_phases.md`; the old visual-upgrade notes below are historical.
+
+### Topic understanding & facts ✅
+- New `content.analysis.ts` + `content-analysis.prompt.ts`: structured topic/domain, learning objectives, key terms, claims, visual style and research needs are derived from the approved narration, not fixed keyword tables.
+- New `research.service.ts` (optional, keyless Wikipedia REST, cached) and `fact.check.ts`: exact numbers/dates/formulas are marked supported only when found in a source; unsupported claims stay `unverified` and are surfaced in logs/reports.
+- `script-generate.prompt.ts` no longer demands an invented statistic. After generation, an unverified claim triggers a conservative rewrite before approval; if research is unavailable the job still runs with explicit warnings.
+
+### Storyboard & assets ✅
+- Storyboard prompt now receives the content analysis and requires `purpose`, `visualBrief`, `keyTerms`, `assetQueries`, `animationIntent` and `transition` per scene. Contradictory “every scene must have AnimatedText + Subtitle” text and the canned topic/icon tables were removed.
+- Scene discovery runs after planning, from each scene’s queries/key terms, and is recorded in `output/<jobId>/assets.json`. Downloads must match a scene key term; backdrops and generic downloaded icons are rejected (`asset.verify.ts`).
+- Generic `inferVisualType()` fallback and forced object re-pointing were removed; deterministic fallbacks use labelled diagrams instead of unrelated icons.
+
+### Frames ✅
+- One contract: scene frames absolute, child `startFrame` scene-relative. `timing.service.ts` normalises/repairs before validation; fallback, director and `ensureSceneVisuals` emit relative values; `EduVideo.tsx` adds the scene offset exactly once.
+- `timing-report.json` records relative/absolute values and repairs.
+
+### Subtitles ✅
+- Cues crossing a scene boundary are split by word timings (or estimated word midpoints), never copied whole into both scenes.
+- `subtitle-report.json` records the measured/estimated source and per-scene cues; validation rejects overlaps, duplicates and out-of-audio timestamps.
+
+### Composition & layout ✅
+- Scene purpose drives composition selection; prompt requires examples/relationships, not label-only icon rows.
+- Shared `text-metrics.ts` is used by `AnimatedText` and `layout.validation.ts` to shrink/fail text that would overflow the safe area.
+
+### Validation & QC ✅
+- New `content.validation.ts` checks topic/narration alignment, scene visuals, key terms, claims, maths, layout, subtitles, frame timing and existing structural rules. Blocking issues stop the job with `validation_failed` and a report.
+- `quality.service.ts` now extracts one representative frame per scene into `output/<jobId>/frames/` and records it in `quality-report.json`.
+
+### New artifacts
+`content-analysis.json`, `research.json`, `assets.json`, `timing-report.json`, `subtitle-report.json`, `validation-report.json`, `frames/`.
+
+### Verification status
+- Backend and renderer `tsc --noEmit`: pass. Frontend changed files: clean; pre-existing `Dashboard.tsx`/`Settings.tsx` errors remain.
+- Added tests: `timing.test.ts`, `subtitles.test.ts`, `content.test.ts`, `validation.test.ts`. Vitest cannot run in this sandbox (missing rollup native binary); run on the GPU box.
+- Not run here: TTS, LLM, research network, Remotion render, frame review.
 
 ---
 

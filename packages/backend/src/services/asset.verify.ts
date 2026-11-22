@@ -41,9 +41,19 @@ export function verifyAssetMatch(
   }
 
   if (keyTokens.size === 0) {
+    // Older storyboards may have no analysis key terms. A hand-placed library
+    // asset that matched its icon/label can still be used; a downloaded file
+    // cannot be justified without a concept to verify it against.
+    if (match.id.startsWith('auto/')) {
+      return {
+        accepted: false,
+        reason: 'Downloaded asset cannot be verified without scene key terms.',
+        matchedTerms: [],
+      };
+    }
     return {
-      accepted: false,
-      reason: 'No scene key terms were available to verify this asset.',
+      accepted: true,
+      reason: 'No scene key terms; library asset accepted on icon/label match.',
       matchedTerms: [],
     };
   }

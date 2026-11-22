@@ -19,15 +19,16 @@ describe('subtitleService.alignToScenes', () => {
     const second = aligned.get('scene-2') ?? [];
     const third = aligned.get('scene-3') ?? [];
 
-    expect(first).toHaveLength(1);
+    expect(first).toHaveLength(0);
     expect(second).toHaveLength(1);
     expect(third).toHaveLength(1);
-    expect(first[0]?.endMs).toBe(1000);
     expect(second[0]?.startMs).toBe(1000);
     expect(second[0]?.endMs).toBe(2000);
     expect(third[0]?.startMs).toBe(2000);
-    expect(first[0]?.text).not.toBe(second[0]?.text);
+    expect(second[0]?.text).not.toBe(third[0]?.text);
     expect([...first, ...second, ...third].map((cue) => cue.text).join(' ')).toContain('one');
+    const allText = [...first, ...second, ...third].map((cue) => cue.text).join(' ');
+    expect(allText.match(/one/g)?.length ?? 0).toBe(1);
   });
 
   it('keeps word timings inside the scene window', () => {
