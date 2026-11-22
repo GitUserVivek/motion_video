@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config.js';
 import { jobFiles } from './job.files.js';
+import { recommendSettings } from './hardware.service.js';
 import type { StoryboardPlan, VideoConfig, SceneInstruction } from '@edumotion/shared';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,6 +51,9 @@ class RenderService {
 
     fs.mkdirSync(framesDir, { recursive: true });
 
+    const renderSettings = recommendSettings();
+    const renderStartedAt = Date.now();
+
     try {
       onProgress?.(5);
 
@@ -62,11 +66,12 @@ class RenderService {
       console.log(
         `[Render] Job ${jobId}: ${storyboard.scenes.length} scenes, ` +
           `${storyboard.totalFrames} frames @ ${videoConfig.fps}fps, ` +
-          `${config.render.concurrency} parallel frame renders, ` +
-          `GL backend: ${config.render.gl ?? 'chrome-default'}`,
+          `profile=${renderSettings.profile}, concurrency=${renderSettings.concurrency}, ` +
+          `gl=${renderSettings.gl ?? 'chrome-default'}, nvenc=${renderSettings.useNvenc}`,
       );
 
       // Render the image sequence via the Remotion CLI
+      const renderFramesStartedAt = Date.now();
       await this.renderFrames(
         jobId,
         propsPath,
@@ -76,18 +81,23 @@ class RenderService {
         videoConfig,
         onProgress,
         onSceneProgress,
+        renderSettings,
       );
+      const renderFramesMs = Date.now() - renderFramesStartedAt;
 
       onProgress?.(75);
 
       // Mux frames + audio to MP4
+      const muxStartedAt = Date.now();
       await this.muxVideo(
         framesDir,
         audioPath,
         finalPath,
         videoConfig.fps,
         storyboard.totalFrames,
+        renderSettings.useNvenc,
       );
+      const muxMs = Date.now() - muxStartedAt;
 
       onProgress?.(90);
 
@@ -101,6 +111,26 @@ class RenderService {
 
       const stat = fs.statSync(finalPath);
       const durationSec = storyboard.totalFrames / videoConfig.fps;
+
+      // Persist detailed performance metrics for A/B comparison.
+      try {
+        const metrics = {
+          jobId,
+          profile: renderSettings.profile,
+          gl: renderSettings.gl,
+          concurrency: renderSettings.concurrency,
+          useNvenc: renderSettings.useNvenc,
+          chunkCount: renderSettings.chunkCount,
+          totalFrames: storyboard.totalFrames,
+          fps: videoConfig.fps,
+          renderFramesMs,
+          muxMs,
+          totalMs: Date.now() - renderStartedAt,
+          outputBytes: stat.size,
+          finishedAt: new Date().toISOString(),
+        };
+        fs.writeFileSync(jobFiles.renderMetrics(jobId), JSON.stringify(metrics, null, 2), 'utf-8');
+      } catch { /* metrics are best-effort */ }
 
       onProgress?.(100);
 
@@ -125,7 +155,25 @@ class RenderService {
     videoConfig: VideoConfig,
     onProgress?: (pct: number) => void,
     onSceneProgress?: (progress: SceneRenderProgress) => void,
+    settings?: ReturnType<typeof recommendSettings>,
   ): Promise<void> {
+    // Optional frame-range parallel render across multiple GPUs. Falls back to
+    // the single pass below if anything goes wrong so a render never fails just
+    // because the experimental chunked path did.
+    if ((settings?.chunkCount ?? 1) > 1 && (settings?.gpuIndices.length ?? 0) > 1) {
+      try {
+        await this.renderFramesChunked(
+          jobId, propsPath, framesDir, totalFrames, scenes, videoConfig, onProgress, onSceneProgress, settings!,
+        );
+        return;
+      } catch (err) {
+        console.warn(
+          `[Render] Job ${jobId}: chunked render failed, falling back to single pass: ` +
+            (err instanceof Error ? err.message : String(err)),
+        );
+      }
+    }
+
     const rendererRoot = path.resolve(__dirname, '../../../renderer');
     const entryPoint = path.join(rendererRoot, 'src', 'root.tsx');
 
@@ -147,12 +195,10 @@ class RenderService {
         '--image-format', 'jpeg',
         // Higher quality source frames; the encoder below keeps the file small.
         '--jpeg-quality', '92',
-        // Remotion defaults to half the CPU cores, so the rest of the box idles
-        // for the whole render.
-        '--concurrency', String(config.render.concurrency),
-        // Opt-in GPU backend: only passed when RENDER_GL is set, so the default
-        // run keeps Chrome's own choice and the A/B comparison stays clean.
-        ...(config.render.gl ? ['--gl', config.render.gl] : []),
+        // Hardware-aware concurrency: keep one core free and avoid oversubscribing Chrome.
+        '--concurrency', String(settings?.concurrency ?? config.render.concurrency),
+        // GPU backend chosen by hardware detection (angle-egl on NVIDIA).
+        ...(settings?.gl ? ['--gl', settings.gl] : (config.render.gl ? ['--gl', config.render.gl] : [])),
         '--props', propsPath,
         '--log', 'verbose',
       ];
@@ -248,6 +294,105 @@ class RenderService {
         }
       });
     });
+  }
+
+  /**
+   * Render the composition in contiguous frame ranges, one per GPU, then merge
+   * the resulting frame sequences into `framesDir` with continuous numbering.
+   * Experimental: only invoked when a multi-GPU profile is explicitly selected.
+   */
+  private async renderFramesChunked(
+    jobId: string,
+    propsPath: string,
+    framesDir: string,
+    totalFrames: number,
+    scenes: SceneInstruction[],
+    videoConfig: VideoConfig,
+    onProgress?: (pct: number) => void,
+    onSceneProgress?: (progress: SceneRenderProgress) => void,
+    settings?: ReturnType<typeof recommendSettings>,
+  ): Promise<void> {
+    const rendererRoot = path.resolve(__dirname, '../../../renderer');
+    const entryPoint = path.join(rendererRoot, 'src', 'root.tsx');
+    const cli = this.resolveRemotionCli(rendererRoot);
+    const chunkCount = settings?.chunkCount ?? 2;
+    const gpuIndices = settings?.gpuIndices ?? [0, 1];
+
+    // Contiguous frame ranges, e.g. [0,265) and [265,530).
+    const ranges: Array<[number, number]> = [];
+    const base = Math.floor(totalFrames / chunkCount);
+    let cursor = 0;
+    for (let i = 0; i < chunkCount; i++) {
+      const end = i === chunkCount - 1 ? totalFrames : cursor + base;
+      ranges.push([cursor, end]);
+      cursor = end;
+    }
+
+    const chunkDirs = ranges.map((_, i) => path.join(config.storage.tempDir, jobId, `frames-chunk-${i}`));
+    for (const dir of chunkDirs) fs.mkdirSync(dir, { recursive: true });
+
+    const runChunk = (index: number): Promise<void> => {
+      const [start, end] = ranges[index]!;
+      const dir = chunkDirs[index]!;
+      const gpu = gpuIndices[index % gpuIndices.length]!;
+      const args = [
+        'render',
+        entryPoint,
+        'EduVideo',
+        '--output', dir,
+        '--sequence',
+        '--image-format', 'jpeg',
+        '--jpeg-quality', '92',
+        '--concurrency', String(Math.max(1, Math.floor((settings?.concurrency ?? 2) / chunkCount))),
+        ...(settings?.gl ? ['--gl', settings.gl] : []),
+        '--props', propsPath,
+        '--frames', `${start}-${end - 1}`,
+        '--log', 'error',
+      ];
+
+      const env = { ...process.env, CUDA_VISIBLE_DEVICES: String(gpu) };
+
+      return new Promise((resolve, reject) => {
+        const child = spawn(cli.command, [...cli.args, ...args], { cwd: rendererRoot, env });
+        let output = '';
+        const onData = (data: Buffer): void => { output += data.toString(); };
+        child.stdout.on('data', onData);
+        child.stderr.on('data', onData);
+        child.on('error', (err) => reject(new Error(`Could not start Remotion chunk ${index}: ${err.message}`)));
+        child.on('close', (code) => {
+          if (code !== 0) {
+            reject(new Error(`Remotion chunk ${index} failed (exit ${code}): ${output.slice(-500)}`));
+            return;
+          }
+          resolve();
+        });
+      });
+    };
+
+    await Promise.all(ranges.map((_, i) => runChunk(i)));
+
+    // Merge chunks into the main framesDir with continuous numbering.
+    fs.mkdirSync(framesDir, { recursive: true });
+    let globalIndex = 0;
+    for (let i = 0; i < chunkCount; i++) {
+      const [start, end] = ranges[i]!;
+      const chunkDir = chunkDirs[i]!;
+      const entries = fs
+        .readdirSync(chunkDir)
+        .filter((name) => /\.(jpe?g|png)$/i.test(name))
+        .map((name) => ({ name, frame: Number(/(\d+)(?=\.[^.]+$)/.exec(name)?.[1] ?? NaN) }))
+        .filter((entry) => Number.isFinite(entry.frame))
+        .sort((a, b) => a.frame - b.frame);
+
+      for (const entry of entries) {
+        const target = `frame${String(globalIndex).padStart(6, '0')}.jpeg`;
+        fs.renameSync(path.join(chunkDir, entry.name), path.join(framesDir, target));
+        globalIndex++;
+      }
+    }
+
+    this.normalizeFrameSequence(framesDir, totalFrames);
+    onProgress?.(75);
   }
 
   /**
@@ -391,6 +536,7 @@ class RenderService {
     outputPath: string,
     fps: number,
     _totalFrames: number,
+    useNvenc: boolean = false,
   ): Promise<void> {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
@@ -399,23 +545,39 @@ class RenderService {
       ? [`-i`, audioPath, `-c:a`, `aac`, `-b:a`, `128k`]
       : [];
 
-    const cmd = [
-      'ffmpeg', '-y',
-      '-framerate', String(fps),
-      '-i', path.join(framesDir, 'frame%06d.jpeg'),
-      ...audioArgs,
-      '-c:v', 'libx264',
-      '-crf', '20',
-      '-preset', 'fast',
-      '-pix_fmt', 'yuv420p',
-      '-movflags', '+faststart',
-      outputPath,
-    ].join(' ');
+    const run = async (nvenc: boolean): Promise<void> => {
+      const videoArgs = nvenc
+        ? ['-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', '20', '-b:v', '0']
+        : ['-c:v', 'libx264', '-crf', '20', '-preset', 'fast'];
 
-    const { stderr } = await execAsync(cmd, { timeout: 300000 });
-    if (!fs.existsSync(outputPath)) {
-      throw new Error(`FFmpeg mux failed. stderr: ${stderr.slice(-500)}`);
+      const cmd = [
+        'ffmpeg', '-y',
+        '-framerate', String(fps),
+        '-i', path.join(framesDir, 'frame%06d.jpeg'),
+        ...audioArgs,
+        ...videoArgs,
+        '-pix_fmt', 'yuv420p',
+        '-movflags', '+faststart',
+        outputPath,
+      ].join(' ');
+
+      const { stderr } = await execAsync(cmd, { timeout: 300000 });
+      if (!fs.existsSync(outputPath)) {
+        throw new Error(`FFmpeg mux failed. stderr: ${stderr.slice(-500)}`);
+      }
+    };
+
+    if (useNvenc) {
+      try {
+        await run(true);
+        return;
+      } catch (err) {
+        console.warn(`[Render] NVENC mux failed, falling back to libx264: ${err instanceof Error ? err.message : err}`);
+        // Clean up partial output before retrying.
+        try { fs.rmSync(outputPath, { force: true }); } catch { /* ignore */ }
+      }
     }
+    await run(false);
   }
 
   private async extractThumbnail(

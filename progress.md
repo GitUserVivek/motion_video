@@ -111,6 +111,12 @@ Every artefact of a job now lives in **`output/<jobId>/`** instead of the type-b
 
 Paths are built in one place (`packages/backend/src/services/job.files.ts`), which rejects a job id that could escape `output/`, so `/output` now lists one folder per video that can be opened, browsed and downloaded from as a unit. The LLM log is written after each attempt as well as at the end, so a job that hangs or fails still shows what the model returned.
 
+### Rendering optimization ✅ (2026-11-22)
+- Added `services/hardware.service.ts`: detects NVIDIA GPUs via nvidia-smi, NVENC via ffmpeg, recommends profile (cpu/gpu/dual-gpu), GL backend (angle-egl), concurrency, chunk count.
+- `RenderService` now uses hardware-aware concurrency and GL backend; muxes with h264_nvenc when available with automatic libx264 fallback; writes `output/<jobId>/render-metrics.json`.
+- Experimental frame-range chunked render across multiple GPUs behind `RENDER_DUAL_GPU=1`/`RENDER_PROFILE=dual-gpu`, with safe fallback to single pass.
+- Added `packages/backend/src/__tests__/hardware.test.ts`.
+
 ### Resource usage ✅ (2026-11-22)
 - Each ConceptDiagram now takes up to two important terms per narration segment (was one), so more of the words the script names become tiles.
 - `matchAssetImage` now falls back to a narration-token match when no icon/label match exists, so a downloaded or hand-placed file named after a word the scene says is used instead of the built-in glyph.

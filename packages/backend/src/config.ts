@@ -133,6 +133,8 @@ export const config = {
 
   render: {
     fps: parseInt(process.env['RENDER_FPS'] ?? '30', 10),
+    // auto | cpu | gpu | dual-gpu. Auto picks based on detected hardware.
+    profile: process.env['RENDER_PROFILE'] ?? 'auto',
     // Parallel frame renders. Remotion defaults to half the CPU cores, which
     // leaves most of a 4-vCPU box idle while a 40s video takes minutes.
     concurrency: Math.max(

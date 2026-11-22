@@ -50,4 +50,6 @@ export const jobFiles = {
   storyboard: (jobId: string) => path.join(jobDir(jobId), 'storyboard.json'),
   /** Every model response for this job, including the rejected attempts. */
   llmStoryboard: (jobId: string) => path.join(jobDir(jobId), 'llm', 'storyboard.json'),
+  /** Detailed render performance metrics (profile, timing, output size). */
+  renderMetrics: (jobId: string) => path.join(jobDir(jobId), 'render-metrics.json'),
 } as const;
