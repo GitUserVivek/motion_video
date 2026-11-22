@@ -73,6 +73,56 @@ function logBuildInfo(): void {
   }
 }
 
+/**
+ * Serve generated files straight off disk: /output/videos/<jobId>-<ts>.mp4,
+ * /output/thumbnails/<jobId>.jpg, …
+ *
+ * Mounted twice on purpose: the app is normally reached through a tunnel/proxy
+ * that may forward only /api, so /api/output is the same directory. Directory
+ * requests answer with a plain file listing instead of a 404, so a wrong path or
+ * an empty directory is obvious instead of looking like "the mount is broken".
+ */
+function mountOutputStatic(app: express.Express): void {
+  const root = config.storage.outputDir;
+
+  const relativePath = (fullPath: string, prefix: string): string =>
+    decodeURIComponent(fullPath.slice(prefix.length)).replace(/^\/+/, '');
+
+  const listDirectory = (prefix: string) => (req: express.Request, res: express.Response): void => {
+    const target = path.resolve(root, relativePath(req.path, prefix));
+    const inside = target === root || target.startsWith(root + path.sep);
+    if (!inside || !fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
+      res.status(404).type('text/plain; charset=utf-8').send('Not found\n');
+      return;
+    }
+
+    const entries = fs
+      .readdirSync(target, { withFileTypes: true })
+      .filter((entry) => !entry.name.startsWith('.'))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((entry) => entry.name + (entry.isDirectory() ? '/' : ''));
+
+    res.type('text/plain; charset=utf-8').send(entries.length > 0 ? `${entries.join('\n')}\n` : '');
+  };
+
+  for (const prefix of ['/output', '/api/output']) {
+    app.use(prefix, express.static(root, { index: false, dotfiles: 'ignore' }));
+    app.get([prefix, `${prefix}/*`], listDirectory(prefix));
+  }
+
+  const count = (dir: string): number => {
+    try {
+      return fs.readdirSync(dir).length;
+    } catch {
+      return 0;
+    }
+  };
+  console.log(
+    `[Server] Static: /output (+ /api/output) -> ${root} ` +
+      `(${count(config.storage.videosDir)} video(s), ${count(config.storage.thumbnailsDir)} thumbnail(s))`,
+  );
+}
+
 async function bootstrap(): Promise<void> {
   logBuildInfo();
   ensureDirectories();
@@ -84,6 +134,8 @@ async function bootstrap(): Promise<void> {
   app.use(express.json({ limit: '10mb' }));
   app.use(requestLogger);
 
+  mountOutputStatic(app);
+
   // Routes
   app.use('/api/health', healthRouter);
   app.use('/api/scripts', scriptsRouter);
@@ -91,13 +143,6 @@ async function bootstrap(): Promise<void> {
   app.use('/api/videos', videosRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/settings', settingsRouter);
-
-  // Generated files straight off disk: /output/videos/<file>, /output/thumbnails/<file>, …
-  // Read-only; no directory listing and no dotfiles.
-  app.use('/output', express.static(config.storage.outputDir, {
-    index: false,
-    dotfiles: 'ignore',
-  }));
 
   // Error handler (must be last)
   app.use(errorHandler);
