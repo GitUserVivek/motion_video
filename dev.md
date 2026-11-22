@@ -452,6 +452,7 @@ start.bat  # Windows
 | Diverse scene layouts | ✅ **DONE** | 22 components, varied compositions |
 | Professional animations | ✅ **DONE** | Multiple animation types |
 | Semantic asset matching | ✅ **DONE** | Context-aware selection |
+| Resource usage | ✅ **DONE** | More tiles per segment; narration-token fallback; EducationalObject images |
 | Quality validation | ✅ **DONE** | Scene and storyboard validation |
 | Audio synchronization | ⏳ **PENDING** | Needs actual duration |
 | Word-level timing | ⏳ **PENDING** | Needs implementation |

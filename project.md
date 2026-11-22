@@ -44,6 +44,7 @@ This is a **major upgrade** from the original 1.0 version, transforming the syst
 | **Storyboard Planning** | ✅ **DONE** | Topic-aware visual planning with semantic matching |
 | **New Components (8)** | ✅ **DONE** | SplitScreenComparison, ProcessFlow, Timeline, HighlightedRegion, NumberCounter, AnimatedDiagram, KineticTypography, ObjectZoom, Callout |
 | **Asset System** | ✅ **DONE** | 9 new SVGs + 32 object types (was 19) |
+| **Resource usage** | ✅ **DONE** | More tiles per segment, narration-token fallback, EducationalObject images |
 | **Validation System** | ✅ **DONE** | Comprehensive scene and storyboard validation |
 | **Enhanced Service** | ✅ **DONE** | Multiple attempts, fallback creation, relevance scoring |
 | **Schema Updates** | ✅ **DONE** | Support for new components and metadata |

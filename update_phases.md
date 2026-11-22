@@ -43,6 +43,11 @@ Legend: `[ ]` not started · `[~]` implemented, verification pending · `[x]` do
 - [x] `storyboard.json` records which component each scene uses; `llm/storyboard.json` records every model response for the job
 - [x] All paths come from one validated helper (`services/job.files.ts`)
 
+## Resource usage
+- [x] ConceptDiagram tiles now take up to two important terms per narration segment (was one)
+- [x] `matchAssetImage` falls back to a narration-token match, so script-named files are used instead of built-in glyphs
+- [x] `EducationalObject` gained an `image` prop and the backend attaches matching artwork to it
+
 ## Phase 5 — Asset acquisition
 - [x] Search/download service: Iconify, OpenMoji, Wikimedia Commons (all keyless, open licences)
 - [x] unDraw / LottieFiles deliberately not integrated: neither offers a public search API, and scraping is off-limits

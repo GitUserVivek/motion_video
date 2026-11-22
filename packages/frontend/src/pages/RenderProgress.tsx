@@ -146,47 +146,84 @@ export function RenderProgress(): React.ReactElement {
 
       {job ? (
         <>
-          <ProgressTracker
-            progress={job.progress}
-            currentStep={job.currentStep}
-            status={job.status}
-            error={job.error}
-            scenesCompleted={job.scenesCompleted}
-            scenesTotal={job.scenesTotal}
-          />
+          {/* While rendering, show the progress phases. Once the video is done,
+              the phases are replaced on screen by the finished video itself. */}
+          {!ready ? (
+            <>
+              <ProgressTracker
+                progress={job.progress}
+                currentStep={job.currentStep}
+                status={job.status}
+                error={job.error}
+                scenesCompleted={job.scenesCompleted}
+                scenesTotal={job.scenesTotal}
+              />
 
-          {/* Step list */}
-          <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {STEPS.map((step) => {
-              const stepIndex = STEPS.indexOf(step);
-              const currentIndex = STEPS.indexOf(job.currentStep);
-              const done = stepIndex < currentIndex || job.status === 'completed';
-              const active = step === job.currentStep && job.status === 'processing';
-              return (
-                <div key={step} style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '10px 14px', borderRadius: 8,
-                  backgroundColor: active ? '#4A90D920' : 'transparent',
-                  border: `1px solid ${active ? '#4A90D9' : 'transparent'}`,
-                  fontSize: 13,
-                  color: done ? '#2ecc71' : active ? '#4A90D9' : '#555',
-                }}>
-                  <span>{done ? '✓' : active ? '⏳' : '○'}</span>
-                  {STEP_LABELS[step] ?? step}
-                  {step === 'rendering' && typeof job.scenesTotal === 'number' && job.scenesTotal > 0 && (
-                    <span style={{ fontSize: 11, color: '#8f7be0' }}>
-                      scene {job.scenesCompleted ?? 0}/{job.scenesTotal}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+              {/* Step list */}
+              <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {STEPS.map((step) => {
+                  const stepIndex = STEPS.indexOf(step);
+                  const currentIndex = STEPS.indexOf(job.currentStep);
+                  const done = stepIndex < currentIndex || job.status === 'completed';
+                  const active = step === job.currentStep && job.status === 'processing';
+                  return (
+                    <div key={step} style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '10px 14px', borderRadius: 8,
+                      backgroundColor: active ? '#4A90D920' : 'transparent',
+                      border: `1px solid ${active ? '#4A90D9' : 'transparent'}`,
+                      fontSize: 13,
+                      color: done ? '#2ecc71' : active ? '#4A90D9' : '#555',
+                    }}>
+                      <span>{done ? '✓' : active ? '⏳' : '○'}</span>
+                      {STEP_LABELS[step] ?? step}
+                      {step === 'rendering' && typeof job.scenesTotal === 'number' && job.scenesTotal > 0 && (
+                        <span style={{ fontSize: 11, color: '#8f7be0' }}>
+                          scene {job.scenesCompleted ?? 0}/{job.scenesTotal}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <section style={{ marginTop: 4 }}>
+              <div style={{
+                padding: '12px 16px', marginBottom: 16, borderRadius: 10,
+                backgroundColor: '#2ecc7115', border: '1px solid #2ecc71',
+                color: '#2ecc71', fontSize: 13, fontWeight: 700,
+              }}>
+                ✓ Render complete — the video is ready to watch
+              </div>
 
-          {/* Which artwork each scene took: a newly downloaded file, one already
-              in the local library, or the built-in glyph when nothing matched.
-              The report is loaded once, so the panel keeps its previews while
-              the job poll continues. */}
+              {job.videoId ? <VideoPlayer videoId={job.videoId} poster={api.thumbnailUrl(job.videoId)} /> : null}
+
+              <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
+                <button
+                  onClick={() => { reset(); navigate('/create'); }}
+                  style={{ flex: 1, padding: '12px', backgroundColor: '#4A90D9', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700 }}
+                >
+                  + Create Another
+                </button>
+                <Link
+                  to="/preview"
+                  style={{ flex: 1, padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
+                >
+                  Video details
+                </Link>
+                <Link
+                  to="/history"
+                  style={{ flex: 1, padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
+                >
+                  History
+                </Link>
+              </div>
+            </section>
+          )}
+
+          {/* Artwork used: re-added and kept visible both while rendering and
+              after completion, so the tiles each scene took stay on screen. */}
           {job.assetsAvailable ? (
             <section style={{ marginTop: 24 }}>
               <h2 style={{ fontSize: 15, fontWeight: 700, color: '#e0e0f0', marginBottom: 4 }}>
@@ -261,42 +298,6 @@ export function RenderProgress(): React.ReactElement {
                   {assetsLoading ? 'Loading artwork…' : 'No artwork was picked for this job.'}
                 </p>
               )}
-            </section>
-          ) : null}
-
-          {/* Finished: play the video right here instead of leaving the page. */}
-          {ready && job.videoId ? (
-            <section style={{ marginTop: 28 }}>
-              <div style={{
-                padding: '12px 16px', marginBottom: 16, borderRadius: 10,
-                backgroundColor: '#2ecc7115', border: '1px solid #2ecc71',
-                color: '#2ecc71', fontSize: 13, fontWeight: 700,
-              }}>
-                ✓ Render complete — the video is ready to watch
-              </div>
-
-              <VideoPlayer videoId={job.videoId} poster={api.thumbnailUrl(job.videoId)} />
-
-              <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
-                <button
-                  onClick={() => { reset(); navigate('/create'); }}
-                  style={{ flex: 1, padding: '12px', backgroundColor: '#4A90D9', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700 }}
-                >
-                  + Create Another
-                </button>
-                <Link
-                  to="/preview"
-                  style={{ flex: 1, padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
-                >
-                  Video details
-                </Link>
-                <Link
-                  to="/history"
-                  style={{ flex: 1, padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
-                >
-                  History
-                </Link>
-              </div>
             </section>
           ) : null}
 
