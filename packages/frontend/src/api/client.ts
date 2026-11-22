@@ -67,6 +67,9 @@ export const api = {
   cancelJob: (jobId: string): Promise<void> =>
     request(`/jobs/${jobId}/cancel`, { method: 'POST' }),
 
+  resumeJob: (jobId: string): Promise<void> =>
+    request(`/jobs/${jobId}/resume`, { method: 'POST' }),
+
   listVideos: (): Promise<VideoListItem[]> => request('/videos'),
 
   deleteVideo: (videoId: string): Promise<void> =>

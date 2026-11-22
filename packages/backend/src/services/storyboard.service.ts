@@ -453,7 +453,7 @@ class StoryboardService {
     const typeMap: Array<[RegExp, string]> = [
       [/photo\w*|chlorophyll|leaf|plant|sunlight|green/, 'leaf'],
       [/bone|skeleton|femur|skull|rib|206/, 'skeleton'],
-      [/cell|dna|gene|nucleus|organism/, 'cell'],
+      [/cell|dna|gene|nucleus|organism|liver|enzyme|intestin|stomach|digest|nutrient|protein/, 'cell'],
       [/atom|molecule|electron|proton|neutron|chemistry/, 'atom'],
       [/computer|network|internet|server|technology|digital/, 'computer'],
       [/brain|neuron|mind|thinking|synaptic/, 'brain'],

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.js';
 import { useProjectStore } from '../store/projectStore.js';
 import { ProgressTracker } from '../components/ProgressTracker.js';
@@ -86,6 +86,7 @@ function AssetPreview({ pick }: { pick: SceneAssetUsage }): React.ReactElement {
 
 export function RenderProgress(): React.ReactElement {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { activeJobId, setCompletedVideo, reset } = useProjectStore();
 
   const { data: job } = useQuery({
@@ -130,7 +131,13 @@ export function RenderProgress(): React.ReactElement {
     if (activeJobId) await api.cancelJob(activeJobId);
   }
 
-  const ready = job?.status === 'completed' && Boolean(job.videoId);
+  async function handleResume(): Promise<void> {
+    if (!activeJobId) return;
+    await api.resumeJob(activeJobId);
+    await queryClient.invalidateQueries({ queryKey: ['job', activeJobId] });
+  }
+
+  const completed = job?.status === 'completed';
 
   const assets = assetReport?.assets ?? [];
   const downloadedCount = assets.filter((use) => use.source === 'downloaded').length;
@@ -148,7 +155,7 @@ export function RenderProgress(): React.ReactElement {
         <>
           {/* While rendering, show the progress phases. Once the video is done,
               the phases are replaced on screen by the finished video itself. */}
-          {!ready ? (
+          {!completed ? (
             <>
               <ProgressTracker
                 progress={job.progress}
@@ -186,6 +193,15 @@ export function RenderProgress(): React.ReactElement {
                   );
                 })}
               </div>
+
+              {['failed', 'cancelled'].includes(job.status) && (
+                <button
+                  onClick={() => void handleResume()}
+                  style={{ marginTop: 20, padding: '10px 20px', backgroundColor: '#4A90D920', color: '#4A90D9', border: '1px solid #4A90D9', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Resume Job
+                </button>
+              )}
             </>
           ) : (
             <section style={{ marginTop: 4 }}>
@@ -197,12 +213,18 @@ export function RenderProgress(): React.ReactElement {
                 ✓ Render complete — the video is ready to watch
               </div>
 
-              {job.videoId ? <VideoPlayer videoId={job.videoId} poster={api.thumbnailUrl(job.videoId)} /> : null}
+              {job.videoId ? (
+                <VideoPlayer videoId={job.videoId} poster={api.thumbnailUrl(job.videoId)} />
+              ) : (
+                <div style={{ padding: '20px 16px', borderRadius: 10, backgroundColor: '#16162a', border: '1px solid #2a2a44', color: '#a0a0c0', fontSize: 13 }}>
+                  The job completed, but the video file is not available. Check the output folder for this job.
+                </div>
+              )}
 
               <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
                 <button
                   onClick={() => { reset(); navigate('/create'); }}
-                  style={{ flex: 1, padding: '12px', backgroundColor: '#4A90D9', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700 }}
+                  style={{ flex: 1, padding: '12px', backgroundColor: '#4A90D9', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
                 >
                   + Create Another
                 </button>

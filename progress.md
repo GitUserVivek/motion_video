@@ -117,6 +117,9 @@ Paths are built in one place (`packages/backend/src/services/job.files.ts`), whi
 - Experimental frame-range chunked render across multiple GPUs behind `RENDER_DUAL_GPU=1`/`RENDER_PROFILE=dual-gpu`, with safe fallback to single pass.
 - Added `packages/backend/src/__tests__/hardware.test.ts`.
 
+### Visual relevance ✅ (2026-11-22)
+- Added digestion/liver/enzyme/intestine/stomach/nutrient/protein keywords to topic object matching and validation aliases, so scenes about food/digestion no longer render an unrelated object and fail relevance.
+
 ### Resource usage ✅ (2026-11-22)
 - Each ConceptDiagram now takes up to two important terms per narration segment (was one), so more of the words the script names become tiles.
 - `matchAssetImage` now falls back to a narration-token match when no icon/label match exists, so a downloaded or hand-placed file named after a word the scene says is used instead of the built-in glyph.

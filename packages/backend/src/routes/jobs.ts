@@ -135,4 +135,31 @@ router.post('/:jobId/cancel', (req, res) => {
   res.json({ success: true });
 });
 
+router.post('/:jobId/resume', (req, res) => {
+  const db = getDb();
+  const row = db.prepare('SELECT id, status FROM jobs WHERE id = ?').get(req.params['jobId']) as
+    | { id: string; status: string }
+    | undefined;
+
+  if (!row) throw new AppError('JOB_NOT_FOUND', 'Job not found', 404);
+  if (!['failed', 'cancelled'].includes(row.status)) {
+    throw new AppError('CANNOT_RESUME', `Cannot resume job with status: ${row.status}`, 400);
+  }
+
+  db.prepare(`
+    UPDATE jobs
+    SET status = 'pending',
+        progress = 0,
+        current_step = 'pending',
+        error = NULL,
+        retry_count = 0,
+        scenes_completed = 0,
+        scenes_total = 0,
+        updated_at = datetime('now')
+    WHERE id = ?
+  `).run(req.params['jobId']);
+
+  res.json({ success: true });
+});
+
 export default router;

@@ -36,7 +36,7 @@ const TOPIC_KEYWORDS: Array<[TopicObjectType, RegExp]> = [
   ['cloud', /\b(clouds?|weather|atmosphere|wind|storms?|climate|humidity|condens\w*|precipitat\w*|vapou?r)\b/i],
   ['rocket', /\b(rockets?|space|planets?|orbit|mars|moon|gravity|launch|astronaut|satellite)\b/i],
   ['atom', /\b(atoms?|molecules?|electrons?|chemical|reactions?|bonds?|elements?|acids?|physics|force|motion|speed)\b/i],
-  ['cell', /\b(cells?|dna|genes?|bacteria|virus|nucleus|organisms?|biology|evolution)\b/i],
+  ['cell', /\b(cells?|dna|genes?|bacteria|virus|nucleus|organisms?|biology|evolution|liver|enzyme|intestin\w*|stomach|digest\w*|nutrient|protein|food)\b/i],
   ['heart', /\b(hearts?|blood|circulat\w*|lungs?|breath\w*|muscles?|body|digest\w*)\b/i],
   ['microscope', /\b(microscope|laboratory|experiments?|specimens?|microbes?)\b/i],
   ['calculator', /\b(numbers?|maths?|equations?|calculat\w*|fractions?|multipl\w*|add|subtract|algebra|geometry|percent\w*)\b/i],
