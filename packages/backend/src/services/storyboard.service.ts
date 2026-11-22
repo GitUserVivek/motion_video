@@ -4,9 +4,8 @@ import { storyboardValidator } from './storyboard.validation.js';
 import { buildStoryboardPrompt } from '../prompts/storyboard.prompt.js';
 import { ensureSceneVisuals } from './storyboard.visuals.js';
 import { parseLooseJson } from './json.repair.js';
-import { StoryboardPlanSchema } from '@edumotion/shared';
+import { StoryboardPlanSchema, type StoryboardPlan, type VideoConfig, type SubtitleEntry, type SceneInstruction, type ComponentName } from '@edumotion/shared';
 import { AppError } from '../middleware/errorHandler.js';
-import type { StoryboardPlan, VideoConfig, SubtitleEntry, SceneInstruction, ComponentName } from '@edumotion/shared';
 
 /** Mirrors ComponentNameSchema; typed so a typo cannot drift from the union. */
 const VALID_COMPONENTS: ReadonlySet<ComponentName> = new Set<ComponentName>([
@@ -97,7 +96,7 @@ class StoryboardService {
 
         // Validate the storyboard
         const validation = storyboardValidator.validate(withVisuals, script);
-        const relevanceScore = validation.sceneResults.reduce((sum, s) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
+        const relevanceScore = validation.sceneResults.reduce((sum: number, s: { visualRelevance?: number }) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
 
         if (validation.isValid && relevanceScore > bestScore) {
           bestScore = relevanceScore;
@@ -125,7 +124,7 @@ class StoryboardService {
         const { storyboard: withVisuals, injected } = ensureSceneVisuals(withCaptions, script);
 
         const validation = storyboardValidator.validate(withVisuals, script);
-        const relevanceScore = validation.sceneResults.reduce((sum, s) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
+        const relevanceScore = validation.sceneResults.reduce((sum: number, s: { visualRelevance?: number }) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
 
         if (relevanceScore > bestScore) {
           bestScore = relevanceScore;

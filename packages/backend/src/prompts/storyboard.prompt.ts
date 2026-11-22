@@ -38,7 +38,7 @@ VIDEO SPECS:
 - Estimated scenes: ${sceneCount}
 
 INFERRED TOPIC: ${topic}
-KEY CONCEPTS: ${concepts.join(', ')}
+KEY CONCEPTS: ${concepts.length > 0 ? concepts.join(', ') : 'general'}
 
 VISUAL STORYTELLING RULES (MANDATORY):
 
@@ -213,7 +213,8 @@ function inferTopicFromScript(script: string): string {
   }
 
   // Return first few words as topic
-  return firstSentence.split(' ').slice(0, 3).join(' ');
+  const firstWords = firstSentence.split(' ').slice(0, 3).join(' ');
+  return firstWords || 'general';
 }
 
 /**

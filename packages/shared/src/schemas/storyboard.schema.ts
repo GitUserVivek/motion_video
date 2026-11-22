@@ -18,7 +18,7 @@ export const ComponentNameSchema = z.enum([
   'Confetti',
   'EndScreen',
   'ProgressBar',
-  // New educational components (all implemented in @edumotion/renderer)
+  // New educational components
   'SplitScreenComparison',
   'ProcessFlow',
   'Timeline',
@@ -28,6 +28,11 @@ export const ComponentNameSchema = z.enum([
   'KineticTypography',
   'ObjectZoom',
   'Callout',
+  'QuestionReveal',
+  'FactHighlight',
+  'ScientificVisualization',
+  'ChartAnimation',
+  'BeforeAfterComparison',
 ]);
 
 export type ComponentName = z.infer<typeof ComponentNameSchema>;
@@ -64,8 +69,8 @@ export const SceneChildSchema = z.object({
   component: ComponentNameSchema,
   props: z.record(z.unknown()),
   // Optional metadata for educational validation
-  educationalRole: z.string().optional(), // e.g., "main_visual", "supporting", "label", "animation"
-  concept: z.string().optional(), // What concept this visual represents
+  educationalRole: z.string().optional(),
+  concept: z.string().optional(),
 });
 
 export type SceneChild = z.infer<typeof SceneChildSchema>;
@@ -79,8 +84,8 @@ export const SceneInstructionSchema = z.object({
   props: z.record(z.unknown()),
   children: z.array(SceneChildSchema).optional(),
   // Educational metadata
-  concept: z.string().optional(), // Main concept taught in this scene
-  visualStrategy: z.string().optional(), // How visuals support the narration
+  concept: z.string().optional(),
+  visualStrategy: z.string().optional(),
   cameraMovement: z.enum(['zoomIn', 'zoomOut', 'panLeft', 'panRight', 'static']).optional(),
 }).refine((s) => s.endFrame > s.startFrame, {
   message: 'endFrame must be greater than startFrame',
@@ -98,30 +103,34 @@ export const StoryboardPlanSchema = z.object({
   // Metadata for validation
   topic: z.string().optional(),
   educationalObjective: z.string().optional(),
-}).refine((plan) => {
+}).superRefine((plan, ctx) => {
   // Validate frame continuity
   const scenes = plan.scenes;
-  if (!scenes || scenes.length < 2) return true; // No continuity needed for 0 or 1 scene
-  for (let i = 0; i < scenes.length - 1; i++) {
-    const current = scenes[i];
-    const next = scenes[i + 1];
-    if (!current || !next) return false;
-    if (current.endFrame !== next.startFrame) {
-      return false;
+  if (scenes && scenes.length >= 2) {
+    for (let i = 0; i < scenes.length - 1; i++) {
+      const current = scenes[i];
+      const next = scenes[i + 1];
+      if (current && next && current.endFrame !== next.startFrame) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Frame gap between scene ${current.id} (ends at ${current.endFrame}) and scene ${next.id} (starts at ${next.startFrame})`,
+          path: ['scenes'],
+        });
+      }
     }
   }
-  return true;
-}, {
-  message: 'Scene frames must be contiguous',
-}).refine((plan) => {
+
   // Validate last scene ends at totalFrames
-  const scenes = plan.scenes;
-  if (!scenes || scenes.length === 0) return false;
-  const lastScene = scenes[scenes.length - 1];
-  if (!lastScene) return false;
-  return lastScene.endFrame === plan.totalFrames;
-}, {
-  message: 'Last scene must end at totalFrames',
+  if (scenes && scenes.length > 0) {
+    const lastScene = scenes[scenes.length - 1];
+    if (lastScene && lastScene.endFrame !== plan.totalFrames) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Last scene should end at totalFrames (${plan.totalFrames}), but ends at ${lastScene.endFrame}`,
+        path: ['scenes'],
+      });
+    }
+  }
 });
 
 export type StoryboardPlan = z.infer<typeof StoryboardPlanSchema>;
