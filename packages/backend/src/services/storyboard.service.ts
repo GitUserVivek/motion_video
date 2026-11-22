@@ -240,7 +240,10 @@ class StoryboardService {
 
       const direct = StoryboardPlanSchema.safeParse(withMeta);
       if (direct.success) {
-        const withCaptions = this.injectSubtitles(direct.data, subtitles);
+        const withCaptions = this.injectSubtitles(
+          this.ensureBackgroundRoots(direct.data),
+          subtitles,
+        );
         const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(
           withCaptions,
           script,
@@ -298,7 +301,10 @@ class StoryboardService {
         this.repairStoryboard(withMeta, totalFrames),
       );
       if (retryResult.success) {
-        const withCaptions = this.injectSubtitles(retryResult.data, subtitles);
+        const withCaptions = this.injectSubtitles(
+          this.ensureBackgroundRoots(retryResult.data),
+          subtitles,
+        );
         const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(
           withCaptions,
           script,
@@ -579,6 +585,51 @@ class StoryboardService {
     }
 
     return text;
+  }
+
+  /**
+   * Models sometimes put the scene's visual at the root instead of wrapping it
+   * in BackgroundScene. The director would fix that later, but structural
+   * validation runs first; without this repair every such scene is rejected as
+   * "Missing BackgroundScene" and the job makes two extra LLM attempts.
+   *
+   * The visual is kept, one layer down, and any nested background is promoted to
+   * the root so the environment is painted exactly once.
+   */
+  private ensureBackgroundRoots(storyboard: StoryboardPlan): StoryboardPlan {
+    let repaired = 0;
+    const scenes = storyboard.scenes.map((scene) => {
+      if (scene.component === 'BackgroundScene') return scene;
+
+      const children = [...(scene.children ?? [])];
+      const backgroundIndex = children.findIndex(
+        (child) => child.component === 'BackgroundScene',
+      );
+      const background = backgroundIndex >= 0 ? children.splice(backgroundIndex, 1)[0] : undefined;
+
+      repaired++;
+      return {
+        ...scene,
+        component: 'BackgroundScene' as const,
+        props: {
+          theme: typeof background?.props['theme'] === 'string'
+            ? background.props['theme']
+            : 'educational',
+          ...background?.props,
+        },
+        children: [
+          { component: scene.component, props: { ...scene.props } },
+          ...children,
+        ],
+      };
+    });
+
+    if (repaired > 0) {
+      console.warn(
+        `[Storyboard] Repaired ${repaired} scene root(s) by wrapping visuals in BackgroundScene`,
+      );
+    }
+    return repaired > 0 ? { ...storyboard, scenes } : storyboard;
   }
 
   /**

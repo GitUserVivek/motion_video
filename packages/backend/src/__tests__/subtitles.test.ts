@@ -56,10 +56,32 @@ describe('subtitleService.alignToScenes', () => {
     expect(first?.words?.[0]?.endMs).toBeLessThanOrEqual(1000);
   });
 
+  it('clips overlapping measured cues before they reach validation', () => {
+    const cues: SubtitleEntry[] = [
+      { index: 0, startMs: 0, endMs: 6000, text: 'first caption' },
+      { index: 1, startMs: 5500, endMs: 11000, text: 'second caption' },
+    ];
+
+    const normalized = subtitleService.normalizeCueTimeline(cues);
+
+    expect(normalized).toHaveLength(2);
+    expect(normalized[0]?.endMs).toBe(5500);
+    expect(normalized[1]?.startMs).toBe(5500);
+    expect(normalized.every((cue, index) =>
+      index === 0 || cue.startMs >= (normalized[index - 1]?.endMs ?? 0) - 1,
+    )).toBe(true);
+  });
+
   it('leaves a cue wholly inside one scene untouched', () => {
     const cue: SubtitleEntry = { index: 0, startMs: 1200, endMs: 1800, text: 'inside' };
     const aligned = subtitleService.alignToScenes([cue], scenes);
     expect(aligned.get('scene-2')).toEqual([cue]);
     expect(aligned.get('scene-1')).toEqual([]);
+
+    for (const entries of aligned.values()) {
+      for (let i = 1; i < entries.length; i++) {
+        expect(entries[i]?.startMs).toBeGreaterThanOrEqual((entries[i - 1]?.endMs ?? 0) - 1);
+      }
+    }
   });
 });

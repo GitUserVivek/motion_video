@@ -100,11 +100,14 @@ async function processJob(job: JobRow): Promise<void> {
   // when the engine cannot provide them (e.g. espeak).
   const subtitleSource: 'measured' | 'estimated' =
     measuredSubtitles && measuredSubtitles.length > 0 ? 'measured' : 'estimated';
-  const subtitles = measuredSubtitles && measuredSubtitles.length > 0
+  const subtitleCues = measuredSubtitles && measuredSubtitles.length > 0
     // edge-tts reports one cue per word; group them into readable phrases while
     // keeping the per-word timings for caption highlighting.
     ? subtitleService.groupWordCues(measuredSubtitles)
     : subtitleService.generateSubtitles(script, durationMs);
+  // Some engines emit phrase cues whose timestamps overlap by a few frames.
+  // Resolve that before writing SRT or injecting scene captions.
+  const subtitles = subtitleService.normalizeCueTimeline(subtitleCues);
   console.log(
     `[Subtitles] Job ${job.id}: ${subtitles.length} cue(s) from ${subtitleSource} timings`,
   );

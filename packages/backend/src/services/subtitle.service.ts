@@ -111,6 +111,58 @@ class SubtitleService {
   }
 
   /**
+   * Make cue display ranges non-overlapping.
+   *
+   * Some TTS engines emit phrase cues whose end timestamp slightly overlaps the
+   * next cue's start. Two captions cannot be painted at once, so the earlier cue
+   * is clipped at the later cue's start. Word timings on the clipped cue are
+   * trimmed to the same range so highlighting cannot outlive the caption.
+   */
+  normalizeCueTimeline(entries: SubtitleEntry[]): SubtitleEntry[] {
+    const sorted = [...entries].sort(
+      (a, b) => a.startMs - b.startMs || a.endMs - b.endMs,
+    );
+    const normalized: SubtitleEntry[] = [];
+
+    for (const cue of sorted) {
+      const previous = normalized[normalized.length - 1];
+      if (previous && cue.startMs < previous.endMs - 1) {
+        const splitAt = cue.startMs;
+        if (splitAt <= previous.startMs) {
+          // The later cue starts at or before the previous cue. Keeping both
+          // would paint two captions over the same frames; the later one wins.
+          normalized.pop();
+        } else {
+          previous.endMs = splitAt;
+          if (previous.words) {
+            previous.words = this.trimWords(previous.words, previous.startMs, splitAt);
+          }
+        }
+      }
+
+      normalized.push({ ...cue, index: normalized.length });
+    }
+
+    return normalized;
+  }
+
+  /** Keep only word timings that fall inside a cue's display range. */
+  private trimWords(
+    words: NonNullable<SubtitleEntry['words']>,
+    startMs: number,
+    endMs: number,
+  ): NonNullable<SubtitleEntry['words']> {
+    return words
+      .filter((word) => word.endMs > startMs && word.startMs < endMs)
+      .map((word) => ({
+        ...word,
+        startMs: Math.max(word.startMs, startMs),
+        endMs: Math.min(word.endMs, endMs),
+      }))
+      .filter((word) => word.endMs > word.startMs);
+  }
+
+  /**
    * Distribute subtitle entries across scenes proportionally.
    * Returns a map of sceneId -> SubtitleEntry[]
    */
@@ -131,7 +183,9 @@ class SubtitleService {
         if (clipped) sceneSubtitles.push(clipped);
       }
 
-      result.set(scene.id, sceneSubtitles);
+      // Clipping two neighbouring cues to the same scene can bring their edges
+      // together even when the source cues did not overlap.
+      result.set(scene.id, this.normalizeCueTimeline(sceneSubtitles));
     }
 
     return result;
