@@ -156,8 +156,8 @@ All 11 phases of the base system are complete and working.
 - ✅ `packages/backend/src/services/subtitle.service.ts`
   - ✅ `generateSubtitles(script, audioDuration)` — word-timed SRT + JSON
   - ✅ `alignToScenes(subtitles, scenes)` — distribute entries across scene slots
-- ✅ Audio output saved to `output/audio/<jobId>.wav`
-- ✅ Subtitles saved to `output/subtitles/<jobId>.srt` and `.json`
+- ✅ Audio output saved to `output/<jobId>/audio.wav`
+- ✅ Subtitles saved to `output/<jobId>/subtitles.srt` and `.json`
 
 ---
 
@@ -214,8 +214,8 @@ All 11 phases of the base system are complete and working.
   - ✅ `validateOutput(outputPath)` — ffprobe file check
   - ✅ `cleanupTemp(jobId)` — delete temp frames after success
 - ✅ Temp frames written to `temp/<jobId>/frames/`
-- ✅ Final MP4 written to `output/videos/<jobId>.mp4`
-- ✅ Thumbnail extracted at frame 1s → `output/thumbnails/<jobId>.jpg`
+- ✅ Final MP4 written to `output/<jobId>/video.mp4`
+- ✅ Thumbnail extracted at frame 1s → `output/<jobId>/thumbnail.jpg`
 
 ---
 
@@ -257,7 +257,7 @@ All 11 phases of the base system are complete and working.
 
 #### Completed Tasks
 - ✅ `packages/backend/src/services/storage.service.ts`
-  - ✅ `saveVideo(jobId, sourcePath)` — copy to `output/videos/`, register in DB
+  - ✅ `saveVideo(jobId, sourcePath)` — copy into `output/<jobId>/`, register in DB
   - ✅ `getVideoPath(videoId)` — resolve absolute path
   - ✅ `generateDownloadUrl(videoId)` — signed local URL with expiry
   - ✅ `deleteVideo(videoId)` — delete file + DB row

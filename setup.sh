@@ -94,8 +94,7 @@ echo -e "  ${GREEN}OK: Packages built${NC}"
 # ---------- 5. Create directories ----------
 echo "[5/7] Creating storage directories..."
 mkdir -p \
-  output/videos output/audio output/subtitles output/thumbnails \
-  temp data/projects \
+  output temp data/projects \
   assets/characters assets/backgrounds assets/animations assets/sounds \
   resources/icons resources/images \
   logs

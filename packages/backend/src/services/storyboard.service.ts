@@ -7,6 +7,11 @@ import { directStoryboard } from './scene.director.js';
 import { parseLooseJson } from './json.repair.js';
 import { StoryboardPlanSchema, type StoryboardPlan, type VideoConfig, type SubtitleEntry, type SceneInstruction, type ComponentName } from '@edumotion/shared';
 import { AppError } from '../middleware/errorHandler.js';
+import fs from 'fs';
+import path from 'path';
+// Aliased: planStoryboard takes the video config as a parameter named `config`.
+import { config as appConfig } from '../config.js';
+import { jobFiles } from './job.files.js';
 
 /** Mirrors ComponentNameSchema; typed so a typo cannot drift from the union. */
 const VALID_COMPONENTS: ReadonlySet<ComponentName> = new Set<ComponentName>([
@@ -33,6 +38,57 @@ const VALID_COMPONENTS: ReadonlySet<ComponentName> = new Set<ComponentName>([
 const COMPONENT_LOOKUP: ReadonlyMap<string, ComponentName> = new Map(
   [...VALID_COMPONENTS].map((name) => [name.toLowerCase(), name]),
 );
+
+type ValidationSummary = ReturnType<typeof storyboardValidator.validate>;
+
+/** One model response, exactly as received, plus what happened to it. */
+interface LlmAttemptLog {
+  attempt: number;
+  startedAt: string;
+  elapsedMs: number;
+  temperature: number;
+  response: string;
+  parse: 'ok' | 'failed';
+  parseError?: string;
+  schema: 'ok' | 'repaired' | 'failed';
+  schemaIssues?: string[];
+  validation?: {
+    isValid: boolean;
+    validScenes: number;
+    totalScenes: number;
+    relevance: number;
+    issues: string[];
+  };
+}
+
+function summarizeValidation(validation: ValidationSummary): NonNullable<LlmAttemptLog['validation']> {
+  const scenes = validation.sceneResults;
+  const relevance =
+    scenes.length === 0
+      ? 0
+      : scenes.reduce((sum, scene) => sum + Number(scene.visualRelevance ?? 0), 0) / scenes.length;
+
+  return {
+    isValid: validation.isValid,
+    validScenes: validation.validScenes,
+    totalScenes: validation.totalScenes,
+    relevance: Number(relevance.toFixed(3)),
+    issues: validation.overallIssues,
+  };
+}
+
+/** Best-effort JSON artifact: a failed write must never fail the render job. */
+function writeJobJson(jobId: string, filePath: string, data: unknown): void {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn(
+      `[Storyboard] Job ${jobId}: could not write ${path.basename(filePath)} — ` +
+        (err instanceof Error ? err.message : String(err)),
+    );
+  }
+}
 
 export interface PlannedStoryboard {
   storyboard: StoryboardPlan;
@@ -70,12 +126,39 @@ class StoryboardService {
       { role: 'user' as const, content: prompt },
     ];
 
+    // Every response the model produced for this job is written to
+    // output/<jobId>/llm/storyboard.json (and again once the final storyboard is
+    // known), so what it actually said can be inspected after the fact.
+    const attemptsLog: LlmAttemptLog[] = [];
+    let chosenMeta: {
+      attempt: number | null;
+      source: 'validated' | 'best-so-far' | 'fallback';
+      relevance: number | null;
+    } = { attempt: null, source: 'fallback', relevance: null };
+
+    const flushLlmLog = (finalStoryboard: StoryboardPlan | null): void => {
+      writeJobJson(jobId, jobFiles.llmStoryboard(jobId), {
+        jobId,
+        createdAt: new Date().toISOString(),
+        model: appConfig.localLlm.modelName,
+        request: { system: messages[0]?.content ?? '', user: prompt },
+        chosen: chosenMeta,
+        attempts: attemptsLog,
+        finalStoryboard,
+      });
+      if (finalStoryboard) {
+        writeJobJson(jobId, jobFiles.storyboard(jobId), finalStoryboard);
+      }
+    };
+
     // Try multiple attempts with different strategies
     const attempts = 3;
     let lastFailure = 'no attempt was made';
     let bestAttempt: StoryboardPlan | null = null;
     let bestAssetUses: SceneAssetUse[] = [];
     let bestScore = 0;
+    let bestAttemptNumber: number | null = null;
+    let backupAttemptNumber: number | null = null;
     // A storyboard that parsed cleanly but only missed a quality warning. It is
     // still a designed video, so it must never be thrown away in favour of the
     // generic slideshow (that is how one weak scene used to sink a whole job).
@@ -84,16 +167,32 @@ class StoryboardService {
     let backupScore = -1;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
+      const temperature = attempt === 1 ? 0.3 : attempt === 2 ? 0.1 : 0.05;
+      const startedAtMs = Date.now();
+      const startedAt = new Date(startedAtMs).toISOString();
+
       const raw = await ollamaService.chat(messages, {
-        temperature: attempt === 1 ? 0.3 : attempt === 2 ? 0.1 : 0.05,
+        temperature,
         num_predict: 4096,
       });
+      const elapsedMs = Date.now() - startedAtMs;
 
       let parsed: unknown;
       try {
         parsed = parseLooseJson(raw);
       } catch (err) {
         lastFailure = `JSON parse failed: ${(err as Error).message}`;
+        attemptsLog.push({
+          attempt,
+          startedAt,
+          elapsedMs,
+          temperature,
+          response: raw,
+          parse: 'failed',
+          parseError: lastFailure,
+          schema: 'failed',
+        });
+        flushLlmLog(null);
         console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt}/${attempts} — ${lastFailure}`);
         continue;
       }
@@ -116,10 +215,23 @@ class StoryboardService {
         const validation = storyboardValidator.validate(withVisuals, script);
         const relevanceScore = validation.sceneResults.reduce((sum: number, s: { visualRelevance?: number }) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
 
+        attemptsLog.push({
+          attempt,
+          startedAt,
+          elapsedMs,
+          temperature,
+          response: raw,
+          parse: 'ok',
+          schema: 'ok',
+          validation: summarizeValidation(validation),
+        });
+        flushLlmLog(null);
+
         if (validation.isValid && relevanceScore > bestScore) {
           bestScore = relevanceScore;
           bestAttempt = withVisuals;
           bestAssetUses = assetUses;
+          bestAttemptNumber = attempt;
           console.log(`[Storyboard] Job ${jobId}: attempt ${attempt} valid with relevance score: ${relevanceScore.toFixed(2)}`);
 
           // If we have a perfect or near-perfect score, stop here
@@ -133,6 +245,7 @@ class StoryboardService {
             backupScore = relevanceScore;
             backupAttempt = withVisuals;
             backupAssetUses = assetUses;
+            backupAttemptNumber = attempt;
             console.warn(
               `[Storyboard] Job ${jobId}: keeping attempt ${attempt} as the best storyboard so far ` +
                 `(relevance ${relevanceScore.toFixed(2)})`,
@@ -154,16 +267,45 @@ class StoryboardService {
         const validation = storyboardValidator.validate(withVisuals, script);
         const relevanceScore = validation.sceneResults.reduce((sum: number, s: { visualRelevance?: number }) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
 
+        attemptsLog.push({
+          attempt,
+          startedAt,
+          elapsedMs,
+          temperature,
+          response: raw,
+          parse: 'ok',
+          schema: 'repaired',
+          validation: summarizeValidation(validation),
+        });
+        flushLlmLog(null);
+
         if (validation.isValid && relevanceScore > bestScore) {
           bestScore = relevanceScore;
           bestAttempt = withVisuals;
           bestAssetUses = assetUses;
+          bestAttemptNumber = attempt;
           console.log(`[Storyboard] Job ${jobId}: repaired attempt ${attempt} with relevance score: ${relevanceScore.toFixed(2)}`);
         } else if (relevanceScore > backupScore) {
           backupScore = relevanceScore;
           backupAttempt = withVisuals;
           backupAssetUses = assetUses;
+          backupAttemptNumber = attempt;
         }
+      } else {
+        // Parsed as JSON but the schema did not fit even after repair.
+        attemptsLog.push({
+          attempt,
+          startedAt,
+          elapsedMs,
+          temperature,
+          response: raw,
+          parse: 'ok',
+          schema: 'failed',
+          schemaIssues: retryResult.error.errors.map(
+            (issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`,
+          ),
+        });
+        flushLlmLog(null);
       }
 
       lastFailure = this.describeIssues(retryResult?.error?.errors || []);
@@ -172,6 +314,12 @@ class StoryboardService {
 
     const chosenAttempt = bestAttempt ?? backupAttempt;
     const chosenAssetUses = bestAttempt ? bestAssetUses : backupAssetUses;
+
+    chosenMeta = bestAttempt
+      ? { attempt: bestAttemptNumber, source: 'validated', relevance: Number(bestScore.toFixed(3)) }
+      : backupAttempt
+        ? { attempt: backupAttemptNumber, source: 'best-so-far', relevance: Number(backupScore.toFixed(3)) }
+        : { attempt: null, source: 'fallback', relevance: null };
 
     if (!bestAttempt && chosenAttempt) {
       console.warn(
@@ -211,6 +359,7 @@ class StoryboardService {
           `[Storyboard] Job ${jobId}: using directed storyboard despite ${finalValidation.overallIssues.length} issue(s)`,
         );
       }
+      flushLlmLog(directed);
       return { storyboard: directed, assetUses: chosenAssetUses };
     }
 
@@ -218,8 +367,10 @@ class StoryboardService {
     // it the same visual direction so the output still looks designed.
     console.warn(`[Storyboard] Job ${jobId}: all attempts failed, creating fallback storyboard`);
     const fallback = this.createFallbackStoryboard(jobId, script, config, totalFrames, subtitles);
+    const directedFallback = directStoryboard(fallback, script).storyboard;
+    flushLlmLog(directedFallback);
     // The fallback has no diagram tiles, so there is no artwork to report.
-    return { storyboard: directStoryboard(fallback, script).storyboard, assetUses: [] };
+    return { storyboard: directedFallback, assetUses: [] };
   }
 
   /**

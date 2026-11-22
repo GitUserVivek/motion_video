@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/db.js';
-import { config } from '../config.js';
+import { jobFiles } from './job.files.js';
 import type { VideoListItem } from '@edumotion/shared';
 
 interface VideoRow {
@@ -31,11 +31,11 @@ class StorageService {
       throw new Error(`Source video not found: ${sourcePath}`);
     }
 
-    const fileName = `${jobId}-${Date.now()}.mp4`;
-    const destPath = path.join(config.storage.videosDir, fileName);
+    const fileName = `${Date.now()}.mp4`;
+    const destPath = path.join(jobFiles.dir(jobId), fileName);
 
     // Ensure destination directory exists
-    fs.mkdirSync(config.storage.videosDir, { recursive: true });
+    fs.mkdirSync(jobFiles.dir(jobId), { recursive: true });
 
     // Guard against overwrite
     if (fs.existsSync(destPath)) {

@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { getDb } from '../db/db.js';
-import type { JobResponse, ApiResponse, SceneAssetUsage } from '@edumotion/shared';
+import type {
+  JobResponse,
+  JobAssetsResponse,
+  ApiResponse,
+  SceneAssetUsage,
+} from '@edumotion/shared';
 import { AppError } from '../middleware/errorHandler.js';
 
 const router = Router();
@@ -32,6 +37,23 @@ function parseAssetUses(raw: string | null | undefined): SceneAssetUsage[] | und
   }
 }
 
+/**
+ * Attach the URL the UI previews each file from. Only real files get one: a
+ * built-in glyph lives inside the renderer and has no image to fetch.
+ */
+function withPreviewUrls(assets: SceneAssetUsage[] | undefined): SceneAssetUsage[] {
+  if (!assets) return [];
+  return assets.map((use) => {
+    if (!use.asset || use.source === 'builtin') return use;
+    const encoded = use.asset
+      .split('/')
+      .filter((segment) => segment.length > 0)
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+    return { ...use, previewUrl: `/api/assets/${encoded}` };
+  });
+}
+
 function rowToResponse(row: JobRow): JobResponse {
   return {
     jobId: row.id,
@@ -42,9 +64,26 @@ function rowToResponse(row: JobRow): JobResponse {
     videoId: row.video_id ?? undefined,
     scenesCompleted: typeof row.scenes_completed === 'number' ? row.scenes_completed : undefined,
     scenesTotal: typeof row.scenes_total === 'number' ? row.scenes_total : undefined,
-    assets: parseAssetUses(row.assets_json),
+    // The report itself is deliberately not part of the polled payload: it can
+    // carry hundreds of URLs and only ever changes once per job.
+    assetsAvailable: typeof row.assets_json === 'string' && row.assets_json.trim().length > 2,
   };
 }
+
+router.get('/:jobId/assets', (req, res) => {
+  const db = getDb();
+  const row = db
+    .prepare('SELECT id, assets_json FROM jobs WHERE id = ?')
+    .get(req.params['jobId']) as { id: string; assets_json: string | null } | undefined;
+
+  if (!row) throw new AppError('JOB_NOT_FOUND', 'Job not found', 404);
+
+  const response: ApiResponse<JobAssetsResponse> = {
+    success: true,
+    data: { assets: withPreviewUrls(parseAssetUses(row.assets_json)) },
+  };
+  res.json(response);
+});
 
 router.get('/', (_req, res) => {
   const db = getDb();

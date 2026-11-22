@@ -383,15 +383,17 @@ export function mountOutputStatic(app: express.Express): void {
     app.get([prefix, `${prefix}/*`], listingHandler(prefix));
   }
 
-  const count = (dir: string): number => {
+  const countJobFolders = (): number => {
     try {
-      return fs.readdirSync(dir).length;
+      return fs
+        .readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.')).length;
     } catch {
       return 0;
     }
   };
   console.log(
     `[Server] Static: /output (+ /api/output) -> ${root} ` +
-      `(${count(config.storage.videosDir)} video(s), ${count(config.storage.thumbnailsDir)} thumbnail(s))`,
+      `(${countJobFolders()} job folder(s))`,
   );
 }

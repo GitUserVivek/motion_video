@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config.js';
+import { jobFiles } from './job.files.js';
 import type { StoryboardPlan, VideoConfig, SceneInstruction } from '@edumotion/shared';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -42,14 +43,10 @@ class RenderService {
     onSceneProgress?: (progress: SceneRenderProgress) => void,
   ): Promise<RenderResult> {
     const framesDir = path.join(config.storage.tempDir, jobId, 'frames');
-    const finalPath = path.join(
-      config.storage.videosDir,
-      `${jobId}-${Date.now()}.mp4`,
-    );
-    const thumbPath = path.join(
-      config.storage.thumbnailsDir,
-      `${jobId}.jpg`,
-    );
+    // Final artifacts live in output/<jobId>/ together with the audio, the
+    // subtitles and the storyboard this video was rendered from.
+    const finalPath = jobFiles.video(jobId);
+    const thumbPath = jobFiles.thumbnail(jobId);
 
     fs.mkdirSync(framesDir, { recursive: true });
 

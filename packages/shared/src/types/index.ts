@@ -110,6 +110,13 @@ export interface SceneAssetUsage {
   /** Library-relative file, e.g. `auto/heart-1a2b3c4d.svg`; null = built-in glyph. */
   asset: string | null;
   source: 'downloaded' | 'library' | 'builtin';
+  /** Same-origin URL that renders the file, so the UI can show a preview. */
+  previewUrl?: string;
+}
+
+export interface JobAssetsResponse {
+  /** Artwork each scene picked, with a preview URL per file. */
+  assets: SceneAssetUsage[];
 }
 
 export interface JobResponse {
@@ -122,8 +129,11 @@ export interface JobResponse {
   /** Scenes rendered so far — only meaningful while `currentStep` is `rendering`. */
   scenesCompleted?: number;
   scenesTotal?: number;
-  /** Artwork picked per scene, available once the storyboard is planned. */
-  assets?: SceneAssetUsage[];
+  /**
+   * True once the artwork report exists. The report itself is fetched once from
+   * `/api/jobs/:id/assets`, so the 2-second job poll stays small.
+   */
+  assetsAvailable?: boolean;
 }
 
 export interface VideoListItem {

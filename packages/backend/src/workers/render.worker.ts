@@ -6,8 +6,8 @@ import { renderService } from '../services/render.service.js';
 import { qualityService } from '../services/quality.service.js';
 import { assetDiscovery } from '../services/asset.discovery.js';
 import { resetAssetCache } from '../services/asset.library.js';
+import { ensureJobDir, jobFiles } from '../services/job.files.js';
 import { config } from '../config.js';
-import path from 'path';
 import fs from 'fs';
 import { ASPECT_RATIOS, resolveTtsVoice } from '@edumotion/shared';
 import type { VideoConfig } from '@edumotion/shared';
@@ -69,8 +69,10 @@ async function processJob(job: JobRow): Promise<void> {
 
   const script = scriptRow.content;
 
-  // 2. Generate TTS audio
-  const audioPath = path.join(config.storage.audioDir, `${job.id}.wav`);
+  // 2. Generate TTS audio. Everything for this job is written to
+  // output/<jobId>/, so audio, subtitles, report and video stay together.
+  ensureJobDir(job.id);
+  const audioPath = jobFiles.audio(job.id);
   console.log(`[Worker] Job ${job.id} [1/4] synthesizing audio (${script.length} chars)`);
   // The per-video voice wins over the server default, and preset ids from the
   // UI ('en-US-male-1') are translated into the engine's own voice name.
@@ -98,8 +100,8 @@ async function processJob(job: JobRow): Promise<void> {
     // keeping the per-word timings for caption highlighting.
     ? subtitleService.groupWordCues(measuredSubtitles)
     : subtitleService.generateSubtitles(script, durationMs);
-  const srtPath = path.join(config.storage.subtitlesDir, `${job.id}.srt`);
-  const jsonSubPath = path.join(config.storage.subtitlesDir, `${job.id}.json`);
+  const srtPath = jobFiles.subtitlesSrt(job.id);
+  const jsonSubPath = jobFiles.subtitlesJson(job.id);
   subtitleService.writeSrt(subtitles, srtPath);
   subtitleService.writeJson(subtitles, jsonSubPath);
 

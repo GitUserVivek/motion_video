@@ -16,15 +16,12 @@ import videosGenerateRouter from './routes/videos.generate.js';
 import jobsRouter from './routes/jobs.js';
 import settingsRouter from './routes/settings.js';
 import { mountOutputStatic } from './routes/output.js';
+import assetsRouter from './routes/assets.js';
 
 // Ensure required directories exist
 function ensureDirectories(): void {
   const dirs = [
     config.storage.outputDir,
-    config.storage.videosDir,
-    config.storage.audioDir,
-    config.storage.subtitlesDir,
-    config.storage.thumbnailsDir,
     config.storage.tempDir,
     config.storage.assetsDir,
     config.storage.resourcesDir,
@@ -98,6 +95,8 @@ async function bootstrap(): Promise<void> {
   app.use('/api/videos', videosRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/settings', settingsRouter);
+  // Read-only artwork previews for the render page.
+  app.use('/api/assets', assetsRouter);
 
   // Error handler (must be last)
   app.use(errorHandler);

@@ -3,6 +3,7 @@ import type {
   HealthStatus,
   ScriptResponse,
   JobResponse,
+  JobAssetsResponse,
   VideoListItem,
   Settings,
   VideoConfig,
@@ -56,6 +57,10 @@ export const api = {
     }),
 
   getJob: (jobId: string): Promise<JobResponse> => request(`/jobs/${jobId}`),
+
+  /** The artwork report changes at most once per job, so callers fetch it once. */
+  getJobAssets: (jobId: string): Promise<JobAssetsResponse> =>
+    request(`/jobs/${jobId}/assets`),
 
   listJobs: (): Promise<JobResponse[]> => request('/jobs'),
 

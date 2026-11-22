@@ -35,8 +35,13 @@ Legend: `[ ]` not started · `[~]` implemented, verification pending · `[x]` do
 
 ## Phase 4 — Post-render quality control
 - [x] `quality.service.ts`: ffprobe streams/duration/dimensions + ffmpeg blackdetect/freezedetect
-- [x] Report written to `output/reports/<jobId>.json`
+- [x] Report written to `output/<jobId>/quality-report.json`
 - [x] Worker runs QC before saving and refuses to mark a failing render completed
+
+## Output layout
+- [x] One folder per job: `output/<jobId>/` holds the video, thumbnail, audio, subtitles and quality report
+- [x] `storyboard.json` records which component each scene uses; `llm/storyboard.json` records every model response for the job
+- [x] All paths come from one validated helper (`services/job.files.ts`)
 
 ## Phase 5 — Asset acquisition
 - [x] Search/download service: Iconify, OpenMoji, Wikimedia Commons (all keyless, open licences)

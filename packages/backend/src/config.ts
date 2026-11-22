@@ -89,11 +89,9 @@ export const config = {
 
   storage: {
     rootDir: ROOT_DIR,
+    // Every job gets its own folder here: output/<jobId>/{video.mp4,audio.wav,…}.
+    // See services/job.files.ts for the layout.
     outputDir: path.join(ROOT_DIR, 'output'),
-    videosDir: path.join(ROOT_DIR, 'output', 'videos'),
-    audioDir: path.join(ROOT_DIR, 'output', 'audio'),
-    subtitlesDir: path.join(ROOT_DIR, 'output', 'subtitles'),
-    thumbnailsDir: path.join(ROOT_DIR, 'output', 'thumbnails'),
     tempDir: path.join(ROOT_DIR, 'temp'),
     assetsDir: path.join(ROOT_DIR, 'assets'),
     // Optional artwork pack (SVG/PNG/JPG/WebP/GIF). Everything found here is

@@ -30,6 +30,60 @@ function groupByScene(assets: SceneAssetUsage[]): Array<[number, SceneAssetUsage
   return [...scenes.entries()].sort((a, b) => a[0] - b[0]);
 }
 
+/**
+ * The picture a tile actually used. Downloaded and library files come back with
+ * a preview URL from the API; a built-in glyph has no file to fetch, so it gets
+ * a neutral tile rather than a broken image.
+ */
+function AssetPreview({ pick }: { pick: SceneAssetUsage }): React.ReactElement {
+  if (pick.previewUrl) {
+    return (
+      <img
+        src={pick.previewUrl}
+        alt={pick.label}
+        loading="lazy"
+        style={{
+          width: 44,
+          height: 44,
+          flexShrink: 0,
+          padding: 4,
+          borderRadius: 8,
+          objectFit: 'contain',
+          backgroundColor: '#0f0f1e',
+          border: '1px solid #2a2a44',
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      title={`Built-in glyph: ${pick.icon}`}
+      style={{
+        width: 44,
+        height: 44,
+        flexShrink: 0,
+        padding: 4,
+        borderRadius: 8,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#0f0f1e',
+        border: '1px dashed #3a3a5a',
+        color: '#6a6a85',
+        fontSize: 8,
+        fontWeight: 700,
+        letterSpacing: 0.3,
+        textAlign: 'center',
+        textTransform: 'uppercase',
+        overflow: 'hidden',
+      }}
+    >
+      {pick.icon}
+    </div>
+  );
+}
+
 export function RenderProgress(): React.ReactElement {
   const navigate = useNavigate();
   const { activeJobId, setCompletedVideo, reset } = useProjectStore();
@@ -43,6 +97,20 @@ export function RenderProgress(): React.ReactElement {
       if (status === 'completed' || status === 'failed' || status === 'cancelled') return false;
       return 2000;
     },
+  });
+
+  // The artwork report changes at most once per job, so it is fetched once from
+  // its own endpoint instead of being repeated in every 2-second poll.
+  const { data: assetReport, isLoading: assetsLoading } = useQuery({
+    queryKey: ['job-assets', activeJobId],
+    queryFn: () => api.getJobAssets(activeJobId!),
+    enabled: !!activeJobId && job?.assetsAvailable === true,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
   });
 
   // Stay on this page and play the result here; the preview route is still
@@ -64,7 +132,7 @@ export function RenderProgress(): React.ReactElement {
 
   const ready = job?.status === 'completed' && Boolean(job.videoId);
 
-  const assets = job?.assets ?? [];
+  const assets = assetReport?.assets ?? [];
   const downloadedCount = assets.filter((use) => use.source === 'downloaded').length;
   const libraryCount = assets.filter((use) => use.source === 'library').length;
   const builtinCount = assets.filter((use) => use.source === 'builtin').length;
@@ -116,64 +184,83 @@ export function RenderProgress(): React.ReactElement {
           </div>
 
           {/* Which artwork each scene took: a newly downloaded file, one already
-              in the local library, or the built-in glyph when nothing matched. */}
-          {assets.length > 0 ? (
+              in the local library, or the built-in glyph when nothing matched.
+              The report is loaded once, so the panel keeps its previews while
+              the job poll continues. */}
+          {job.assetsAvailable ? (
             <section style={{ marginTop: 24 }}>
               <h2 style={{ fontSize: 15, fontWeight: 700, color: '#e0e0f0', marginBottom: 4 }}>
                 Artwork used
               </h2>
-              <p style={{ color: '#666', fontSize: 12, marginTop: 0, marginBottom: 12 }}>
-                {downloadedCount} downloaded · {libraryCount} from the local library ·{' '}
-                {builtinCount} built-in glyph{builtinCount === 1 ? '' : 's'}
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {groupByScene(assets).map(([sceneIndex, picks]) => (
-                  <div
-                    key={sceneIndex}
-                    style={{
-                      backgroundColor: '#16162a',
-                      border: '1px solid #2a2a44',
-                      borderRadius: 10,
-                      padding: '10px 14px',
-                    }}
-                  >
-                    <div style={{ fontSize: 11, letterSpacing: 0.6, color: '#7a7a9a', marginBottom: 6 }}>
-                      SCENE {sceneIndex + 1}
-                    </div>
-                    {picks.map((pick, i) => (
+
+              {assets.length > 0 ? (
+                <>
+                  <p style={{ color: '#666', fontSize: 12, marginTop: 0, marginBottom: 12 }}>
+                    {downloadedCount} downloaded · {libraryCount} from the local library ·{' '}
+                    {builtinCount} built-in glyph{builtinCount === 1 ? '' : 's'}
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {groupByScene(assets).map(([sceneIndex, picks]) => (
                       <div
-                        key={`${pick.label}-${i}`}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 0' }}
+                        key={sceneIndex}
+                        style={{
+                          backgroundColor: '#16162a',
+                          border: '1px solid #2a2a44',
+                          borderRadius: 10,
+                          padding: '10px 14px',
+                        }}
                       >
-                        <span style={{ flex: 1, color: '#e6e6f0' }}>{pick.label}</span>
-                        <span
-                          style={{
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            color: pick.asset ? '#8f7be0' : '#6a6a85',
-                          }}
-                        >
-                          {pick.asset ?? `built-in glyph (${pick.icon})`}
-                        </span>
-                        {pick.source === 'downloaded' ? (
-                          <span
-                            style={{
-                              fontSize: 10,
-                              fontWeight: 700,
-                              color: '#4A90D9',
-                              border: '1px solid #4A90D9',
-                              borderRadius: 4,
-                              padding: '1px 5px',
-                            }}
+                        <div style={{ fontSize: 11, letterSpacing: 0.6, color: '#7a7a9a', marginBottom: 6 }}>
+                          SCENE {sceneIndex + 1}
+                        </div>
+                        {picks.map((pick, i) => (
+                          <div
+                            key={`${pick.label}-${i}`}
+                            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}
                           >
-                            NEW
-                          </span>
-                        ) : null}
+                            <AssetPreview pick={pick} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ color: '#e6e6f0', fontSize: 12 }}>{pick.label}</div>
+                              <div
+                                title={pick.asset ?? `built-in glyph (${pick.icon})`}
+                                style={{
+                                  fontFamily: 'monospace',
+                                  fontSize: 10,
+                                  color: pick.asset ? '#8f7be0' : '#6a6a85',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {pick.asset ?? `built-in glyph (${pick.icon})`}
+                              </div>
+                            </div>
+                            {pick.source === 'downloaded' ? (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: '#4A90D9',
+                                  border: '1px solid #4A90D9',
+                                  borderRadius: 4,
+                                  padding: '1px 5px',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                NEW
+                              </span>
+                            ) : null}
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <p style={{ color: '#666', fontSize: 12 }}>
+                  {assetsLoading ? 'Loading artwork…' : 'No artwork was picked for this job.'}
+                </p>
+              )}
             </section>
           ) : null}
 

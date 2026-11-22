@@ -50,7 +50,7 @@ New `packages/backend/src/services/quality.service.ts`:
 - ffmpeg single decode pass: `blackdetect` + `freezedetect`;
 - failures (no video, no audio, wrong size, duration off by >8 % or 1.5 s, >15 % black, unreadable file) → job is marked `quality_failed` instead of `completed`;
 - warnings (fps drift, >50 % frozen) are logged;
-- report written to `output/reports/<jobId>.json`.
+- report written to `output/<jobId>/quality-report.json`.
 
 ### Phase 5 — Automatic asset discovery ✅ (code complete, network untested here)
 `packages/backend/src/services/asset.discovery.ts`, run by the worker before storyboard planning:
@@ -63,7 +63,7 @@ New `packages/backend/src/services/quality.service.ts`:
 - **Failure behaviour**: 8 s timeout + one retry per request; any error is logged and the job continues with the built-in SVG glyphs. Rendering never depends on a provider being reachable.
 - **Visible progress**: new `discovering_assets` step between subtitle alignment and storyboard planning.
 - **Tests**: `packages/backend/src/__tests__/assets.test.ts` covers query building, stopwords/dedup, SVG sanitisation, scoring and slugs (cannot be executed in this sandbox — see limitations).
-- **Visibility**: `ensureSceneVisuals` now returns a per-tile report (`SceneAssetUse`), stored in `jobs.assets_json` and exposed as `JobResponse.assets`. The render page lists every scene's tiles with the file that was used (`auto/heart-…svg`, a local library file) or `built-in glyph (heart)` when nothing matched; the worker logs the same counts.
+- **Visibility**: `ensureSceneVisuals` returns a per-tile report (`SceneAssetUse`), stored in `jobs.assets_json`. `JobResponse` only carries `assetsAvailable`, and the report itself comes from `GET /api/jobs/:id/assets` once per job — the 2-second poll no longer re-sends it. Each entry includes a `previewUrl` served by `GET /api/assets/<file>` (the artwork library, read-only and images only), so the render page shows a thumbnail next to every tile instead of just a file name; built-in glyphs, which have no file, show a neutral icon tile. The worker logs the same counts.
 
 ### Phase 6 — Composition set & intent-driven direction ✅ (code complete, visual check pending)
 Four new renderer components, each drawn from scratch in the project's own style (no new dependencies):
@@ -100,6 +100,17 @@ The `photosynthesis` job log showed the planner discarding three parsed storyboa
 ### Phase 5 — `/output` serving ✅ (browsable index added 2026-11-22)
 `mountOutputStatic()` (now `packages/backend/src/routes/output.ts`) serves `/output` and `/api/output` as a browsable HTML index: breadcrumbs, a parent-folder link, folders first, file size and modification time, clickable names (inline preview / streaming via `express.static`'s range support) and a `Download` link per file that forces `Content-Disposition: attachment`. Directory URLs redirect to a trailing slash so relative links resolve, dotfiles stay hidden, and both percent-encoded traversal and symlinks pointing outside the output tree are rejected. The boot log still prints the resolved root + file counts.
 
+### Per-job output folders ✅ (2026-11-22)
+Every artefact of a job now lives in **`output/<jobId>/`** instead of the type-based `output/videos`, `output/audio`, `output/subtitles`, `output/thumbnails` and `output/reports` folders:
+- `video.mp4`, `thumbnail.jpg` — render output;
+- `audio.wav` — the narration that was muxed into the video;
+- `subtitles.srt`, `subtitles.json` — captions and their word timings;
+- `quality-report.json` — the ffprobe/ffmpeg QC report (and the reason for a `quality_failed`);
+- `storyboard.json` — the final directed storyboard: which component each scene uses and with what props;
+- `llm/storyboard.json` — the full model trace: the exact system + user prompt, every attempt's raw response, whether it parsed / needed repair / passed schema and validation, the relevance score, which attempt was chosen, and the final storyboard.
+
+Paths are built in one place (`packages/backend/src/services/job.files.ts`), which rejects a job id that could escape `output/`, so `/output` now lists one folder per video that can be opened, browsed and downloaded from as a unit. The LLM log is written after each attempt as well as at the end, so a job that hangs or fails still shows what the model returned.
+
 ---
 
 ## Remaining work
@@ -129,7 +140,7 @@ The `photosynthesis` job log showed the planner discarding three parsed storyboa
 #   [Server] Static: /output (+ /api/output) -> ...
 #   [Storyboard] ... directed N change(s) — scene 1: sky/dots; ...
 #   [Worker] ... quality: passed (38.4s, 1080x1920, 0.0s black, 0 frozen)
-ls output/reports/         # one JSON per rendered job
+ls output/<jobId>/          # video, audio, subtitles, storyboard, LLM log, QC report
 ```
 
 If a job now ends `quality_failed`, the report names the exact reason — that is the intended behaviour, not a regression.

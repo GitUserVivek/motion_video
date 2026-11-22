@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { config } from '../config.js';
+import { jobFiles } from './job.files.js';
 
 /**
  * Post-render quality control.
@@ -218,7 +218,8 @@ class QualityService {
       }
     }
 
-    const reportPath = path.join(config.storage.outputDir, 'reports', `${options.jobId}.json`);
+    // The report belongs to the job's own folder, next to the video it describes.
+    const reportPath = jobFiles.qualityReport(options.jobId);
     const report: QualityReport = {
       jobId: options.jobId,
       videoPath: options.videoPath,
