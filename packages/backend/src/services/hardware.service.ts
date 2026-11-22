@@ -37,7 +37,7 @@ export function parseNvidiaSmi(output: string): GpuInfo[] {
     if (parts.length < 3) continue;
     const index = Number(parts[0]);
     const name = parts[1];
-    const memoryMB = Number(parts[2].replace(/[^0-9.]/g, ''));
+    const memoryMB = Number((parts[2] ?? '').replace(/[^0-9.]/g, ''));
     if (!Number.isFinite(index) || !name) continue;
     gpus.push({ index, name, memoryMB: Number.isFinite(memoryMB) ? memoryMB : 0 });
   }
