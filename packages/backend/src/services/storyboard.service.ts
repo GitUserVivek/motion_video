@@ -23,6 +23,10 @@ const VALID_COMPONENTS: ReadonlySet<ComponentName> = new Set<ComponentName>([
   'KineticTypography',
   'ObjectZoom',
   'Callout',
+  'SpeechBubble',
+  'AnnotatedCallout',
+  'ComparisonChart',
+  'SummaryScene',
 ]);
 
 /** Case-insensitive lookup: the model writes "animatedtext" as often as "AnimatedText". */
@@ -72,6 +76,12 @@ class StoryboardService {
     let bestAttempt: StoryboardPlan | null = null;
     let bestAssetUses: SceneAssetUse[] = [];
     let bestScore = 0;
+    // A storyboard that parsed cleanly but only missed a quality warning. It is
+    // still a designed video, so it must never be thrown away in favour of the
+    // generic slideshow (that is how one weak scene used to sink a whole job).
+    let backupAttempt: StoryboardPlan | null = null;
+    let backupAssetUses: SceneAssetUse[] = [];
+    let backupScore = -1;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
       const raw = await ollamaService.chat(messages, {
@@ -119,6 +129,15 @@ class StoryboardService {
           }
         } else {
           console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt} validation failed: ${validation.overallIssues.join('; ')}`);
+          if (relevanceScore > backupScore) {
+            backupScore = relevanceScore;
+            backupAttempt = withVisuals;
+            backupAssetUses = assetUses;
+            console.warn(
+              `[Storyboard] Job ${jobId}: keeping attempt ${attempt} as the best storyboard so far ` +
+                `(relevance ${relevanceScore.toFixed(2)})`,
+            );
+          }
         }
 
         continue;
@@ -135,11 +154,15 @@ class StoryboardService {
         const validation = storyboardValidator.validate(withVisuals, script);
         const relevanceScore = validation.sceneResults.reduce((sum: number, s: { visualRelevance?: number }) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
 
-        if (relevanceScore > bestScore) {
+        if (validation.isValid && relevanceScore > bestScore) {
           bestScore = relevanceScore;
           bestAttempt = withVisuals;
           bestAssetUses = assetUses;
           console.log(`[Storyboard] Job ${jobId}: repaired attempt ${attempt} with relevance score: ${relevanceScore.toFixed(2)}`);
+        } else if (relevanceScore > backupScore) {
+          backupScore = relevanceScore;
+          backupAttempt = withVisuals;
+          backupAssetUses = assetUses;
         }
       }
 
@@ -147,10 +170,20 @@ class StoryboardService {
       console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt}/${attempts} — ${lastFailure}`);
     }
 
-    if (bestAttempt) {
+    const chosenAttempt = bestAttempt ?? backupAttempt;
+    const chosenAssetUses = bestAttempt ? bestAssetUses : backupAssetUses;
+
+    if (!bestAttempt && chosenAttempt) {
+      console.warn(
+        `[Storyboard] Job ${jobId}: no attempt passed validation; using the best storyboard ` +
+          `(relevance ${backupScore.toFixed(2)}) instead of a fallback slideshow`,
+      );
+    }
+
+    if (chosenAttempt) {
       // Visual direction is deterministic and runs after the model: palettes,
       // patterns, camera moves, short headings and the closing end screen.
-      const { storyboard: directed, changes } = directStoryboard(bestAttempt, script);
+      const { storyboard: directed, changes } = directStoryboard(chosenAttempt, script);
       if (changes.length > 0) {
         console.log(
           `[Storyboard] Job ${jobId}: directed ${changes.length} change(s) — ${changes.slice(0, 4).join('; ')}`,
@@ -178,7 +211,7 @@ class StoryboardService {
           `[Storyboard] Job ${jobId}: using directed storyboard despite ${finalValidation.overallIssues.length} issue(s)`,
         );
       }
-      return { storyboard: directed, assetUses: bestAssetUses };
+      return { storyboard: directed, assetUses: chosenAssetUses };
     }
 
     // No attempt produced a usable storyboard: build a deterministic one and give

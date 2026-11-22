@@ -27,6 +27,9 @@ import { config } from '../config.js';
 
 const USER_AGENT = 'EduMotion/1.0 (local educational video generator)';
 const SEARCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const COLLECTION_LICENSE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** Bump when cached search results gain fields, so old entries are ignored. */
+const SEARCH_CACHE_VERSION = 'v2';
 const OPENMOJI_VERSION = '15.1.0';
 const OPENMOJI_INDEX_URL =
   `https://cdn.jsdelivr.net/npm/openmoji@${OPENMOJI_VERSION}/data/openmoji.json`;
@@ -97,6 +100,14 @@ interface WikimediaImageInfo {
 interface WikimediaResponse {
   query?: {
     pages?: Record<string, { title?: string; imageinfo?: WikimediaImageInfo[] }>;
+  };
+}
+
+interface IconifyCollection {
+  info?: {
+    name?: string;
+    author?: { name?: string; url?: string };
+    license?: { title?: string; spdx?: string; url?: string };
   };
 }
 
@@ -305,6 +316,7 @@ class AssetDiscoveryService {
   private searchCache: Record<string, SearchCacheEntry> | null = null;
   private manifest: AssetManifestEntry[] | null = null;
   private openMojiIndex: OpenMojiEntry[] | null = null;
+  private collectionLicenses: Record<string, AssetLicense> | null = null;
 
   isEnabled(): boolean {
     return config.assets.discoveryEnabled && typeof fetch === 'function';
@@ -399,33 +411,113 @@ class AssetDiscoveryService {
     );
     if (!data || !Array.isArray(data.icons)) return [];
 
-    const candidates: AssetCandidate[] = [];
+    const parsedIcons: Array<{ prefix: string; name: string }> = [];
 
     for (const icon of data.icons.slice(0, 8)) {
       if (typeof icon !== 'string') continue;
       const [prefix, name] = icon.split(':');
       if (!prefix || !name) continue;
+      parsedIcons.push({ prefix, name });
+    }
+    if (parsedIcons.length === 0) return [];
 
+    // Iconify publishes each set's real licence; resolve unknown prefixes once
+    // instead of writing "See icon set" into the credits file.
+    const licenses = await this.loadCollectionLicenses([
+      ...new Set(parsedIcons.map((icon) => icon.prefix)),
+    ]);
+
+    return parsedIcons.map(({ prefix, name }) => {
       const base: Omit<AssetCandidate, 'score'> = {
         provider: 'iconify',
-        id: icon,
+        id: `${prefix}:${name}`,
         name: name.replace(/-/g, ' '),
         tags: [prefix, name.replace(/-/g, ' '), query],
         format: 'svg',
         // White tint: the tiles sit on saturated backgrounds, and a raw
         // `currentColor` icon would render black inside a data URL.
         url: `https://api.iconify.design/${prefix}/${name}.svg?height=360&color=%23ffffff`,
-        license: ICONIFY_LICENSES[prefix] ?? {
+        license: licenses[prefix] ?? ICONIFY_LICENSES[prefix] ?? {
           name: 'See icon set',
           url: `https://icon-sets.iconify.design/${prefix}/`,
           attribution: prefix,
         },
       };
 
-      candidates.push({ ...base, score: scoreAssetCandidate(base, query) });
+      return { ...base, score: scoreAssetCandidate(base, query) };
+    });
+  }
+
+  /** Real licence titles from Iconify's collection metadata, cached for a month. */
+  private async loadCollectionLicenses(prefixes: string[]): Promise<Record<string, AssetLicense>> {
+    const cache = this.loadLicenseCache();
+    const missing = prefixes.filter((prefix) => !cache[prefix]);
+    if (missing.length === 0) return cache;
+
+    const resolved = await Promise.all(
+      missing.map(async (prefix) => {
+        const data = await this.fetchJson<IconifyCollection>(
+          `https://api.iconify.design/collection?prefix=${encodeURIComponent(prefix)}`,
+        );
+        const info = data?.info;
+        const license = info?.license;
+        if (!license) return null;
+
+        return {
+          prefix,
+          license: {
+            name: license.spdx ?? license.title ?? 'See icon set',
+            ...(license.url ? { url: license.url } : {}),
+            ...(info?.author?.name ? { attribution: info.author.name } : {}),
+          },
+        };
+      }),
+    );
+
+    let changed = false;
+    for (const entry of resolved) {
+      if (!entry) continue;
+      cache[entry.prefix] = entry.license;
+      changed = true;
     }
 
-    return candidates;
+    if (changed) this.saveLicenseCache(cache);
+    return cache;
+  }
+
+  private loadLicenseCache(): Record<string, AssetLicense> {
+    if (this.collectionLicenses) return this.collectionLicenses;
+
+    const cachePath = path.join(config.assets.cacheDir, 'iconify-collections.json');
+
+    try {
+      const stat = fs.statSync(cachePath);
+      if (Date.now() - stat.mtimeMs < COLLECTION_LICENSE_TTL_MS) {
+        const parsed = JSON.parse(fs.readFileSync(cachePath, 'utf-8')) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          this.collectionLicenses = parsed as Record<string, AssetLicense>;
+          return this.collectionLicenses;
+        }
+      }
+    } catch {
+      // No usable cache yet.
+    }
+
+    this.collectionLicenses = {};
+    return this.collectionLicenses;
+  }
+
+  private saveLicenseCache(cache: Record<string, AssetLicense>): void {
+    try {
+      fs.mkdirSync(config.assets.cacheDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(config.assets.cacheDir, 'iconify-collections.json'),
+        JSON.stringify(cache, null, 2),
+        'utf-8',
+      );
+    } catch {
+      // Caching licences is an optimisation only.
+    }
   }
 
   private async searchOpenMoji(query: string): Promise<AssetCandidate[]> {
@@ -677,7 +769,7 @@ class AssetDiscoveryService {
 
   private readSearchCache(query: string): AssetCandidate[] | null {
     const cache = this.loadSearchCache();
-    const entry = cache[query];
+    const entry = cache[`${SEARCH_CACHE_VERSION}:${query}`];
     if (!entry) return null;
     if (Date.now() - entry.at > SEARCH_CACHE_TTL_MS) return null;
     return entry.candidates;
@@ -685,7 +777,7 @@ class AssetDiscoveryService {
 
   private writeSearchCache(query: string, candidates: AssetCandidate[]): void {
     const cache = this.loadSearchCache();
-    cache[query] = { at: Date.now(), candidates };
+    cache[`${SEARCH_CACHE_VERSION}:${query}`] = { at: Date.now(), candidates };
     try {
       fs.mkdirSync(config.assets.cacheDir, { recursive: true });
       fs.writeFileSync(config.assets.searchCachePath, JSON.stringify(cache, null, 2), 'utf-8');

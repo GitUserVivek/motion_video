@@ -74,4 +74,16 @@ export type { ObjectZoomProps } from './components/ObjectZoom.js';
 export { Callout } from './components/Callout.js';
 export type { CalloutProps } from './components/Callout.js';
 
+export { SpeechBubble } from './components/SpeechBubble.js';
+export type { SpeechBubbleProps } from './components/SpeechBubble.js';
+
+export { AnnotatedCallout } from './components/AnnotatedCallout.js';
+export type { AnnotatedCalloutProps, AnnotatedPoint } from './components/AnnotatedCallout.js';
+
+export { ComparisonChart } from './components/ComparisonChart.js';
+export type { ComparisonChartProps, ComparisonBar } from './components/ComparisonChart.js';
+
+export { SummaryScene } from './components/SummaryScene.js';
+export type { SummarySceneProps } from './components/SummaryScene.js';
+
 export * from './utils/animation.js';

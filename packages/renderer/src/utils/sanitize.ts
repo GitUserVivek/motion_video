@@ -49,6 +49,15 @@ function enumValue(value: unknown, allowed: Set<string>, fallback: string): stri
   return typeof value === 'string' && allowed.has(value) ? value : fallback;
 }
 
+/**
+ * Accent colours are used to build gradients and glows ("#FFD16655"), so only a
+ * plain six-digit hex survives; a named colour or a broken value would paint
+ * "undefined" into the CSS.
+ */
+function hexColor(value: unknown, fallback: string): string {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+}
+
 function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
@@ -264,6 +273,94 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
       // silently fall back to the default theme.
       if (typeof next['palette'] !== 'string' || !PALETTES.has(next['palette'])) delete next['palette'];
       return next;
+    }
+
+    case 'SpeechBubble': {
+      const value = str(raw['text'], '').trim();
+      if (!value) return null;
+      return {
+        ...raw,
+        text: value.slice(0, 220),
+        speaker: str(raw['speaker'], '').slice(0, 32),
+        tail: enumValue(raw['tail'], new Set(['left', 'right', 'none']), 'left'),
+        variant: enumValue(
+          raw['variant'],
+          new Set(['statement', 'question', 'thought']),
+          'statement',
+        ),
+        width: num(raw['width'], 820, 240, 1400),
+        fontSize: num(raw['fontSize'], 34, 16, 90),
+        accent: hexColor(raw['accent'], '#FFD166'),
+      };
+    }
+
+    case 'AnnotatedCallout': {
+      const points = Array.isArray(raw['points'])
+        ? raw['points']
+            .filter(isRecord)
+            .map((point) => ({
+              label: str(point['label'], '').trim().slice(0, 28),
+              detail: str(point['detail'], '').trim().slice(0, 60),
+              x: num(point['x'], 50, 2, 98),
+              y: num(point['y'], 50, 2, 98),
+            }))
+            .filter((point) => point.label.length > 0)
+            .slice(0, 3)
+        : [];
+      if (points.length === 0) return null;
+
+      const image = raw['image'];
+      const usableImage =
+        typeof image === 'string' && /^data:image\//i.test(image) && image.length <= 2_000_000
+          ? image
+          : undefined;
+      const next: Props = {
+        ...raw,
+        subject: enumValue(raw['subject'], OBJECT_TYPES, 'book'),
+        points,
+        accent: hexColor(raw['accent'], '#FFD166'),
+      };
+      if (usableImage) next['image'] = usableImage;
+      else delete next['image'];
+      return next;
+    }
+
+    case 'ComparisonChart': {
+      const bars = Array.isArray(raw['bars'])
+        ? raw['bars']
+            .filter(isRecord)
+            .map((bar) => {
+              const suffix = str(bar['suffix'], '').slice(0, 6);
+              return {
+                label: str(bar['label'], '').trim().slice(0, 28),
+                value: num(bar['value'], Number.NaN, 0, 1e9),
+                ...(suffix ? { suffix } : {}),
+              };
+            })
+            .filter((bar) => bar.label.length > 0 && Number.isFinite(bar.value))
+            .slice(0, 4)
+        : [];
+      if (bars.length === 0) return null;
+      return {
+        ...raw,
+        title: str(raw['title'], '').slice(0, 60),
+        bars,
+        accent: hexColor(raw['accent'], '#FFD166'),
+      };
+    }
+
+    case 'SummaryScene': {
+      const points = stringList(raw['points'], [])
+        .map((point) => point.slice(0, 60))
+        .slice(0, 5);
+      if (points.length === 0) return null;
+      return {
+        ...raw,
+        title: str(raw['title'], 'In short').slice(0, 48),
+        badgeText: str(raw['badgeText'], 'Recap').slice(0, 18),
+        points,
+        accent: hexColor(raw['accent'], '#FFD166'),
+      };
     }
 
     default:

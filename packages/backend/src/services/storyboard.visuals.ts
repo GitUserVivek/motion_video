@@ -20,6 +20,12 @@ const TOPIC_COMPONENTS = new Set<string>([
   'MultiplicationTable',
   'ImageScene',
   'QuestionCard',
+  // Composition components already illustrate the topic themselves, so adding a
+  // diagram next to them would stack two visuals of the same idea.
+  'SpeechBubble',
+  'AnnotatedCallout',
+  'ComparisonChart',
+  'SummaryScene',
 ]);
 
 // Ordered: the first match wins, so more specific topics are listed first.
@@ -121,6 +127,23 @@ export function pickTopicObject(text: string, fallback: TopicObjectType = 'book'
     if (pattern.test(text)) return type;
   }
   return fallback;
+}
+
+/**
+ * Re-point an EducationalObject at the concept the narration names. The model
+ * happily renders a book next to "the heart pumps blood"; this fixes that
+ * without inventing props, and leaves the type alone when the narration gives no
+ * better match. Shared with the scene director so validation and the final
+ * direction agree on what the object represents.
+ */
+export function alignObjectChild(child: SceneChild, narration: string): SceneChild {
+  if (child.component !== 'EducationalObject') return child;
+
+  const current = child.props['type'];
+  if (typeof current !== 'string') return child;
+
+  const better = pickTopicObject(narration, current as TopicObjectType);
+  return better === current ? child : { ...child, props: { ...child.props, type: better } };
 }
 
 /**
@@ -437,7 +460,14 @@ export function ensureSceneVisuals(
     if (isClosing) return { ...scene, children };
 
     const narration = childText(children) || script;
-    const enriched = children.map((child) =>
+    // The model often picks an object unrelated to what the scene says, which
+    // used to fail validation deterministically (relevance 0.35) and discard the
+    // whole storyboard. Align it before anything is measured.
+    const aligned = children.map((child) => alignObjectChild(child, narration));
+    const alignedProps = scene.component === 'EducationalObject'
+      ? alignObjectChild({ component: scene.component, props: scene.props }, narration).props
+      : scene.props;
+    const enriched = aligned.map((child) =>
       child.component === 'ConceptDiagram' ? attachDiagramImages(child, narration, record) : child,
     );
     const extra: SceneChild[] = [];
@@ -485,11 +515,11 @@ export function ensureSceneVisuals(
     // Record what this scene's tiles ended up with, downloaded or not.
     assetUses.push(...picks.map((pick) => ({ sceneIndex: index, ...pick })));
 
-    if (extra.length === 0) return { ...scene, children: enriched };
+    if (extra.length === 0) return { ...scene, props: alignedProps, children: enriched };
 
     injected += extra.length;
     // Prepended so captions and titles painted afterwards stay on top.
-    return { ...scene, children: [...extra, ...enriched] };
+    return { ...scene, props: alignedProps, children: [...extra, ...enriched] };
   });
 
   return { storyboard: { ...storyboard, scenes }, injected, assetUses };

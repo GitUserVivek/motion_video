@@ -28,6 +28,11 @@ export const ComponentNameSchema = z.enum([
   'KineticTypography',
   'ObjectZoom',
   'Callout',
+  // Phase 6 composition set
+  'SpeechBubble',
+  'AnnotatedCallout',
+  'ComparisonChart',
+  'SummaryScene',
   // Every name above has a renderer in packages/renderer/src/components and an
   // entry in COMPONENT_MAP. Names without a renderer must not be in this union:
   // the model could request a component that throws at render time.

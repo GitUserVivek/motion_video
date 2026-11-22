@@ -49,9 +49,14 @@ Legend: `[ ]` not started · `[~]` implemented, verification pending · `[x]` do
 - [x] `ASSET_DISCOVERY` / `ASSET_PROVIDERS` / `ASSET_MAX_QUERIES` / `ASSET_TIMEOUT_MS` configuration
 - [x] Unit tests for query building, SVG sanitisation, scoring and slugs
 
-## Phase 6 — Typography & composition components *(next)*
-- [ ] Speech bubbles, annotated callouts, comparison charts, summary scene used by the director
-- [ ] Director picks composition by narration intent (process / comparison / timeline / data / hook / summary)
+## Phase 6 — Typography & composition components
+- [x] `SpeechBubble`: floating bubble with speaker pill, tail and question badge, for hooks and quoted lines
+- [x] `AnnotatedCallout`: centred subject with pulsing dots, pixel-accurate leader lines and labelled cards in the margins
+- [x] `ComparisonChart`: two to four animated bars, value above each bar, label taken from the narration
+- [x] `SummaryScene`: badge + numbered recap rows, each revealed on its own beat
+- [x] Registered in `ComponentNameSchema`, `COMPONENT_MAP`, the sanitiser, the validator's visual list and the prompt
+- [x] Director picks composition by narration intent (process / comparison / timeline / data / hook / summary, plus definition)
+- [x] Composition props are derived from the scene's own words, so a directed composition still scores as relevant
 
 ## Phase 7 — Word-level captions
 - [x] Group edge-tts per-word cues into readable phrases (≤7 words / ≤48 chars)

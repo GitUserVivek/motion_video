@@ -17,7 +17,8 @@ export function buildStoryboardPrompt(
     'MultiplicationTable', 'ImageScene', 'BackgroundScene',
     'Subtitle', 'QuestionCard', 'Confetti', 'EndScreen', 'ProgressBar',
     'SplitScreenComparison', 'ProcessFlow', 'Timeline', 'HighlightedRegion',
-    'AnimatedDiagram', 'NumberCounter', 'KineticTypography', 'ObjectZoom', 'Callout'
+    'AnimatedDiagram', 'NumberCounter', 'KineticTypography', 'ObjectZoom', 'Callout',
+    'SpeechBubble', 'AnnotatedCallout', 'ComparisonChart', 'SummaryScene'
   ];
 
   // Extract key concepts from script for better visual planning
@@ -87,6 +88,10 @@ VISUAL STORYTELLING RULES (MANDATORY):
    - If narration explains a process, use ProcessFlow or Timeline
    - If narration lists items, use ConceptDiagram
    - If narration asks a question, use QuestionCard
+   - If narration quotes someone or asks a hook question, use SpeechBubble (text, speaker, variant)
+   - If narration defines or points at parts of one thing, use AnnotatedCallout (points: label + x/y %)
+   - If narration compares measured values, use ComparisonChart (bars: label + value)
+   - If narration recaps several points, use SummaryScene (title, points: string array)
    - Final scene MUST have EndScreen with summary
 
 7. SCENE CONTENT REQUIREMENTS:

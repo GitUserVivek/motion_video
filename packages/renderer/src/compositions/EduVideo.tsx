@@ -26,6 +26,10 @@ import { AnimatedDiagram } from '../components/AnimatedDiagram.js';
 import { KineticTypography } from '../components/KineticTypography.js';
 import { ObjectZoom } from '../components/ObjectZoom.js';
 import { Callout } from '../components/Callout.js';
+import { SpeechBubble } from '../components/SpeechBubble.js';
+import { AnnotatedCallout } from '../components/AnnotatedCallout.js';
+import { ComparisonChart } from '../components/ComparisonChart.js';
+import { SummaryScene } from '../components/SummaryScene.js';
 import { ParticleField } from '../components/ParticleField.js';
 import { fadeIn, fadeOut } from '../utils/animation.js';
 import { sanitizeProps } from '../utils/sanitize.js';
@@ -56,6 +60,10 @@ const COMPONENT_MAP: Record<ComponentName, React.ComponentType<Record<string, un
   KineticTypography:   KineticTypography as unknown as React.ComponentType<Record<string, unknown>>,
   ObjectZoom:          ObjectZoom as unknown as React.ComponentType<Record<string, unknown>>,
   Callout:             Callout as unknown as React.ComponentType<Record<string, unknown>>,
+  SpeechBubble:        SpeechBubble as unknown as React.ComponentType<Record<string, unknown>>,
+  AnnotatedCallout:    AnnotatedCallout as unknown as React.ComponentType<Record<string, unknown>>,
+  ComparisonChart:     ComparisonChart as unknown as React.ComponentType<Record<string, unknown>>,
+  SummaryScene:        SummaryScene as unknown as React.ComponentType<Record<string, unknown>>,
 };
 
 /** Frames of cross-fade overlap between consecutive scenes. */

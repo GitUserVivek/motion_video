@@ -169,6 +169,7 @@ export class StoryboardValidator {
       'ImageScene', 'Character', 'Teacher', 'SplitScreenComparison',
       'ProcessFlow', 'Timeline', 'HighlightedRegion', 'AnimatedDiagram',
       'NumberCounter', 'ObjectZoom', 'Callout', 'EndScreen', 'QuestionCard',
+      'SpeechBubble', 'AnnotatedCallout', 'ComparisonChart', 'SummaryScene',
     ];
   }
 
@@ -219,7 +220,7 @@ export class StoryboardValidator {
     push(child.props['text']);
     push(child.props['question']);
 
-    for (const key of ['items', 'steps', 'milestones', 'points', 'values']) {
+    for (const key of ['items', 'steps', 'milestones', 'points', 'values', 'bars', 'events']) {
       const list = child.props[key];
       if (!Array.isArray(list)) continue;
       for (const entry of list.slice(0, 8)) {
@@ -229,6 +230,7 @@ export class StoryboardValidator {
         push(record['type']);
         push(record['text']);
         push(record['title']);
+        push(record['date']);
       }
     }
 
