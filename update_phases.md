@@ -81,6 +81,10 @@ Legend: `[ ]` not started · `[~]` implemented, verification pending · `[x]` do
 
 ---
 
+## Follow-up fixes
+- [x] Resume failed/cancelled jobs from the render page and History (`POST /api/jobs/:id/resume`)
+- [x] Show the finished video for completed jobs: the JSON store ignores `AS` aliases, so the jobs API now reads the video record by `job_id`
+
 ## Constraints in this sandbox
 - No TTS, LLM, Remotion render or server run (4 vCPU / no GPU here; testing happens on the Kaggle box).
 - `@rollup/rollup-linux-x64-gnu` is missing, so Vite/tsup/vitest cannot run → verification is `tsc --noEmit` (backend, shared, renderer) plus static reasoning.

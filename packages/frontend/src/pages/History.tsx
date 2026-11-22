@@ -1,12 +1,17 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.js';
 import { VideoPlayer } from '../components/VideoPlayer.js';
+import { useProjectStore } from '../store/projectStore.js';
 import type { VideoListItem } from '@edumotion/shared';
 
 export function History(): React.ReactElement {
+  const navigate = useNavigate();
   const qc = useQueryClient();
+  const setActiveJob = useProjectStore((state) => state.setActiveJob);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [resuming, setResuming] = useState<string | null>(null);
   const [playing, setPlaying] = useState<VideoListItem | null>(null);
 
   const { data: videos, isLoading } = useQuery({
@@ -42,6 +47,18 @@ export function History(): React.ReactElement {
       await qc.invalidateQueries({ queryKey: ['videos'] });
     } finally {
       setDeleting(null);
+    }
+  }
+
+  async function handleResume(jobId: string): Promise<void> {
+    setResuming(jobId);
+    try {
+      await api.resumeJob(jobId);
+      await qc.invalidateQueries({ queryKey: ['jobs'] });
+      setActiveJob(jobId);
+      navigate('/render');
+    } finally {
+      setResuming(null);
     }
   }
 
@@ -131,6 +148,13 @@ export function History(): React.ReactElement {
                         {job.error ?? 'No error message recorded.'}
                       </pre>
                     </div>
+                    <button
+                      onClick={() => void handleResume(job.jobId)}
+                      disabled={resuming === job.jobId}
+                      style={{ ...btnSmall, flexShrink: 0 }}
+                    >
+                      {resuming === job.jobId ? '…' : '↻ Resume'}
+                    </button>
                   </div>
                 ))}
               </div>

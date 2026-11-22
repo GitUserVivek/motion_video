@@ -14,6 +14,9 @@
  * datetime('now')) are supported in WHERE, SET and VALUES clauses. Parameters are
  * numbered independently per clause, exactly like the queries in this project use
  * them.
+ *
+ * Known limitation: SELECT does not honour column aliases (`v.id AS video_id`),
+ * so read the underlying column name instead of relying on an alias.
  */
 
 import fs from 'fs';

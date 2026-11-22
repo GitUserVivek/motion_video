@@ -147,7 +147,7 @@ export function RenderProgress(): React.ReactElement {
   return (
     <div style={{ maxWidth: 720 }}>
       <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, color: '#fff' }}>
-        {ready ? 'Your Video Is Ready' : 'Rendering Video'}
+        {completed ? (job?.videoId ? 'Your Video Is Ready' : 'Render Complete') : 'Rendering Video'}
       </h1>
       <p style={{ color: '#666', marginBottom: 24, fontSize: 13 }}>Job ID: {activeJobId}</p>
 

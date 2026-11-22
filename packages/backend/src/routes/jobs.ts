@@ -20,10 +20,31 @@ interface JobRow {
   created_at: string;
   updated_at: string;
   retry_count: number;
-  video_id: string | null;
   scenes_completed?: number;
   scenes_total?: number;
   assets_json?: string | null;
+}
+
+interface VideoRow {
+  id: string;
+  job_id: string;
+}
+
+/**
+ * The JSON store does not implement SQL aliases (`v.id AS video_id`), so the
+ * join used to silently drop the video id: a completed job rendered with no
+ * video in the UI. Look the record up by job_id instead.
+ */
+function videoIdsByJob(): Map<string, string> {
+  const rows = getDb().prepare('SELECT * FROM videos').all() as VideoRow[];
+  return new Map(rows.map((row) => [row.job_id, row.id]));
+}
+
+function videoIdForJob(jobId: string): string | undefined {
+  const row = getDb()
+    .prepare('SELECT * FROM videos WHERE job_id = ?')
+    .get(jobId) as VideoRow | undefined;
+  return row?.id;
 }
 
 function parseAssetUses(raw: string | null | undefined): SceneAssetUsage[] | undefined {
@@ -54,14 +75,14 @@ function withPreviewUrls(assets: SceneAssetUsage[] | undefined): SceneAssetUsage
   });
 }
 
-function rowToResponse(row: JobRow): JobResponse {
+function rowToResponse(row: JobRow, videoId?: string): JobResponse {
   return {
     jobId: row.id,
     status: row.status as JobResponse['status'],
     progress: row.progress,
     currentStep: row.current_step,
     error: row.error,
-    videoId: row.video_id ?? undefined,
+    videoId,
     scenesCompleted: typeof row.scenes_completed === 'number' ? row.scenes_completed : undefined,
     scenesTotal: typeof row.scenes_total === 'number' ? row.scenes_total : undefined,
     // The report itself is deliberately not part of the polled payload: it can
@@ -86,34 +107,29 @@ router.get('/:jobId/assets', (req, res) => {
 });
 
 router.get('/', (_req, res) => {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT j.*, v.id as video_id
-    FROM jobs j
-    LEFT JOIN videos v ON v.job_id = j.id
-    ORDER BY j.created_at DESC
-    LIMIT 50
-  `).all() as JobRow[];
+  const rows = getDb()
+    .prepare('SELECT * FROM jobs ORDER BY created_at DESC LIMIT 50')
+    .all() as JobRow[];
+  const videos = videoIdsByJob();
 
   const response: ApiResponse<JobResponse[]> = {
     success: true,
-    data: rows.map(rowToResponse),
+    data: rows.map((row) => rowToResponse(row, videos.get(row.id))),
   };
   res.json(response);
 });
 
 router.get('/:jobId', (req, res) => {
-  const db = getDb();
-  const row = db.prepare(`
-    SELECT j.*, v.id as video_id
-    FROM jobs j
-    LEFT JOIN videos v ON v.job_id = j.id
-    WHERE j.id = ?
-  `).get(req.params['jobId']) as JobRow | undefined;
+  const row = getDb()
+    .prepare('SELECT * FROM jobs WHERE id = ?')
+    .get(req.params['jobId']) as JobRow | undefined;
 
   if (!row) throw new AppError('JOB_NOT_FOUND', 'Job not found', 404);
 
-  const response: ApiResponse<JobResponse> = { success: true, data: rowToResponse(row) };
+  const response: ApiResponse<JobResponse> = {
+    success: true,
+    data: rowToResponse(row, videoIdForJob(row.id)),
+  };
   res.json(response);
 });
 
@@ -155,6 +171,7 @@ router.post('/:jobId/resume', (req, res) => {
         retry_count = 0,
         scenes_completed = 0,
         scenes_total = 0,
+        assets_json = NULL,
         updated_at = datetime('now')
     WHERE id = ?
   `).run(req.params['jobId']);

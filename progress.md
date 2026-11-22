@@ -117,6 +117,10 @@ Paths are built in one place (`packages/backend/src/services/job.files.ts`), whi
 - Experimental frame-range chunked render across multiple GPUs behind `RENDER_DUAL_GPU=1`/`RENDER_PROFILE=dual-gpu`, with safe fallback to single pass.
 - Added `packages/backend/src/__tests__/hardware.test.ts`.
 
+### Resume & completed video ✅ (2026-11-22)
+- `POST /api/jobs/:id/resume` re-queues failed or cancelled jobs (resets progress, error, retry counters and the artwork report); the render page and History page expose Resume.
+- Fixed completed jobs showing no video: the JSON store ignores SQL aliases, so `v.id AS video_id` was always empty. The jobs API now reads the video record by `job_id`, and the completed state still shows the player even if a video record is missing.
+
 ### Visual relevance ✅ (2026-11-22)
 - Added digestion/liver/enzyme/intestine/stomach/nutrient/protein keywords to topic object matching and validation aliases, so scenes about food/digestion no longer render an unrelated object and fail relevance.
 
