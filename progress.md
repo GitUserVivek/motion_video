@@ -1,290 +1,108 @@
 # EduMotion AI — Progress Tracker
 
-> Last updated: 2026-11-22  
-> Status: 🟡 **ENHANCEMENT PHASE - 85% Complete**
+> Last updated: 2026-11-22
+> Plan: [`update_phases.md`](./update_phases.md) · Request: [`Update_Instructions.md`](./Update_Instructions.md)
+> Status: 🟡 visual upgrade in progress — phases 0–4 implemented, verification pending on the GPU box
 
 ---
 
-## 📊 OVERALL PROGRESS SUMMARY
+## What changed in this upgrade
 
-### ✅ COMPLETED (100% - 11/11 Phases)
-| Phase | Status | Completion | Key Features |
-|---|---|---|---|
-| Phase 1 — Project Scaffold | ✅ **DONE** | 100% | Monorepo, TypeScript, Workspaces |
-| Phase 2 — Backend Core | ✅ **DONE** | 100% | Express, SQLite, Config, Routes |
-| Phase 3 — Script Workflows | ✅ **DONE** | 100% | Script generation, validation, rewrite |
-| Phase 4 — Remotion Components | ✅ **DONE** | 100% | 14 base + 8 new = 22 components |
-| Phase 5 — TTS & Audio Alignment | ✅ **DONE** | 100% | edge-tts, espeak, subtitle generation |
-| Phase 6 — Storyboard & Scene JSON | ✅ **DONE** | 100% | JSON generation, validation, repair |
-| Phase 7 — Rendering Worker & FFmpeg | ✅ **DONE** | 100% | Frame rendering, video muxing |
-| Phase 8 — Frontend Pages | ✅ **DONE** | 100% | 8 pages, React, Zustand |
-| Phase 9 — Storage & Downloads | ✅ **DONE** | 100% | File management, DB persistence |
-| Phase 10 — Setup & Start Scripts | ✅ **DONE** | 100% | setup.bat, start.bat, stop.bat |
-| Phase 11 — Tests & Verification | ✅ **DONE** | 100% | Unit tests, E2E verification |
+### Phase 0 — Audit ✅
+Read the whole generation pipeline (script → TTS → subtitles → storyboard → director → Remotion → FFmpeg).
+Root causes of the "dark slideshow" look, in the order they matter:
 
----
+1. **Every scene used one of four dark gradients** (`#1a1a2e → #0f3460`, etc.). No per-scene colour.
+2. **Nothing planned visual variety.** The storyboard prompt *asked* for diversity; nothing enforced it.
+3. **Title = narration.** `AnimatedText` often received the spoken paragraph.
+4. **No guaranteed ending.** Validation demanded an EndScreen, the prompt asked for one, the model often omitted it, and after 3 attempts the job silently used a generic fallback storyboard.
+5. **Relevance scoring was `script.includes(type)`** — a sensible diagram scored 0.25, which *failed* the scene and triggered the fallback.
+6. **Nothing inspected the MP4** after rendering: black, frozen, silent or wrong-sized output was saved as "completed".
 
-## 🎯 ENHANCEMENT TRACKING (Professional Quality Upgrades)
+### Phase 1 — Colour system & environments ✅ (code complete, visual check pending)
+- `packages/shared/src/constants.ts`: `PALETTE_IDS` + `pickScenePalette(topic, index, avoid)` — topic affinity (sound→pink, space→indigo, plants→mint/teal, heart→coral, tech→sky/violet, maths→sunshine), deterministic hash, adjacent scenes never share a palette.
+- `packages/renderer/src/utils/palette.ts`: eight vivid palettes (sky, violet, coral, teal, sunshine, rose, mint, indigo) with gradient, accent, glow and pattern inks.
+- `packages/renderer/src/components/BackgroundScene.tsx`: palette gradients, four drifting light blobs on independent periods, scrolling dots/grid/waves, top highlight, vignette. Legacy `theme` values still work (educational→sky, modern→violet, playful→rose, minimal→indigo).
+- `sanitize.ts`: only known palette ids reach the renderer.
 
-### ✅ **COMPLETED ENHANCEMENTS (8/11 Critical Problems Fixed - 73%)**
+### Phase 2 — Deterministic scene direction ✅ (code complete, visual check pending)
+New `packages/backend/src/services/scene.director.ts` runs after the model and before validation:
+- assigns palette + pattern + camera move per scene (no two adjacent scenes alike);
+- moves a non-background root component one layer down so the environment is visible;
+- shortens over-long titles to ≤ 56 characters and adds a heading when a scene has none;
+- re-points `EducationalObject.type` at the concept the scene's own narration names;
+- guarantees an `EndScreen` on the final scene;
+- every change is logged (`directed N change(s) — …`).
+Applied to the selected attempt **and** to the fallback storyboard.
 
-#### 1. ✅ **Model Upgrade (100%)**
-- **Status**: COMPLETE
-- **Changes**: Upgraded from Qwen2.5 7B to **Qwen3 8B**
-- **Files Modified**:
-  - `packages/backend/src/config.ts`
-  - `packages/shared/src/constants.ts`
-- **Impact**: Better JSON output, stronger instruction-following
-- **Completion**: 100%
+### Phase 3 — Prompt & validation ✅ (code complete, verification pending)
+- Prompt: full implemented component list (adds `ObjectZoom`, `Callout`), explicit "title ≠ narration", backgrounds/camera owned by the system, mandatory final EndScreen.
+- Validator rewritten:
+  - relevance = share of the visual's own words (type, labels, diagram/step text) named by the scene's *own caption cue*, with concept aliases (leaf↔photosynthesis, heart↔blood, …) — no substring luck, no bonus for having any icon;
+  - titles no longer count as the visual explanation;
+  - the **final scene** must contain an EndScreen;
+  - diagnostics are per scene: `scene-3: Low visual relevance (0.32)... (relevance 0.32)`;
+  - a low-scoring storyboard is now kept and reported instead of being replaced by a slideshow.
 
-#### 2. ✅ **Enhanced Script Generation (100%)**
-- **Status**: COMPLETE
-- **Changes**: Professional educational structure
-- **Files Modified**:
-  - `packages/backend/src/prompts/script-generate.prompt.ts`
-- **Features**:
-  - Hook sentences (questions, surprising facts)
-  - Progressive explanation (simple → complex)
-  - Real-world examples and analogies
-  - WHY/HOW explanations
-  - Natural conversational style
-- **Completion**: 100%
+### Phase 4 — Post-render quality control ✅ (code complete, needs a real render to confirm)
+New `packages/backend/src/services/quality.service.ts`:
+- ffprobe: video/audio streams, duration, dimensions, fps;
+- ffmpeg single decode pass: `blackdetect` + `freezedetect`;
+- failures (no video, no audio, wrong size, duration off by >8 % or 1.5 s, >15 % black, unreadable file) → job is marked `quality_failed` instead of `completed`;
+- warnings (fps drift, >50 % frozen) are logged;
+- report written to `output/reports/<jobId>.json`.
 
-#### 3. ✅ **Enhanced Storyboard Planning (100%)**
-- **Status**: COMPLETE
-- **Changes**: Visual planning stage with topic awareness
-- **Files Modified**:
-  - `packages/backend/src/prompts/storyboard.prompt.ts`
-- **Features**:
-  - Topic-specific visual recommendations
-  - Scene-by-scene visual strategy
-  - Diverse layouts and animations
-  - Educational metadata
-- **Completion**: 100%
+### Phase 5 — Automatic asset discovery ✅ (code complete, network untested here)
+`packages/backend/src/services/asset.discovery.ts`, run by the worker before storyboard planning:
+- **Providers** (keyless, open licences): Iconify search + SVG, OpenMoji annotations index + colour SVG, Wikimedia Commons `generator=search` + 900 px thumbnails. unDraw and LottieFiles are *not* integrated — neither has a public search API and scraping is not acceptable.
+- **Queries** come from the script: concepts from a ~110-term curriculum lexicon first, then the most repeated meaningful words and two-word phrases (max 5 per job).
+- **Storage**: files land in `resources/auto/<slug>-<hash8>.<ext>`, exactly where the existing artwork matcher already looks, so every future video reuses them with no extra wiring.
+- **Caching**: search results cached on disk for 7 days; downloads deduplicated by SHA-256 through `data/assets/manifest.json`; OpenMoji's index cached the same way.
+- **Safety**: SVGs are sanitised (no `<script>`, no `on*` handlers, no `<foreignObject>`, no external `href`) before being written; oversized payloads are skipped.
+- **Licences**: every manifest entry records provider, licence name/URL and attribution, and `resources/auto/CREDITS.txt` is regenerated for CC BY / CC BY-SA compliance.
+- **Failure behaviour**: 8 s timeout + one retry per request; any error is logged and the job continues with the built-in SVG glyphs. Rendering never depends on a provider being reachable.
+- **Visible progress**: new `discovering_assets` step between subtitle alignment and storyboard planning.
+- **Tests**: `packages/backend/src/__tests__/assets.test.ts` covers query building, stopwords/dedup, SVG sanitisation, scoring and slugs (cannot be executed in this sandbox — see limitations).
 
-#### 4. ✅ **New Educational Components (100%)**
-- **Status**: COMPLETE
-- **New Components Added** (8):
-  1. `SplitScreenComparison` - Compare two things side-by-side
-  2. `ProcessFlow` - Step-by-step process visualization
-  3. `Timeline` - Chronological event display
-  4. `HighlightedRegion` - Emphasize important areas
-  5. `NumberCounter` - Animated number counting
-  6. `AnimatedDiagram` - Complex diagrams with connections
-  7. `KineticTypography` - Word-by-word animated text
-  8. `ObjectZoom` - Zoom into important objects
-  9. `Callout` - Annotate parts of visuals
-- **Files Created**:
-  - `packages/renderer/src/components/SplitScreenComparison.tsx`
-  - `packages/renderer/src/components/ProcessFlow.tsx`
-  - `packages/renderer/src/components/Timeline.tsx`
-  - `packages/renderer/src/components/HighlightedRegion.tsx`
-  - `packages/renderer/src/components/NumberCounter.tsx`
-  - `packages/renderer/src/components/AnimatedDiagram.tsx`
-  - `packages/renderer/src/components/KineticTypography.tsx`
-  - `packages/renderer/src/components/ObjectZoom.tsx`
-  - `packages/renderer/src/components/Callout.tsx`
-- **Integration**: Updated `EduVideo.tsx` and `index.ts`
-- **Completion**: 100%
+### Phase 7 — Word-level captions ✅ (code complete, needs a real render to confirm)
+- `subtitle.service.ts`: `groupWordCues()` merges edge-tts' one-cue-per-word SRT into phrases of ≤7 words / ≤48 chars, glues punctuation back on, and keeps every word's own `startMs`/`endMs` on the phrase.
+- Phrase-level cues (espeak / engines without word boundaries) are returned untouched — the grouping only kicks in when the average cue is a single word.
+- `sanitize.ts` used to throw `words` away; it now validates and keeps them.
+- `Subtitle.tsx`: the phrase stays on screen and the word currently being spoken is highlighted and lifted, instead of one word flashing at a time.
+- Cues are already clamped to the measured audio duration in `tts.service.ts`, so no caption outlives the narration.
 
-#### 5. ✅ **Asset System Enhancement (100%)**
-- **Status**: COMPLETE
-- **Changes**: More assets, better matching
-- **Files Created**:
-  - `assets/characters/blue_character.svg`
-  - `assets/characters/green_character.svg`
-  - `assets/characters/red_character.svg`
-  - `assets/characters/purple_character.svg`
-  - `assets/characters/pink_character.svg`
-  - `assets/backgrounds/educational_gradient.svg`
-  - `assets/backgrounds/modern_dark.svg`
-  - `assets/backgrounds/playful_gradient.svg`
-  - `assets/backgrounds/minimal_light.svg`
-- **Extended Object Types**: 32 types (was 19)
-- **Files Modified**:
-  - `packages/renderer/src/utils/sanitize.ts`
-  - `packages/backend/src/services/storyboard.visuals.ts`
-- **Completion**: 100%
-
-#### 6. ✅ **Validation System (100%)**
-- **Status**: COMPLETE
-- **Files Created**:
-  - `packages/backend/src/services/storyboard.validation.ts`
-  - `packages/shared/src/schemas/storyboard.schema.ts`
-- **Features**:
-  - Scene structure validation
-  - Visual relevance scoring (0-1)
-  - Frame continuity checks
-  - Educational flow validation
-- **Completion**: 100%
-
-#### 7. ✅ **Enhanced Storyboard Service (100%)**
-- **Status**: COMPLETE
-- **Files Modified**:
-  - `packages/backend/src/services/storyboard.service.ts`
-- **Features**:
-  - Multiple generation attempts with validation
-  - Fallback storyboard creation
-  - Relevance-based selection
-  - Better error handling
-- **Completion**: 100%
-
-#### 8. ✅ **Schema Updates (100%)**
-- **Status**: COMPLETE
-- **Files Modified**:
-  - `packages/shared/src/schemas/storyboard.schema.ts`
-  - `packages/shared/src/schemas/scene.schema.ts`
-  - `packages/shared/src/types/index.ts`
-  - `packages/shared/src/index.ts`
-- **Features**:
-  - New component types
-  - Educational metadata
-  - Validation schemas
-- **Completion**: 100%
+### Phase 5 — `/output` serving ✅ (earlier work)
+`mountOutputStatic()` serves `/output` and `/api/output`, answers directory requests with a file listing, blocks traversal, and logs the resolved root + file counts at boot.
 
 ---
 
-### ⏳ **REMAINING ENHANCEMENTS (3/11 - 27%)**
+## Remaining work
 
-#### 9. ⏳ **Audio Synchronization (0%)**
-- **Status**: NOT STARTED
-- **Current**: Estimated timing based on word count
-- **Target**: Use actual audio duration from TTS engine
-- **Priority**: Medium
-- **Estimated Effort**: 2 hours
+| Phase | Status | Notes |
+|---|---|---|
+| 6 — Composition & typography set | ⏳ not started | speech bubbles, annotated callouts, comparison chart, summary scene; director picking composition by narration intent |
+| 8 — End-to-end verification | ⛔ blocked here | needs the GPU box: build, render 3 topics, sample frames, compare to `expected_video_style.mp4` |
 
-#### 10. ⏳ **Word-Level Timing (0%)**
-- **Status**: NOT STARTED
-- **Current**: Sentence-level subtitles
-- **Target**: Word-level timing for better synchronization
-- **Priority**: Medium
-- **Estimated Effort**: 3 hours
+> The five component names that had no renderer (`QuestionReveal`, `FactHighlight`,
+> `ScientificVisualization`, `ChartAnimation`, `BeforeAfterComparison`) are removed from
+> `ComponentNameSchema`, so `COMPONENT_MAP` is complete again and the model cannot ask for
+> a component that throws. They can come back in phase 6 with real implementations.
 
-#### 11. ⏳ **Final Quality Validation (0%)**
-- **Status**: NOT STARTED
-- **Current**: Basic validation
-- **Target**: Check for black frames, missing assets, rendering errors
-- **Priority**: Medium
-- **Estimated Effort**: 2 hours
+## Verification status
 
----
+- Backend/shared `tsc --noEmit`: exit 0. Renderer `tsc --noEmit`: exit 0 (both run against shared *source*, not the stale `dist/`).
+- `vitest run src/__tests__/assets.test.ts`: **could not run here** — rollup's native binary (`@rollup/rollup-linux-x64-gnu`) is missing because `node_modules` was installed on Windows. The new tests are type-checked; they must be executed on the box with `npm test --workspace=packages/backend`.
+- No render was produced here: this sandbox has no GPU, no model, and `@rollup/rollup-linux-x64-gnu` is missing so Vite/tsup/vitest cannot run. Visual quality must be checked on the Kaggle box.
 
-## 📈 COMPLETION METRICS
-
-### By Category
-| Category | Before | After | Improvement |
-|----------|--------|-------|-------------|
-| **Model Quality** | Qwen2.5 7B | Qwen3 8B | ✅ 100% |
-| **Script Quality** | Generic | Educational | ✅ 100% |
-| **Visual Planning** | None | Topic-aware | ✅ 100% |
-| **Component Library** | 14 | 22 | ✅ 157% |
-| **Asset Variety** | 642 PNGs | 642 PNGs + 9 SVGs | ✅ 100% |
-| **Object Types** | 19 | 32 | ✅ 168% |
-| **Validation** | Basic | Comprehensive | ✅ 100% |
-| **Audio Sync** | Estimated | Actual | ⏳ 0% |
-| **Word Timing** | None | Word-level | ⏳ 0% |
-| **Quality Checks** | None | Comprehensive | ⏳ 0% |
-
-### Overall Completion
-- **Base System**: 100% ✅
-- **Enhancements**: 73% 🟡
-- **Critical Problems Fixed**: 8/11 (73%)
-- **Professional Quality**: 73% 🟡
-
----
-
-## 🎯 NEXT PRIORITIES
-
-### High Priority (Should Fix Next)
-1. **Audio Synchronization** - Use actual audio duration
-2. **Word-Level Timing** - Better subtitle sync
-3. **Final Quality Validation** - Ensure high-quality output
-
-### Medium Priority
-4. Add more educational components
-5. Enhance asset matching algorithm
-6. Add background music support
-7. Improve camera movements
-
-### Low Priority
-8. Add more SVG assets
-9. Add transition animations
-10. Add sound effects
-
----
-
-## 📅 CHANGE LOG
-
-### 2026-11-22 (Today)
-- ✅ Upgraded model to Qwen3 8B
-- ✅ Enhanced script generation with educational structure
-- ✅ Enhanced storyboard planning with topic awareness
-- ✅ Added 8 new educational components
-- ✅ Added 9 new SVG assets
-- ✅ Created comprehensive validation system
-- ✅ Enhanced storyboard service with multiple attempts
-- ✅ Updated all schemas and types
-
-### 2026-11-20 (Previous)
-- ✅ All base system phases completed
-- ✅ Working video generation pipeline
-- ✅ All tests passing
-
----
-
-## 🏆 SUCCESS CRITERIA STATUS
-
-| Criteria | Status | Notes |
-|----------|--------|-------|
-| Professional educational scripts | ✅ **DONE** | Hooks, examples, progressive structure |
-| Topic-specific visuals | ✅ **DONE** | Semantic matching, topic awareness |
-| Diverse scene layouts | ✅ **DONE** | 22 components, varied compositions |
-| Professional animations | ✅ **DONE** | Multiple animation types |
-| Semantic asset matching | ✅ **DONE** | Context-aware selection |
-| Quality validation | ✅ **DONE** | Scene and storyboard validation |
-| Audio synchronization | ⏳ **PENDING** | Needs actual duration |
-| Word-level timing | ⏳ **PENDING** | Needs implementation |
-| Final quality checks | ⏳ **PENDING** | Needs implementation |
-
----
-
-## 🎬 READY FOR TESTING
-
-The system is **85% complete** and ready for testing! To test:
+## How to check on the GPU box
 
 ```bash
-# Rebuild the project
-npm run build
-
-# Start the application
-start.bat  # Windows
-# OR
-./start.sh  # Linux/macOS
-
-# Test with a topic
-# The new system will generate:
-# - Professional educational scripts
-# - Topic-specific visuals
-# - Diverse scene layouts
-# - Professional animations
+./start.sh
+# watch for:
+#   [Server] Static: /output (+ /api/output) -> ...
+#   [Storyboard] ... directed N change(s) — scene 1: sky/dots; ...
+#   [Worker] ... quality: passed (38.4s, 1080x1920, 0.0s black, 0 frozen)
+ls output/reports/         # one JSON per rendered job
 ```
 
-**Expected Results:**
-- ✅ Better scripts with hooks and examples
-- ✅ More relevant visuals
-- ✅ Diverse scene layouts
-- ✅ Professional animations
-- ⚠️ Subtitles may not be perfectly synced (audio sync pending)
-
----
-
-## 📊 FINAL STATUS
-
-**Overall Completion: 85%** 🟡
-
-- **Base System**: 100% ✅
-- **Enhancements**: 73% 🟡
-- **Critical Problems Fixed**: 8/11 (73%)
-- **Professional Quality**: 73% 🟡
-
-**The system has been transformed from a basic video generator to a professional educational explainer system!** 🎉
+If a job now ends `quality_failed`, the report names the exact reason — that is the intended behaviour, not a regression.

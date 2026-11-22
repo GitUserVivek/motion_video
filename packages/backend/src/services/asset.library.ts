@@ -43,6 +43,9 @@ const STOP_TOKENS = new Set([
   'animations', 'sounds', 'photo', 'photos', 'picture', 'clipart', 'vector',
   'flat', 'line', 'outline', 'color', 'colour', 'solid', 'filled', 'final',
   'new', 'copy', 'v1', 'v2', 'small', 'large', 'the', 'and', 'for', 'with',
+  // Folder created by the automatic downloader: it describes the source, not
+  // the picture, so it must not become a matching word on every asset.
+  'auto', 'downloaded',
 ]);
 
 /** Words a file named after an icon can carry, keyed by the renderer's icon id. */

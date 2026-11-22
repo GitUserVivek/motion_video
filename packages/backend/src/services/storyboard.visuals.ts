@@ -6,7 +6,7 @@ import { matchAssetImage } from './asset.library.js';
  * EducationalObject and ConceptDiagram). Keep the two lists in sync: an unknown
  * type renders a generic book.
  */
-type TopicObjectType =
+export type TopicObjectType =
   | 'book' | 'apple' | 'globe' | 'atom' | 'lightbulb' | 'calculator' | 'pencil' | 'star'
   | 'leaf' | 'plant' | 'sun' | 'water' | 'cloud' | 'rocket' | 'heart' | 'cell' | 'microscope'
   | 'brain' | 'bone' | 'skeleton' | 'dna' | 'neuron' | 'circuit' | 'server' | 'network'

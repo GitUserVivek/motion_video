@@ -3,10 +3,13 @@ import { ttsService } from '../services/tts.service.js';
 import { subtitleService } from '../services/subtitle.service.js';
 import { storyboardService } from '../services/storyboard.service.js';
 import { renderService } from '../services/render.service.js';
+import { qualityService } from '../services/quality.service.js';
+import { assetDiscovery } from '../services/asset.discovery.js';
+import { resetAssetCache } from '../services/asset.library.js';
 import { config } from '../config.js';
 import path from 'path';
 import fs from 'fs';
-import { resolveTtsVoice } from '@edumotion/shared';
+import { ASPECT_RATIOS, resolveTtsVoice } from '@edumotion/shared';
 import type { VideoConfig, StoryboardPlan } from '@edumotion/shared';
 
 const POLL_INTERVAL_MS = 2000;
@@ -91,12 +94,26 @@ async function processJob(job: JobRow): Promise<void> {
   // edge-tts reports real word boundaries; only estimate from the audio length
   // when the engine cannot provide them (e.g. espeak).
   const subtitles = measuredSubtitles && measuredSubtitles.length > 0
-    ? measuredSubtitles
+    // edge-tts reports one cue per word; group them into readable phrases while
+    // keeping the per-word timings for caption highlighting.
+    ? subtitleService.groupWordCues(measuredSubtitles)
     : subtitleService.generateSubtitles(script, durationMs);
   const srtPath = path.join(config.storage.subtitlesDir, `${job.id}.srt`);
   const jsonSubPath = path.join(config.storage.subtitlesDir, `${job.id}.json`);
   subtitleService.writeSrt(subtitles, srtPath);
   subtitleService.writeJson(subtitles, jsonSubPath);
+
+  // 4. Discover illustrations for the script's concepts. This only adds files to
+  // the local artwork library; every failure is contained and the built-in SVG
+  // glyphs are used instead.
+  updateJob(job.id, 'processing', 26, 'discovering_assets');
+  const discovery = await assetDiscovery.ensureAssetsForScript(script);
+  if (discovery.errors.length > 0) {
+    console.warn(`[Worker] Job ${job.id} asset discovery had ${discovery.errors.length} error(s)`);
+  }
+  // New files are on disk now; drop the 15 s index cache so the storyboard sees
+  // them immediately instead of re-using a stale file list.
+  resetAssetCache();
 
   updateJob(job.id, 'processing', 30, 'planning_storyboard');
 
@@ -160,9 +177,44 @@ async function processJob(job: JobRow): Promise<void> {
     },
   );
 
+  // 7. Quality control on the actual MP4 before the job may be called complete.
+  updateJob(job.id, 'processing', 88, 'validating');
+  const dimensions = ASPECT_RATIOS[videoConfig.aspectRatio];
+  const report = await qualityService.inspect({
+    jobId: job.id,
+    videoPath: result.videoPath,
+    expectedDurationSec: result.durationSec,
+    expectedWidth: dimensions.width,
+    expectedHeight: dimensions.height,
+    expectedFps: videoConfig.fps,
+    expectAudio: true,
+  });
+
+  console.log(
+    `[Worker] Job ${job.id} quality: ${report.passed ? 'passed' : 'FAILED'} ` +
+      `(${report.durationSec?.toFixed(1) ?? '?'}s, ${report.width ?? '?'}x${report.height ?? '?'}, ` +
+      `${report.blackDurationSec.toFixed(1)}s black, ${report.frozenSegments} frozen) -> ${report.reportPath}`,
+  );
+  for (const warning of report.warnings) {
+    console.warn(`[Worker] Job ${job.id} quality warning: ${warning}`);
+  }
+
+  if (!report.passed) {
+    // A deterministic re-render would fail the same way, so this is terminal.
+    updateJob(
+      job.id,
+      'failed',
+      0,
+      'quality_failed',
+      `Quality checks failed: ${report.failures.join(' | ')} (report: ${report.reportPath})`,
+    );
+    console.error(`[Worker] Job ${job.id} rejected by quality checks: ${report.failures.join(' | ')}`);
+    return;
+  }
+
   updateJob(job.id, 'processing', 96, 'saving');
 
-  // 7. Save video record to DB
+  // 8. Save video record to DB
   const videoId = `vid-${job.id}`;
   db.prepare(`
     INSERT INTO videos (id, job_id, file_path, duration_sec, size_bytes, thumbnail_path)

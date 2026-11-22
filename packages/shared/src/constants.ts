@@ -71,10 +71,95 @@ export const COMPONENT_NAMES = [
   'ProgressBar',
 ] as const;
 
+/**
+ * Colour families the renderer paints scene backgrounds with. They live in shared
+ * code as plain ids so the backend can plan a palette per scene without
+ * importing the renderer's CSS.
+ */
+export const PALETTE_IDS = [
+  'sky',
+  'violet',
+  'coral',
+  'teal',
+  'sunshine',
+  'rose',
+  'mint',
+  'indigo',
+] as const;
+
+export type PaletteId = (typeof PALETTE_IDS)[number];
+
+/** Topic → preferred colour families. The first matching entry wins. */
+const TOPIC_PALETTES: ReadonlyArray<{ pattern: RegExp; palettes: readonly PaletteId[] }> = [
+  {
+    pattern: /\b(sound|music|audio|voice|hearing|speaker|speech|noise|echo)\b/i,
+    palettes: ['rose', 'violet', 'sky'],
+  },
+  {
+    pattern: /\b(space|planet|rocket|galaxy|star|orbit|moon|astronaut|satellite|universe)\b/i,
+    palettes: ['indigo', 'violet', 'sky'],
+  },
+  {
+    pattern: /\b(plant|photosynthes\w*|leaf|leaves|tree|nature|biology|cell|dna|bacteria|animal)\b/i,
+    palettes: ['mint', 'teal', 'sunshine'],
+  },
+  {
+    pattern: /\b(heart|blood|body|health|muscle|organ|lung|brain)\b/i,
+    palettes: ['coral', 'rose', 'mint'],
+  },
+  {
+    pattern: /\b(computer|cpu|processor|artificial intelligence|\bai\b|code|software|data|internet|network|robot|algorithm)\b/i,
+    palettes: ['sky', 'violet', 'teal'],
+  },
+  {
+    pattern: /\b(numbers?|maths?|equations?|fraction|geometry|algebra|calculat\w*|percent\w*)\b/i,
+    palettes: ['sunshine', 'coral', 'sky'],
+  },
+  {
+    pattern: /\b(history|war|revolution|ancient|civilization|discovery|explor\w*)\b/i,
+    palettes: ['coral', 'sunshine', 'teal'],
+  },
+];
+
+/** Small deterministic string hash so a topic always starts on the same colour. */
+function seedNumber(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) % 100_000;
+  }
+  return hash;
+}
+
+/**
+ * Pick the background palette for scene `index`. Topic affinity decides the
+ * shortlist, `avoid` (usually the previous scene's palette) keeps two adjacent
+ * scenes from sharing an environment.
+ */
+export function pickScenePalette(
+  topic: string,
+  index: number,
+  avoid?: PaletteId,
+): PaletteId {
+  const affinity = TOPIC_PALETTES.find((entry) => entry.pattern.test(topic))?.palettes;
+  const pool: PaletteId[] = affinity
+    ? [...affinity, ...PALETTE_IDS.filter((id) => !affinity.includes(id))]
+    : [...PALETTE_IDS];
+
+  const size = pool.length;
+  let palette = pool[(seedNumber(topic) + index) % size] ?? 'sky';
+
+  if (avoid && palette === avoid) {
+    palette = pool[(pool.indexOf(palette) + 1) % size] ?? 'teal';
+  }
+
+  return palette;
+}
+
 export const STEP_LABELS: Record<string, string> = {
   pending:            'Waiting in queue',
   generating_audio:   'Generating narration audio',
   aligning_subtitles: 'Aligning subtitles',
+  discovering_assets: 'Discovering illustrations',
   planning_storyboard:'Planning storyboard',
   rendering:          'Rendering animation frames',
   muxing:             'Encoding video',

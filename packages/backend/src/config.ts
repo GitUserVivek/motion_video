@@ -107,6 +107,32 @@ export const config = {
     voice: process.env['TTS_VOICE'] ?? 'en-US-AriaNeural',
   },
 
+  assets: {
+    // Automatic discovery only ever *adds* files to the local artwork library.
+    // A provider being down must never stop a video from rendering, so every
+    // failure is logged and the built-in SVG glyphs take over.
+    discoveryEnabled: !/^(0|false|no|off)$/i.test(process.env['ASSET_DISCOVERY'] ?? ''),
+    providers: (process.env['ASSET_PROVIDERS'] ?? 'iconify,openmoji,wikimedia')
+      .split(',')
+      .map((provider) => provider.trim().toLowerCase())
+      .filter((provider) => provider.length > 0),
+    // Downloaded artwork lands inside the existing artwork folder, so the same
+    // matcher that indexes `resources/` picks it up with no extra wiring.
+    autoAssetsDir: path.join(ROOT_DIR, 'resources', 'auto'),
+    cacheDir: path.join(ROOT_DIR, 'data', 'assets'),
+    manifestPath: path.join(ROOT_DIR, 'data', 'assets', 'manifest.json'),
+    searchCachePath: path.join(ROOT_DIR, 'data', 'assets', 'search-cache.json'),
+    creditsPath: path.join(ROOT_DIR, 'resources', 'auto', 'CREDITS.txt'),
+    maxQueriesPerJob: Math.max(
+      1,
+      parseInt(process.env['ASSET_MAX_QUERIES'] ?? '5', 10) || 5,
+    ),
+    timeoutMs: Math.max(1000, parseInt(process.env['ASSET_TIMEOUT_MS'] ?? '8000', 10) || 8000),
+    // A tile is small; anything bigger only bloats the inlined props JSON.
+    maxSvgBytes: 400 * 1024,
+    maxRasterBytes: 900 * 1024,
+  },
+
   render: {
     fps: parseInt(process.env['RENDER_FPS'] ?? '30', 10),
     // Parallel frame renders. Remotion defaults to half the CPU cores, which

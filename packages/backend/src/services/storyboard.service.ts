@@ -3,6 +3,7 @@ import { subtitleService } from './subtitle.service.js';
 import { storyboardValidator } from './storyboard.validation.js';
 import { buildStoryboardPrompt } from '../prompts/storyboard.prompt.js';
 import { ensureSceneVisuals } from './storyboard.visuals.js';
+import { directStoryboard } from './scene.director.js';
 import { parseLooseJson } from './json.repair.js';
 import { StoryboardPlanSchema, type StoryboardPlan, type VideoConfig, type SubtitleEntry, type SceneInstruction, type ComponentName } from '@edumotion/shared';
 import { AppError } from '../middleware/errorHandler.js';
@@ -138,17 +139,44 @@ class StoryboardService {
     }
 
     if (bestAttempt) {
-      // Final validation and enhancement
-      const finalValidation = storyboardValidator.validate(bestAttempt, script);
-      if (finalValidation.isValid) {
-        console.log(`[Storyboard] Job ${jobId}: final storyboard valid with ${finalValidation.validScenes}/${finalValidation.totalScenes} scenes`);
-        return bestAttempt;
+      // Visual direction is deterministic and runs after the model: palettes,
+      // patterns, camera moves, short headings and the closing end screen.
+      const { storyboard: directed, changes } = directStoryboard(bestAttempt, script);
+      if (changes.length > 0) {
+        console.log(
+          `[Storyboard] Job ${jobId}: directed ${changes.length} change(s) — ${changes.slice(0, 4).join('; ')}`,
+        );
       }
+
+      const finalValidation = storyboardValidator.validate(directed, script);
+      if (finalValidation.isValid) {
+        console.log(
+          `[Storyboard] Job ${jobId}: final storyboard valid with ${finalValidation.validScenes}/${finalValidation.totalScenes} scenes`,
+        );
+      } else {
+        // Keep the directed storyboard: it is still a designed video, and the
+        // per-scene diagnostics say exactly what is weak. Falling back to a
+        // generic slideshow would hide those problems instead of surfacing them.
+        for (const result of finalValidation.sceneResults) {
+          if (!result.isValid) {
+            console.warn(
+              `[Storyboard] Job ${jobId}: ${result.sceneId} issues — ${result.issues.join('; ')} ` +
+                `(relevance ${result.visualRelevance?.toFixed(2) ?? 'n/a'})`,
+            );
+          }
+        }
+        console.warn(
+          `[Storyboard] Job ${jobId}: using directed storyboard despite ${finalValidation.overallIssues.length} issue(s)`,
+        );
+      }
+      return directed;
     }
 
-    // If all attempts failed, create a minimal valid storyboard
+    // No attempt produced a usable storyboard: build a deterministic one and give
+    // it the same visual direction so the output still looks designed.
     console.warn(`[Storyboard] Job ${jobId}: all attempts failed, creating fallback storyboard`);
-    return this.createFallbackStoryboard(jobId, script, config, totalFrames, subtitles);
+    const fallback = this.createFallbackStoryboard(jobId, script, config, totalFrames, subtitles);
+    return directStoryboard(fallback, script).storyboard;
   }
 
   /**

@@ -3,6 +3,10 @@ import path from 'path';
 import type { SubtitleEntry } from '@edumotion/shared';
 import { WORDS_PER_SECOND } from '@edumotion/shared';
 
+/** Longest caption phrase we are willing to put on screen. */
+const MAX_CUE_WORDS = 7;
+const MAX_CUE_CHARS = 48;
+
 class SubtitleService {
   /**
    * Split a script into subtitle entries aligned to the total audio duration.
@@ -42,6 +46,68 @@ class SubtitleService {
     }
 
     return entries;
+  }
+
+  /**
+   * edge-tts writes one SRT cue per *spoken word* (WordBoundary events), so the
+   * renderer would flash a single word at a time. Merge those cues into readable
+   * phrases and keep each word's own timing on the phrase, which is what the
+   * Subtitle component uses to highlight the word being spoken.
+   *
+   * Cues that are already phrase-level (espeak, or an engine without word
+   * boundaries) are returned untouched.
+   */
+  groupWordCues(cues: SubtitleEntry[]): SubtitleEntry[] {
+    if (cues.length < 2) return cues;
+
+    const totalWords = cues.reduce((sum, cue) => sum + this.wordCount(cue.text), 0);
+    if (totalWords / cues.length > 1.6) return cues;
+
+    const grouped: SubtitleEntry[] = [];
+    let pending: SubtitleEntry[] = [];
+
+    const flush = (): void => {
+      const first = pending[0];
+      const last = pending[pending.length - 1];
+      if (!first || !last) {
+        pending = [];
+        return;
+      }
+
+      grouped.push({
+        index: grouped.length,
+        startMs: first.startMs,
+        endMs: last.endMs,
+        // Words arrive one per cue, so punctuation is usually its own cue
+        // ("biology" + "."); glue it to the previous word.
+        text: pending
+          .map((cue) => cue.text.trim())
+          .join(' ')
+          .replace(/\s+([,.!?;:%])/g, '$1')
+          .replace(/\s+/g, ' ')
+          .trim(),
+        words: pending.map((cue) => ({
+          text: cue.text.trim(),
+          startMs: cue.startMs,
+          endMs: cue.endMs,
+        })),
+      });
+
+      pending = [];
+    };
+
+    for (const cue of cues) {
+      const words = this.wordCount(cue.text);
+      const chars = pending.reduce((sum, item) => sum + item.text.length + 1, 0) + cue.text.length;
+
+      if (pending.length > 0 && (pending.length + words > MAX_CUE_WORDS || chars > MAX_CUE_CHARS)) {
+        flush();
+      }
+      pending.push(cue);
+    }
+    flush();
+
+    return grouped.length > 0 ? grouped : cues;
   }
 
   /**

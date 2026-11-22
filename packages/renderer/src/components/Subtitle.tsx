@@ -50,29 +50,54 @@ export function Subtitle({
     extrapolateRight: 'clamp',
   });
 
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        bottom,
-        left: '50%',
-        transform: `translateX(-50%) translateY(${rise}px)`,
-        backgroundColor,
-        color,
-        fontSize: fittedFontSize,
-        fontFamily: '\'Segoe UI\', system-ui, sans-serif',
-        fontWeight: 600,
-        textAlign: 'center',
-        padding,
-        borderRadius: '8px',
-        maxWidth,
-        lineHeight: 1.4,
-        opacity,
-        userSelect: 'none',
-        borderLeft: '4px solid rgba(255,215,0,0.9)',
-      }}
-    >
-      {activeEntry.text}
-    </div>
-  );
+  const containerStyle: React.CSSProperties = {
+    position: 'absolute',
+    bottom,
+    left: '50%',
+    transform: `translateX(-50%) translateY(${rise}px)`,
+    backgroundColor,
+    color,
+    fontSize: fittedFontSize,
+    fontFamily: '\'Segoe UI\', system-ui, sans-serif',
+    fontWeight: 600,
+    textAlign: 'center',
+    padding,
+    borderRadius: '8px',
+    maxWidth,
+    lineHeight: 1.4,
+    opacity,
+    userSelect: 'none',
+    borderLeft: '4px solid rgba(255,215,0,0.9)',
+  };
+
+  // Word-level timing: the phrase stays on screen and the word being spoken is
+  // highlighted, which reads far better than one word flashing at a time.
+  const words = activeEntry.words;
+  if (words && words.length > 0) {
+    return (
+      <div style={containerStyle}>
+        {words.map((word, i) => {
+          const speaking = currentMs >= word.startMs && currentMs < word.endMs;
+          const spoken = currentMs >= word.endMs;
+
+          return (
+            <span
+              key={`${word.text}-${i}`}
+              style={{
+                display: 'inline-block',
+                marginRight: '0.28em',
+                color: speaking ? '#FFE066' : color,
+                opacity: spoken && !speaking ? 0.82 : 1,
+                transform: speaking ? 'translateY(-2px)' : 'none',
+              }}
+            >
+              {word.text}
+            </span>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return <div style={containerStyle}>{activeEntry.text}</div>;
 }

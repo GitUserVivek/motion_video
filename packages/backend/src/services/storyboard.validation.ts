@@ -3,9 +3,60 @@ import { StoryboardValidationSchema, SceneValidationSchema } from '@edumotion/sh
 import { z } from 'zod';
 
 /**
- * Validates storyboard quality and educational effectiveness
- * Checks for: visual relevance, scene structure, educational content
+ * Validates storyboard quality and educational effectiveness.
+ *
+ * Relevance is measured as *coverage*: how much of what is on screen is named by
+ * the narration the scene is speaking. That is deliberately stricter than the
+ * old `script.includes(type)` check, which scored 0.25 for a perfectly sensible
+ * diagram whose words simply were not spelled the same way, and it does not
+ * count the title as the visual explanation.
  */
+
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'been', 'were',
+  'will', 'into', 'than', 'then', 'they', 'them', 'their', 'there', 'here',
+  'its', 'our', 'your', 'you', 'are', 'was', 'but', 'not', 'can', 'could',
+  'would', 'should', 'about', 'when', 'where', 'which', 'while', 'what', 'how',
+  'why', 'who', 'all', 'any', 'each', 'more', 'most', 'some', 'such', 'very',
+  'also', 'just', 'like', 'over', 'under', 'between', 'through', 'because',
+  'these', 'those', 'one', 'two', 'use', 'uses', 'used', 'make', 'makes',
+  'made', 'get', 'gets', 'got', 'has', 'had', 'does', 'did', 'doing', 'being',
+]);
+
+/**
+ * Words that name the same idea. A leaf diagram *is* relevant to sentences about
+ * photosynthesis even though the sentence never says "leaf".
+ */
+const CONCEPT_ALIASES: Record<string, string[]> = {
+  leaf: ['plant', 'plants', 'photosynthesis', 'chlorophyll', 'glucose', 'oxygen'],
+  plant: ['leaf', 'leaves', 'photosynthesis', 'root', 'stem', 'grow'],
+  sun: ['sunlight', 'solar', 'light', 'energy', 'day'],
+  water: ['liquid', 'rain', 'ocean', 'river', 'droplet', 'steam', 'ice'],
+  cloud: ['weather', 'sky', 'vapour', 'vapor', 'condensation', 'rain'],
+  heart: ['blood', 'pump', 'pumping', 'circulation', 'oxygen', 'beat'],
+  brain: ['neuron', 'neurons', 'mind', 'thinking', 'signals', 'memory'],
+  cell: ['dna', 'gene', 'nucleus', 'biology', 'organism', 'membrane'],
+  atom: ['molecule', 'electron', 'proton', 'neutron', 'chemical', 'reaction'],
+  circuit: ['chip', 'processor', 'electric', 'current', 'transistor', 'silicon'],
+  server: ['database', 'computer', 'network', 'data', 'storage', 'cloud'],
+  network: ['internet', 'router', 'server', 'connection', 'protocol', 'data'],
+  gear: ['machine', 'engine', 'mechanism', 'motor', 'process'],
+  book: ['read', 'reading', 'story', 'knowledge', 'history', 'learn'],
+  calculator: ['number', 'math', 'maths', 'equation', 'calculate', 'sum'],
+  rocket: ['space', 'launch', 'planet', 'orbit', 'astronaut', 'thrust'],
+  microscope: ['lab', 'laboratory', 'experiment', 'specimen', 'microbe'],
+  bone: ['skeleton', 'skull', 'femur', 'rib', 'joint', 'calcium'],
+  skeleton: ['bone', 'bones', 'skull', 'ribcage', 'femur', 'body'],
+};
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9% ]+/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !STOPWORDS.has(word));
+}
+
 export class StoryboardValidator {
 
   /**
@@ -17,24 +68,19 @@ export class StoryboardValidator {
     const recommendations: string[] = [];
     let validScenes = 0;
 
-    // Validate each scene
     for (const scene of storyboard.scenes) {
       const result = this.validateScene(scene, script);
       sceneResults.push(result);
       if (result.isValid) validScenes++;
 
-      // Collect issues and recommendations
-      overallIssues.push(...result.issues);
-      recommendations.push(...result.warnings);
+      overallIssues.push(...result.issues.map((issue) => `${scene.id}: ${issue}`));
+      recommendations.push(...result.warnings.map((warning) => `${scene.id}: ${warning}`));
     }
 
-    // Check for storyboard-level issues
     const storyboardIssues = this.validateStoryboardStructure(storyboard);
     overallIssues.push(...storyboardIssues);
 
-    // Check for educational flow
-    const flowIssues = this.validateEducationalFlow(storyboard, script);
-    recommendations.push(...flowIssues);
+    recommendations.push(...this.validateEducationalFlow(storyboard, script));
 
     return StoryboardValidationSchema.parse({
       isValid: validScenes === storyboard.scenes.length && storyboardIssues.length === 0,
@@ -46,59 +92,42 @@ export class StoryboardValidator {
     });
   }
 
-  /**
-   * Validate individual scene
-   */
   private validateScene(scene: SceneInstruction, script: string): z.infer<typeof SceneValidationSchema> {
     const issues: string[] = [];
     const warnings: string[] = [];
 
-    // Check for required components
-    const hasBackground = scene.component === 'BackgroundScene' ||
-      scene.children?.some(c => c.component === 'BackgroundScene');
+    const hasBackground = scene.component === 'BackgroundScene'
+      || (scene.children?.some((child) => child.component === 'BackgroundScene') ?? false);
     const hasVisual = this.hasEducationalVisual(scene);
     const hasText = this.hasTextComponent(scene);
     const hasSubtitle = this.hasSubtitleComponent(scene);
 
-    // Validate scene structure
-    if (!hasBackground) {
-      issues.push('Scene missing BackgroundScene component');
-    }
+    if (!hasBackground) issues.push('Missing BackgroundScene component');
+    if (!hasVisual) issues.push('Missing educational visual component');
+    if (!hasText) warnings.push('No title text for the main concept');
+    if (!hasSubtitle) warnings.push('No Subtitle component');
 
-    if (!hasVisual) {
-      issues.push('Scene missing educational visual component');
-    }
-
-    if (!hasText) {
-      warnings.push('Scene should have AnimatedText for main concept');
-    }
-
-    if (!hasSubtitle) {
-      warnings.push('Scene should have Subtitle component');
-    }
-
-    // Validate visual relevance
     let visualRelevance = 0;
     if (hasVisual) {
       visualRelevance = this.calculateVisualRelevance(scene, script);
       if (visualRelevance < 0.5) {
-        issues.push(`Low visual relevance score: ${visualRelevance.toFixed(2)} - visuals may not match narration`);
+        issues.push(
+          `Low visual relevance (${visualRelevance.toFixed(2)}): the visuals do not name what the narration is about`,
+        );
       } else if (visualRelevance < 0.7) {
-        warnings.push(`Visual relevance could be improved: ${visualRelevance.toFixed(2)}`);
+        warnings.push(`Visual relevance could be improved (${visualRelevance.toFixed(2)})`);
       }
     }
 
-    // Check scene duration
     const duration = scene.endFrame - scene.startFrame;
     if (duration < 30) {
-      warnings.push(`Scene is very short (${duration} frames) - consider merging with adjacent scene`);
-    } else if (duration > 300) {
-      warnings.push(`Scene is very long (${duration} frames) - consider splitting`);
+      warnings.push(`Scene is very short (${duration} frames)`);
+    } else if (duration > 450) {
+      warnings.push(`Scene is very long (${duration} frames)`);
     }
 
-    // Check for animation
     if (!this.hasAnimation(scene)) {
-      warnings.push('Scene should have at least one animated element');
+      warnings.push('No animated element in the scene');
     }
 
     return SceneValidationSchema.parse({
@@ -113,265 +142,222 @@ export class StoryboardValidator {
     });
   }
 
-  /**
-   * Check if scene has educational visual component
-   */
   private hasEducationalVisual(scene: SceneInstruction): boolean {
-    const visualComponents: ComponentName[] = [
+    const visualComponents = this.visualComponentNames();
+    if (visualComponents.includes(scene.component)) return true;
+    return scene.children?.some((child) => visualComponents.includes(child.component)) ?? false;
+  }
+
+  private hasTextComponent(scene: SceneInstruction): boolean {
+    return scene.children?.some((child) => child.component === 'AnimatedText') ?? false;
+  }
+
+  private hasSubtitleComponent(scene: SceneInstruction): boolean {
+    return scene.children?.some((child) => child.component === 'Subtitle') ?? false;
+  }
+
+  private hasAnimation(scene: SceneInstruction): boolean {
+    if (scene.props['animation']) return true;
+    return scene.children?.some((child) =>
+      child.props['animation'] !== undefined || child.props['startFrame'] !== undefined) ?? false;
+  }
+
+  /** Components that depict the topic (titles and captions are separate layers). */
+  private visualComponentNames(): ComponentName[] {
+    return [
       'EducationalObject', 'ObjectGroup', 'ConceptDiagram', 'MultiplicationTable',
       'ImageScene', 'Character', 'Teacher', 'SplitScreenComparison',
       'ProcessFlow', 'Timeline', 'HighlightedRegion', 'AnimatedDiagram',
-      'NumberCounter', 'ObjectZoom', 'Callout'
+      'NumberCounter', 'ObjectZoom', 'Callout', 'EndScreen', 'QuestionCard',
     ];
+  }
 
-    if (visualComponents.includes(scene.component)) {
-      return true;
+  private getVisualComponents(scene: SceneInstruction): SceneChild[] {
+    const names = this.visualComponentNames();
+    const result: SceneChild[] = [];
+
+    if (names.includes(scene.component)) {
+      result.push({ component: scene.component, props: scene.props });
+    }
+    for (const child of scene.children ?? []) {
+      if (names.includes(child.component)) result.push(child);
+    }
+    return result;
+  }
+
+  /** The narration this scene is speaking, from its own caption cue. */
+  private sceneNarration(scene: SceneInstruction): string {
+    const subtitle = scene.children?.find((child) => child.component === 'Subtitle');
+    const entries = subtitle?.props['entries'];
+    if (!Array.isArray(entries)) return '';
+
+    return entries
+      .map((entry) =>
+        typeof entry === 'object' && entry !== null
+          ? (entry as { text?: unknown }).text
+          : undefined,
+      )
+      .filter((value): value is string => typeof value === 'string')
+      .join(' ')
+      .trim();
+  }
+
+  /**
+   * Every word the visual puts on screen: object type, labels, titles and the
+   * text of diagram tiles / flow steps.
+   */
+  private descriptorTokens(child: SceneChild): string[] {
+    const words: string[] = [];
+
+    const push = (value: unknown): void => {
+      if (typeof value === 'string') words.push(...tokenize(value));
+    };
+
+    push(child.props['type']);
+    push(child.props['label']);
+    push(child.props['title']);
+    push(child.props['text']);
+    push(child.props['question']);
+
+    for (const key of ['items', 'steps', 'milestones', 'points', 'values']) {
+      const list = child.props[key];
+      if (!Array.isArray(list)) continue;
+      for (const entry of list.slice(0, 8)) {
+        if (typeof entry !== 'object' || entry === null) continue;
+        const record = entry as Record<string, unknown>;
+        push(record['label']);
+        push(record['type']);
+        push(record['text']);
+        push(record['title']);
+      }
     }
 
-    return scene.children?.some(child => visualComponents.includes(child.component)) ?? false;
+    // ImageScene paths carry the concept in the file name.
+    const src = child.props['src'];
+    if (typeof src === 'string' && !src.startsWith('data:')) {
+      push(src.split('/').pop()?.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '));
+    }
+
+    return [...new Set(words)].slice(0, 12);
+  }
+
+  private isNamedBy(token: string, narration: Set<string>): boolean {
+    if (narration.has(token)) return true;
+    return (CONCEPT_ALIASES[token] ?? []).some((alias) => narration.has(alias));
   }
 
   /**
-   * Check if scene has text component
-   */
-  private hasTextComponent(scene: SceneInstruction): boolean {
-    return scene.children?.some(child => child.component === 'AnimatedText') ?? false;
-  }
-
-  /**
-   * Check if scene has subtitle component
-   */
-  private hasSubtitleComponent(scene: SceneInstruction): boolean {
-    return scene.children?.some(child => child.component === 'Subtitle') ?? false;
-  }
-
-  /**
-   * Check if scene has animation
-   */
-  private hasAnimation(scene: SceneInstruction): boolean {
-    // Check scene props for animation
-    if (scene.props['animation']) return true;
-
-    // Check children for animation
-    return scene.children?.some(child =>
-      child.props['animation'] ||
-      child.props['startFrame'] !== undefined
-    ) ?? false;
-  }
-
-  /**
-   * Calculate visual relevance score (0-1)
+   * 0-1 score: share of the visual's own words that the scene's narration also
+   * uses (directly or through a concept alias). A visual contributes a small
+   * base because it is in-frame support, and full credit when everything it
+   * names is being talked about.
    */
   private calculateVisualRelevance(scene: SceneInstruction, script: string): number {
     const visuals = this.getVisualComponents(scene);
     if (visuals.length === 0) return 0;
 
-    const scriptLower = script.toLowerCase();
-    let totalScore = 0;
+    const narration = new Set(tokenize(this.sceneNarration(scene) || script));
+    let total = 0;
 
     for (const visual of visuals) {
-      const component = visual.component;
-      const props = visual.props as Record<string, unknown>;
-
-      // Check EducationalObject type
-      if (component === 'EducationalObject') {
-        const type = props['type'] as string | undefined;
-        if (type) {
-          const typeLower = type.toLowerCase();
-          // Check if type appears in script
-          if (scriptLower.includes(typeLower)) {
-            totalScore += 0.8;
-          } else {
-            // Check for related concepts
-            const related = this.getRelatedConcepts(typeLower);
-            if (related.some(r => scriptLower.includes(r))) {
-              totalScore += 0.6;
-            } else {
-              totalScore += 0.2; // Generic match
-            }
-          }
-        }
+      const words = this.descriptorTokens(visual);
+      if (words.length === 0) {
+        // Structural visual (e.g. a bare timeline): nothing to compare against.
+        total += 0.5;
+        continue;
       }
 
-      // Check ImageScene
-      if (component === 'ImageScene') {
-        const src = props['src'] as string | undefined;
-        if (src) {
-          // Extract keywords from image path
-          const keywords = this.extractKeywordsFromPath(src);
-          const matches = keywords.filter(kw => scriptLower.includes(kw));
-          totalScore += Math.min(0.8, matches.length * 0.2);
-        }
-      }
-
-      // Check text components
-      if (component === 'AnimatedText') {
-        const text = props['text'] as string | undefined;
-        if (text && scriptLower.includes(text.toLowerCase())) {
-          totalScore += 0.5;
-        }
-      }
-
-      // Check specialized components
-      if (['SplitScreenComparison', 'ProcessFlow', 'Timeline'].includes(component)) {
-        // These are highly relevant if script mentions comparison or process
-        if (scriptLower.includes('compare') || scriptLower.includes('vs') ||
-            scriptLower.includes('process') || scriptLower.includes('step')) {
-          totalScore += 0.9;
-        } else {
-          totalScore += 0.4;
-        }
-      }
+      const named = words.filter((word) => this.isNamedBy(word, narration)).length;
+      total += 0.35 + 0.65 * (named / words.length);
     }
 
-    // Normalize by number of visuals
-    return Math.min(1, totalScore / Math.max(1, visuals.length));
+    return Math.min(1, total / visuals.length);
   }
 
-  /**
-   * Get visual components from scene
-   */
-  private getVisualComponents(scene: SceneInstruction): SceneChild[] {
-    const visualComponents: ComponentName[] = [
-      'EducationalObject', 'ObjectGroup', 'ConceptDiagram', 'MultiplicationTable',
-      'ImageScene', 'Character', 'Teacher', 'AnimatedText', 'SplitScreenComparison',
-      'ProcessFlow', 'Timeline', 'HighlightedRegion', 'AnimatedDiagram',
-      'NumberCounter', 'ObjectZoom', 'Callout'
-    ];
-
-    const result: SceneChild[] = [];
-
-    if (visualComponents.includes(scene.component)) {
-      result.push({ component: scene.component, props: scene.props });
-    }
-
-    for (const child of scene.children ?? []) {
-      if (visualComponents.includes(child.component)) {
-        result.push(child);
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Get related concepts for a given type
-   */
-  private getRelatedConcepts(type: string): string[] {
-    const conceptMap: Record<string, string[]> = {
-      'leaf': ['plant', 'photosynthesis', 'chlorophyll', 'tree', 'green'],
-      'bone': ['skeleton', 'femur', 'skull', 'rib', 'human body'],
-      'cell': ['biology', 'organism', 'microscope', 'dna', 'nucleus'],
-      'atom': ['molecule', 'electron', 'proton', 'neutron', 'chemistry'],
-      'computer': ['network', 'internet', 'server', 'technology', 'digital'],
-      'brain': ['neuron', 'mind', 'thinking', 'nervous', 'synaptic'],
-      'heart': ['circulation', 'blood', 'pump', 'cardiovascular', 'organ'],
-      'water': ['liquid', 'ocean', 'river', 'rain', 'drink', 'H2O'],
-      'sun': ['light', 'solar', 'energy', 'star', 'day'],
-      'plant': ['leaf', 'photosynthesis', 'root', 'stem', 'flower'],
-    };
-
-    return conceptMap[type] || [];
-  }
-
-  /**
-   * Extract keywords from image path
-   */
-  private extractKeywordsFromPath(path: string): string[] {
-    const basename = path.split('/').pop() || path;
-    const withoutExt = basename.replace(/\.[^.]+$/, '');
-
-    // Split by common separators
-    const parts = withoutExt.split(/[_-]/);
-
-    return parts.filter(part =>
-      part.length > 2 &&
-      !['the', 'and', 'for', 'with', 'from', 'this', 'that'].includes(part.toLowerCase())
-    );
-  }
-
-  /**
-   * Validate storyboard structure
-   */
   private validateStoryboardStructure(storyboard: StoryboardPlan): string[] {
     const issues: string[] = [];
     const scenes = storyboard.scenes;
 
-    // Check frame continuity
     for (let i = 0; i < scenes.length - 1; i++) {
       const current = scenes[i];
       const next = scenes[i + 1];
       if (!current || !next) continue;
       if (current.endFrame !== next.startFrame) {
-        issues.push(`Frame gap between scene ${current.id} (ends at ${current.endFrame}) and scene ${next.id} (starts at ${next.startFrame})`);
+        issues.push(
+          `Frame gap between ${current.id} (ends ${current.endFrame}) and ${next.id} (starts ${next.startFrame})`,
+        );
       }
     }
 
-    // Check last scene
-    const lastScene = scenes[scenes.length - 1];
-    if (lastScene && lastScene.endFrame !== storyboard.totalFrames) {
-      issues.push(`Last scene should end at totalFrames (${storyboard.totalFrames}), but ends at ${lastScene.endFrame}`);
-    }
-
-    // Check first scene
     const firstScene = scenes[0];
     if (firstScene && firstScene.startFrame !== 0) {
       issues.push(`First scene should start at frame 0, but starts at ${firstScene.startFrame}`);
     }
 
-    // Check for end screen
-    const hasEndScreen = scenes.some(scene =>
-      scene.children?.some(c => c.component === 'EndScreen')
-    );
-    if (!hasEndScreen) {
-      issues.push('Storyboard should end with an EndScreen component');
+    const lastScene = scenes[scenes.length - 1];
+    if (lastScene && lastScene.endFrame !== storyboard.totalFrames) {
+      issues.push(
+        `Last scene should end at totalFrames (${storyboard.totalFrames}), but ends at ${lastScene.endFrame}`,
+      );
+    }
+
+    // The video has to close on a designed ending, on the final scene itself.
+    const endsWithEndScreen = lastScene !== undefined
+      && (lastScene.component === 'EndScreen'
+        || (lastScene.children?.some((child) => child.component === 'EndScreen') ?? false));
+    if (!endsWithEndScreen) {
+      issues.push('Final scene must contain an EndScreen component');
     }
 
     return issues;
   }
 
-  /**
-   * Validate educational flow
-   */
   private validateEducationalFlow(storyboard: StoryboardPlan, script: string): string[] {
     const recommendations: string[] = [];
-    const sentences = script.split('\n').filter(s => s.trim().length > 0);
+    const sentences = script.split('\n').filter((line) => line.trim().length > 0);
 
-    // Check scene count vs sentence count
     if (storyboard.scenes.length > sentences.length * 2) {
-      recommendations.push(`Too many scenes (${storyboard.scenes.length}) for script length (${sentences.length} sentences) - consider combining scenes`);
+      recommendations.push(
+        `Too many scenes (${storyboard.scenes.length}) for ${sentences.length} script lines`,
+      );
     } else if (storyboard.scenes.length < Math.ceil(sentences.length / 2)) {
-      recommendations.push(`Too few scenes (${storyboard.scenes.length}) for script length (${sentences.length} sentences) - consider splitting scenes`);
+      recommendations.push(
+        `Too few scenes (${storyboard.scenes.length}) for ${sentences.length} script lines`,
+      );
     }
 
-    // Check for visual variety
     const visualTypes = new Set<string>();
     for (const scene of storyboard.scenes) {
-      const visuals = this.getVisualComponents(scene);
-      for (const visual of visuals) {
-        visualTypes.add(visual.component);
-      }
+      for (const visual of this.getVisualComponents(scene)) visualTypes.add(visual.component);
     }
-
     if (visualTypes.size < 3) {
-      recommendations.push(`Low visual variety: only ${visualTypes.size} different visual component types used - consider using more diverse visuals`);
+      recommendations.push(
+        `Low visual variety: only ${visualTypes.size} visual component type(s) used`,
+      );
     }
 
-    // Check for repeated visuals in consecutive scenes
+    const palettes = new Set<string>();
+    for (const scene of storyboard.scenes) {
+      const palette = scene.props['palette'];
+      if (typeof palette === 'string') palettes.add(palette);
+    }
+    if (storyboard.scenes.length > 2 && palettes.size < 2) {
+      recommendations.push('Every scene shares one background palette');
+    }
+
     for (let i = 0; i < storyboard.scenes.length - 1; i++) {
       const currentScene = storyboard.scenes[i];
       const nextScene = storyboard.scenes[i + 1];
       if (!currentScene || !nextScene) continue;
 
-      const currentVisuals = this.getVisualComponents(currentScene);
-      const nextVisuals = this.getVisualComponents(nextScene);
-
-      const repeated = currentVisuals.filter(cv =>
-        nextVisuals.some(nv => nv.component === cv.component)
-      );
+      const currentVisuals = this.getVisualComponents(currentScene).map((child) => child.component);
+      const nextVisuals = this.getVisualComponents(nextScene).map((child) => child.component);
+      const repeated = currentVisuals.filter((name) => nextVisuals.includes(name));
 
       if (repeated.length > 1) {
-        recommendations.push(`Scenes ${currentScene.id} and ${nextScene.id} use similar visuals - consider varying the composition`);
+        recommendations.push(
+          `${currentScene.id} and ${nextScene.id} use similar visuals (${repeated.join(', ')})`,
+        );
       }
     }
 

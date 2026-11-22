@@ -17,7 +17,7 @@ export function buildStoryboardPrompt(
     'MultiplicationTable', 'ImageScene', 'BackgroundScene',
     'Subtitle', 'QuestionCard', 'Confetti', 'EndScreen', 'ProgressBar',
     'SplitScreenComparison', 'ProcessFlow', 'Timeline', 'HighlightedRegion',
-    'AnimatedDiagram', 'NumberCounter', 'KineticTypography'
+    'AnimatedDiagram', 'NumberCounter', 'KineticTypography', 'ObjectZoom', 'Callout'
   ];
 
   // Extract key concepts from script for better visual planning
@@ -101,6 +101,17 @@ VISUAL STORYTELLING RULES (MANDATORY):
    - Scene frames must be contiguous (no gaps, no overlaps)
    - Distribute frames evenly: ~${Math.round(totalFrames / sceneCount)} per scene
    - All frame values must be integers
+   - Leave backgrounds, palettes and camera moves to the system: do NOT set
+     "palette", "gradient", "color" or "camera" props.
+
+9. TITLE RULES:
+   - AnimatedText is a TITLE, not the narration. Use 3-8 words (max ~50 characters).
+   - Never paste the narration sentence into AnimatedText; Subtitle carries the full sentence.
+   - The title must name the concept being explained.
+
+10. ENDING:
+   - The final scene MUST include an EndScreen child with a short summary title.
+   - Do not end on an incomplete thought or a disappearing object.
 
 AVAILABLE COMPONENTS: ${availableComponents.join(', ')}
 

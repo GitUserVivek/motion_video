@@ -1,4 +1,4 @@
-import type { ComponentName, SubtitleEntry } from '@edumotion/shared';
+import { PALETTE_IDS, type ComponentName, type SubtitleEntry } from '@edumotion/shared';
 
 /**
  * A storyboard comes from a 7B model, so any prop can be the wrong type: a
@@ -24,6 +24,7 @@ const OBJECT_ANIMATIONS = new Set(['fadeIn', 'bounce', 'none']);
 const CHARACTER_STATES = new Set(['idle', 'wave', 'point', 'thinking']);
 const THEMES = new Set(['educational', 'modern', 'playful', 'minimal']);
 const PATTERNS = new Set(['none', 'dots', 'grid', 'waves']);
+const PALETTES = new Set<string>(PALETTE_IDS);
 const ALIGNMENTS = new Set(['left', 'center', 'right']);
 
 function isRecord(value: unknown): value is Props {
@@ -52,16 +53,37 @@ function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function splitWords(value: unknown): NonNullable<SubtitleEntry['words']> | null {
+  if (!Array.isArray(value)) return null;
+
+  const words = value
+    .filter(isRecord)
+    .map((word) => ({
+      text: str(word['text'], '').trim(),
+      startMs: num(word['startMs'], 0, 0, 1e9),
+      endMs: num(word['endMs'], 0, 0, 1e9),
+    }))
+    .filter((word) => word.text.length > 0 && word.endMs >= word.startMs);
+
+  return words.length > 0 ? words : null;
+}
+
 function subtitleEntries(value: unknown): SubtitleEntry[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter(isRecord)
-    .map((entry, i) => ({
-      index: Math.round(num(entry['index'], i, 0, 1e6)),
-      startMs: num(entry['startMs'], 0, 0, 1e9),
-      endMs: num(entry['endMs'], 0, 0, 1e9),
-      text: str(entry['text'], ''),
-    }))
+    .map((entry, i) => {
+      // Per-word timings drive the spoken-word highlight; dropping them here used
+      // to flatten captions back to static sentences.
+      const words = splitWords(entry['words']);
+      const cue: SubtitleEntry = {
+        index: Math.round(num(entry['index'], i, 0, 1e6)),
+        startMs: num(entry['startMs'], 0, 0, 1e9),
+        endMs: num(entry['endMs'], 0, 0, 1e9),
+        text: str(entry['text'], ''),
+      };
+      return words ? { ...cue, words } : cue;
+    })
     .filter((entry) => entry.text.length > 0 && entry.endMs >= entry.startMs);
 }
 
@@ -238,6 +260,9 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
       // A gradient/color prop that is an object renders as "[object Object]".
       if (next['color'] !== undefined && typeof next['color'] !== 'string') delete next['color'];
       if (next['gradient'] !== undefined && typeof next['gradient'] !== 'string') delete next['gradient'];
+      // Only palettes the renderer actually paints survive; anything else would
+      // silently fall back to the default theme.
+      if (typeof next['palette'] !== 'string' || !PALETTES.has(next['palette'])) delete next['palette'];
       return next;
     }
 

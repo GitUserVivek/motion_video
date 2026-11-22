@@ -10,6 +10,7 @@ import { STEP_LABELS } from '@edumotion/shared';
 const STEPS = [
   'generating_audio',
   'aligning_subtitles',
+  'discovering_assets',
   'planning_storyboard',
   'rendering',
   'muxing',

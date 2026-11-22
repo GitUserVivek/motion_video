@@ -28,6 +28,8 @@ function ensureDirectories(): void {
     config.storage.assetsDir,
     config.storage.resourcesDir,
     config.storage.dataDir,
+    config.assets.autoAssetsDir,
+    config.assets.cacheDir,
     path.join(config.storage.assetsDir, 'characters'),
     path.join(config.storage.assetsDir, 'backgrounds'),
     path.join(config.storage.assetsDir, 'animations'),
