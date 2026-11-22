@@ -97,8 +97,8 @@ The `photosynthesis` job log showed the planner discarding three parsed storyboa
 - `Subtitle.tsx`: the phrase stays on screen and the word currently being spoken is highlighted and lifted, instead of one word flashing at a time.
 - Cues are already clamped to the measured audio duration in `tts.service.ts`, so no caption outlives the narration.
 
-### Phase 5 — `/output` serving ✅ (earlier work)
-`mountOutputStatic()` serves `/output` and `/api/output`, answers directory requests with a file listing, blocks traversal, and logs the resolved root + file counts at boot.
+### Phase 5 — `/output` serving ✅ (browsable index added 2026-11-22)
+`mountOutputStatic()` (now `packages/backend/src/routes/output.ts`) serves `/output` and `/api/output` as a browsable HTML index: breadcrumbs, a parent-folder link, folders first, file size and modification time, clickable names (inline preview / streaming via `express.static`'s range support) and a `Download` link per file that forces `Content-Disposition: attachment`. Directory URLs redirect to a trailing slash so relative links resolve, dotfiles stay hidden, and both percent-encoded traversal and symlinks pointing outside the output tree are rejected. The boot log still prints the resolved root + file counts.
 
 ---
 
