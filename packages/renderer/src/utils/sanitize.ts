@@ -237,11 +237,131 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
     case 'EndScreen':
       return {
         ...raw,
-        title: str(raw['title'], 'Thanks for Watching!'),
+        title: str(raw['title'] ?? raw['text'], 'Thanks for Watching!'),
         subtitle: str(raw['subtitle'], 'Subscribe for more educational videos'),
         logoText: str(raw['logoText'], 'EduMotion'),
         showConfetti: bool(raw['showConfetti'], false),
       };
+
+    case 'SplitScreenComparison': {
+      const leftRecord = isRecord(raw['left'])
+        ? raw['left']
+        : typeof raw['left'] === 'string'
+          ? { content: raw['left'] }
+          : {};
+      const rightRecord = isRecord(raw['right'])
+        ? raw['right']
+        : typeof raw['right'] === 'string'
+          ? { content: raw['right'] }
+          : {};
+      const leftContent = str(
+        leftRecord['content'] ?? leftRecord['text'] ?? raw['leftTitle'],
+        '',
+      );
+      const rightContent = str(
+        rightRecord['content'] ?? rightRecord['text'] ?? raw['rightTitle'],
+        '',
+      );
+      if (!leftContent && !rightContent) return null;
+      return {
+        ...raw,
+        left: { ...leftRecord, content: leftContent || rightContent },
+        right: { ...rightRecord, content: rightContent || leftContent },
+        comparisonLabel: str(raw['comparisonLabel'], 'vs'),
+      };
+    }
+
+    case 'ProcessFlow': {
+      const steps = Array.isArray(raw['steps'])
+        ? raw['steps']
+            .map((step): Props | null => {
+              if (typeof step === 'string') return { label: step.trim() };
+              if (!isRecord(step)) return null;
+              const label = str(step['label'] ?? step['text'] ?? step['title'], '');
+              return label ? { ...step, label } : null;
+            })
+            .filter((step): step is Props => step !== null)
+        : [];
+      if (steps.length === 0) return null;
+      const direction = raw['direction'] === 'vertical' || raw['direction'] === 'horizontal'
+        ? raw['direction']
+        : steps.length > 2
+          ? 'vertical'
+          : 'horizontal';
+      return {
+        ...raw,
+        steps,
+        direction,
+        stepSpacing: num(raw['stepSpacing'], direction === 'vertical' ? 64 : 96, 20, 180),
+      };
+    }
+
+    case 'AnimatedDiagram': {
+      const items = Array.isArray(raw['items'])
+        ? raw['items']
+            .filter(isRecord)
+            .map((item): Props | null => {
+              const label = str(item['label'] ?? item['text'], '');
+              if (!label) return null;
+              const position = isRecord(item['position']) ? item['position'] : {};
+              return {
+                ...item,
+                icon: str(item['icon'], 'book') || 'book',
+                label,
+                position: { x: num(position['x'], 0), y: num(position['y'], 0) },
+              };
+            })
+            .filter((item): item is Props => item !== null)
+        : [];
+      const equation = str(raw['equation'] ?? raw['formula'], '');
+      if (items.length === 0 && !equation) return null;
+      return { ...raw, items, ...(equation ? { equation } : {}) };
+    }
+
+    case 'Timeline': {
+      const events = Array.isArray(raw['events'])
+        ? raw['events']
+            .map((event): Props | null => {
+              if (typeof event === 'string') return { date: '', title: event.trim() };
+              if (!isRecord(event)) return null;
+              const title = str(event['title'] ?? event['label'] ?? event['text'], '');
+              return title ? { ...event, date: str(event['date'], ''), title } : null;
+            })
+            .filter((event): event is Props => event !== null)
+        : [];
+      if (events.length === 0) return null;
+      return { ...raw, events };
+    }
+
+    case 'KineticTypography': {
+      const text = str(raw['text'], '');
+      const words = Array.isArray(raw['words']) ? raw['words'] : [];
+      if (!text && words.length === 0) return null;
+      return { ...raw, text, words };
+    }
+
+    case 'NumberCounter': {
+      const target = num(raw['target'], Number.NaN);
+      if (!Number.isFinite(target)) return null;
+      return { ...raw, target };
+    }
+
+    case 'Callout': {
+      const text = str(raw['text'], '').trim();
+      if (!text) return null;
+      const target = isRecord(raw['target']) ? raw['target'] : {};
+      return {
+        ...raw,
+        text,
+        target: { x: num(target['x'], 50, 0, 100), y: num(target['y'], 50, 0, 100) },
+      };
+    }
+
+    // These components need React children, which a JSON storyboard cannot
+    // provide. Dropping them lets the rest of the scene render.
+    case 'HighlightedRegion':
+    case 'ObjectZoom':
+      return null;
 
     case 'ProgressBar':
       return {

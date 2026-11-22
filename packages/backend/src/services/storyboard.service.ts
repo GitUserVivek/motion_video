@@ -4,6 +4,8 @@ import { storyboardValidator } from './storyboard.validation.js';
 import { buildStoryboardPrompt } from '../prompts/storyboard.prompt.js';
 import { ensureSceneVisuals, type SceneAssetUse } from './storyboard.visuals.js';
 import { directStoryboard } from './scene.director.js';
+import { splitOversizedScenes } from './scene.balance.js';
+import { repairStoryboardProps } from './storyboard.repair.js';
 import { normalizeStoryboardTiming } from './timing.service.js';
 import { parseLooseJson } from './json.repair.js';
 import {
@@ -240,12 +242,9 @@ class StoryboardService {
 
       const direct = StoryboardPlanSchema.safeParse(withMeta);
       if (direct.success) {
-        const withCaptions = this.injectSubtitles(
-          this.ensureBackgroundRoots(direct.data),
+        const { storyboard: withVisuals, assetUses } = this.prepareStoryboard(
+          direct.data,
           subtitles,
-        );
-        const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(
-          withCaptions,
           script,
           content,
           jobId,
@@ -301,12 +300,9 @@ class StoryboardService {
         this.repairStoryboard(withMeta, totalFrames),
       );
       if (retryResult.success) {
-        const withCaptions = this.injectSubtitles(
-          this.ensureBackgroundRoots(retryResult.data),
+        const { storyboard: withVisuals, assetUses } = this.prepareStoryboard(
+          retryResult.data,
           subtitles,
-        );
-        const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(
-          withCaptions,
           script,
           content,
           jobId,
@@ -386,7 +382,8 @@ class StoryboardService {
         );
       }
 
-      const { storyboard: timed, report: timing } = normalizeStoryboardTiming(directed);
+      const repairedFinal = repairStoryboardProps(directed).storyboard;
+      const { storyboard: timed, report: timing } = normalizeStoryboardTiming(repairedFinal);
       writeJobJson(jobId, jobFiles.timingReport(jobId), timing);
       if (timing.repaired > 0) {
         console.warn(
@@ -431,7 +428,9 @@ class StoryboardService {
       subtitles,
       content,
     );
-    const directedFallback = directStoryboard(fallback, script).storyboard;
+    const directedFallback = repairStoryboardProps(
+      directStoryboard(fallback, script).storyboard,
+    ).storyboard;
     const { storyboard: timedFallback, report: fallbackTiming } =
       normalizeStoryboardTiming(directedFallback);
     writeJobJson(jobId, jobFiles.timingReport(jobId), fallbackTiming);
@@ -442,6 +441,33 @@ class StoryboardService {
     // The fallback has no downloaded artwork to report here; the worker attaches
     // scene artwork and writes the final manifest after planning.
     return { storyboard: timedFallback, assetUses: [] };
+  }
+
+  /**
+   * Normalise a parsed model storyboard into the final render contract:
+   * background roots, caption-backed scene boundaries, supported props, and a
+   * deterministic visual for every scene that the model left under-specified.
+   */
+  private prepareStoryboard(
+    storyboard: StoryboardPlan,
+    subtitles: SubtitleEntry[],
+    script: string,
+    content: ContentAnalysis,
+    jobId: string,
+  ): { storyboard: StoryboardPlan; assetUses: SceneAssetUse[] } {
+    const rooted = this.ensureBackgroundRoots(storyboard);
+    const { storyboard: balanced } = splitOversizedScenes(rooted, subtitles);
+    // Captions must exist before key-term alignment: the scene's own spoken
+    // words are what the repair compares its keyTerms against.
+    const captioned = this.injectSubtitles(balanced, subtitles);
+    const { storyboard: repaired } = repairStoryboardProps(captioned);
+    const { storyboard: withVisuals, assetUses } = ensureSceneVisuals(
+      repaired,
+      script,
+      content,
+      jobId,
+    );
+    return { storyboard: withVisuals, assetUses };
   }
 
   /**

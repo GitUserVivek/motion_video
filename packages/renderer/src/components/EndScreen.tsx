@@ -4,6 +4,8 @@ import { fadeIn, bounce } from '../utils/animation.js';
 
 export interface EndScreenProps {
   title?: string;
+  /** Legacy model-authored alias for title. */
+  text?: string;
   subtitle?: string;
   primaryColor?: string;
   accentColor?: string;
@@ -13,7 +15,8 @@ export interface EndScreenProps {
 }
 
 export function EndScreen({
-  title = 'Thanks for Watching!',
+  title,
+  text,
   subtitle = 'Subscribe for more educational videos',
   primaryColor = '#4A90D9',
   accentColor = '#FFD700',
@@ -21,6 +24,7 @@ export function EndScreen({
   logoText = 'EduMotion',
 }: EndScreenProps): React.ReactElement {
   const frame = useCurrentFrame();
+  const displayTitle = title?.trim() || text?.trim() || 'Thanks for Watching!';
   const titleOpacity = fadeIn(frame, startFrame, 20);
   const subtitleOpacity = fadeIn(frame, startFrame + 20, 20);
   const logoScale = bounce(frame, startFrame, 30);
@@ -63,7 +67,7 @@ export function EndScreen({
           opacity: titleOpacity,
         }}
       >
-        {title}
+        {displayTitle}
       </div>
 
       {/* Subtitle */}

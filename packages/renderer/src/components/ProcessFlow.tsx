@@ -20,11 +20,11 @@ export interface ProcessFlowProps {
 
 export function ProcessFlow({
   steps,
-  direction = 'horizontal',
+  direction = steps.length > 2 ? 'vertical' : 'horizontal',
   top = '50%',
   left = '50%',
   startFrame = 0,
-  stepSpacing = 150,
+  stepSpacing = 96,
 }: ProcessFlowProps): React.ReactElement {
   const frame = useCurrentFrame();
 
@@ -33,8 +33,10 @@ export function ProcessFlow({
     top,
     left,
     transform: 'translate(-50%, -50%)',
+    width: '92%',
     display: 'flex',
     flexDirection: direction === 'horizontal' ? 'row' : 'column',
+    flexWrap: direction === 'horizontal' ? 'wrap' : 'nowrap',
     alignItems: 'center',
     justifyContent: 'center',
     gap: stepSpacing,

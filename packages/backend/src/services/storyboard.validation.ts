@@ -263,6 +263,14 @@ export class StoryboardValidator {
     let total = 0;
 
     for (const visual of visuals) {
+      // An EndScreen is a designed closing card, not a claim about the scene's
+      // narration. Scoring it by title words made a correct ending look
+      // irrelevant to the final sentence.
+      if (visual.component === 'EndScreen') {
+        total += 1;
+        continue;
+      }
+
       const words = this.descriptorTokens(visual);
       if (words.length === 0) {
         // Structural visual (e.g. a bare timeline): nothing to compare against.

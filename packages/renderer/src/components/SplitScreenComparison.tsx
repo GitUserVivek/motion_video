@@ -3,16 +3,19 @@ import { useCurrentFrame, AbsoluteFill } from 'remotion';
 import { fadeIn } from '../utils/animation.js';
 
 export interface SplitScreenComparisonProps {
-  left: {
+  left?: {
     content: React.ReactNode | string;
     label?: string;
     color?: string;
   };
-  right: {
+  right?: {
     content: React.ReactNode | string;
     label?: string;
     color?: string;
   };
+  /** Legacy model-authored aliases; still accepted so a scene never crashes. */
+  leftTitle?: string;
+  rightTitle?: string;
   comparisonLabel?: string;
   startFrame?: number;
   duration?: number;
@@ -21,11 +24,15 @@ export interface SplitScreenComparisonProps {
 export function SplitScreenComparison({
   left,
   right,
+  leftTitle,
+  rightTitle,
   comparisonLabel = 'vs',
   startFrame = 0,
   duration = 120,
 }: SplitScreenComparisonProps): React.ReactElement {
   const frame = useCurrentFrame();
+  const leftContent = left?.content ?? leftTitle ?? 'Left';
+  const rightContent = right?.content ?? rightTitle ?? 'Right';
   const leftOpacity = fadeIn(frame, startFrame, 20);
   const rightOpacity = fadeIn(frame, startFrame + 10, 20);
   const labelOpacity = fadeIn(frame, startFrame + 20, 20);
@@ -53,22 +60,22 @@ export function SplitScreenComparison({
             gap: 20,
           }}
         >
-          {typeof left.content === 'string' ? (
+          {typeof leftContent === 'string' ? (
             <div
               style={{
                 fontSize: 48,
                 fontWeight: 'bold',
-                color: left.color || '#4A90D9',
+                color: left?.color || '#4A90D9',
                 textAlign: 'center',
                 maxWidth: '80%',
               }}
             >
-              {left.content}
+              {leftContent}
             </div>
           ) : (
-            left.content
+            leftContent
           )}
-          {left.label && (
+          {left?.label && (
             <div
               style={{
                 fontSize: 28,
@@ -100,22 +107,22 @@ export function SplitScreenComparison({
             gap: 20,
           }}
         >
-          {typeof right.content === 'string' ? (
+          {typeof rightContent === 'string' ? (
             <div
               style={{
                 fontSize: 48,
                 fontWeight: 'bold',
-                color: right.color || '#E74C3C',
+                color: right?.color || '#E74C3C',
                 textAlign: 'center',
                 maxWidth: '80%',
               }}
             >
-              {right.content}
+              {rightContent}
             </div>
           ) : (
-            right.content
+            rightContent
           )}
-          {right.label && (
+          {right?.label && (
             <div
               style={{
                 fontSize: 28,

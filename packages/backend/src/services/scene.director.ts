@@ -72,7 +72,7 @@ const INTENT_CUES: ReadonlyArray<{ intent: CompositionIntent; pattern: RegExp }>
   },
   {
     intent: 'comparison',
-    pattern: /\b(vs\.?|versus|compared (?:to|with)|unlike|whereas|instead of|rather than|more than|less than|better than|faster than|slower than)\b/i,
+    pattern: /\b(vs\.?|versus|compared (?:to|with)|unlike|whereas|while|instead of|rather than|more than|less than|better than|faster than|slower than)\b/i,
   },
   {
     // More specific than `timeline`: a sentence full of measured values is a
@@ -88,7 +88,7 @@ const INTENT_CUES: ReadonlyArray<{ intent: CompositionIntent; pattern: RegExp }>
   },
   {
     intent: 'process',
-    pattern: /\b(at first|first|then|next|after that|finally|lastly|step \d|starts?|begins?|becomes|turns? into|produces?|releases?|absorbs?|converts?)\b/i,
+    pattern: /\b(at first|first|then|next|after that|finally|lastly|step \d|starts?|begins?|becomes|turns? into|takes? in|creates?|builds?|makes?|produces?|releases?|absorbs?|converts?)\b/i,
   },
   {
     intent: 'definition',
@@ -259,7 +259,7 @@ function measurements(text: string): ChartBar[] {
 /** Two sides of a comparison, when the narration states one. */
 function comparisonSides(narration: string): { left: string; right: string } | null {
   const parts = narration
-    .split(/\b(?:vs\.?|versus|unlike|whereas|compared (?:to|with)|instead of|rather than)\b/i)
+    .split(/\b(?:vs\.?|versus|unlike|whereas|while|compared (?:to|with)|instead of|rather than)\b/i)
     .map((part) => part.trim())
     .filter((part) => contentWords(part).length > 0);
   if (parts.length < 2) return null;
@@ -426,7 +426,7 @@ function buildComposition(
       if (steps.length < 2) return null;
       return {
         intent,
-        replace: new Set<ComponentName>(['ConceptDiagram', 'ProcessFlow']),
+        replace: new Set<ComponentName>(['ConceptDiagram', 'ProcessFlow', 'AnimatedDiagram']),
         child: {
           component: 'ProcessFlow',
           props: {
@@ -681,22 +681,45 @@ export function directStoryboard(plan: StoryboardPlan, script: string): Directed
       }
     }
 
-    // 5. Ending: every video closes on a designed end screen.
+    // 5. Ending: every video closes on a designed end screen. The end card owns
+    //    the frame; leaving a diagram or title underneath it made the closing
+    //    scene look like two slides stacked on top of each other.
     if (isLast) {
-      // A root EndScreen was already moved into the children above, so this one
-      // check covers both shapes.
-      const hasEnd = directedChildren.some((child) => child.component === 'EndScreen');
+      directedChildren = directedChildren.filter(
+        (child) => child.component === 'Subtitle' || child.component === 'EndScreen',
+      );
 
-      if (!hasEnd) {
-        directedChildren.push({
-          component: 'EndScreen',
-          props: {
-            title: topicTitle(script),
-            subtitle: narration ? `In short: ${shorten(narration, 60)}` : 'Keep exploring with EduMotion',
-            showConfetti: true,
-            startFrame: 10,
-          },
-        });
+      const endIndex = directedChildren.findIndex((child) => child.component === 'EndScreen');
+      const existing = endIndex >= 0 ? directedChildren[endIndex] : undefined;
+      const existingTitle = typeof existing?.props['title'] === 'string'
+        ? existing.props['title'].trim()
+        : typeof existing?.props['text'] === 'string'
+          ? existing.props['text'].trim()
+          : '';
+      const existingSubtitle = typeof existing?.props['subtitle'] === 'string'
+        ? existing.props['subtitle'].trim()
+        : '';
+      const endProps = {
+        ...(existing?.props ?? {}),
+        // Keep a specific model title, but replace the component's generic
+        // default (which appears when the model used an unsupported `text` key).
+        title: existingTitle && existingTitle !== 'Thanks for Watching!'
+          ? existingTitle
+          : topicTitle(script),
+        subtitle: existingSubtitle && existingSubtitle !== 'Subscribe for more educational videos'
+          ? existingSubtitle
+          : narration
+            ? `In short: ${shorten(narration, 60)}`
+            : 'Keep exploring with EduMotion',
+        showConfetti: existing?.props['showConfetti'] ?? true,
+        startFrame: existing?.props['startFrame'] ?? 10,
+      };
+
+      if (existing) {
+        directedChildren[endIndex] = { ...existing, props: endProps };
+        changes.push('set EndScreen title from the video topic');
+      } else {
+        directedChildren.push({ component: 'EndScreen', props: endProps });
         changes.push('added EndScreen to the final scene');
       }
     }

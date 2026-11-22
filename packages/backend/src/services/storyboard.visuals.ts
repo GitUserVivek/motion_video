@@ -27,7 +27,17 @@ const TOPIC_COMPONENTS = new Set<string>([
   'ImageScene',
   'QuestionCard',
   // Composition components already illustrate the topic themselves, so adding a
-  // diagram next to them would stack two visuals of the same idea.
+  // diagram next to them would stack two visuals of the same idea. Keep this in
+  // sync with the visual components in storyboard.validation.ts.
+  'SplitScreenComparison',
+  'ProcessFlow',
+  'Timeline',
+  'HighlightedRegion',
+  'AnimatedDiagram',
+  'NumberCounter',
+  'KineticTypography',
+  'ObjectZoom',
+  'Callout',
   'SpeechBubble',
   'AnnotatedCallout',
   'ComparisonChart',
@@ -239,9 +249,14 @@ function bestTerms(segment: string, blocked: Set<string>, limit = 2): string[] {
   return chosen.map((term) => (term.length > 24 ? shorten(term, 24) : term));
 }
 
-/** Slide heading: the first clause of the scene's narration. */
+/** Slide heading: the first meaningful clause of the scene's narration. */
 function headingFor(narration: string): string {
-  const first = splitSegments(narration)[0] ?? '';
+  const segments = splitSegments(narration);
+  // A split can leave a pronoun-only opener such as "this process." heading the
+  // scene; prefer the first segment that actually names something.
+  const first = segments.find((segment) => contentWords(segment).length >= 2)
+    ?? segments[0]
+    ?? '';
   const clause = first.split(',')[0] ?? first;
   return shorten(clause, 46);
 }

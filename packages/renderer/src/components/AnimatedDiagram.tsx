@@ -12,7 +12,9 @@ export interface DiagramItem {
 }
 
 export interface AnimatedDiagramProps {
-  items: DiagramItem[];
+  items?: DiagramItem[];
+  /** A formula is a complete diagram on its own; no item positions needed. */
+  equation?: string;
   title?: string;
   top?: string;
   left?: string;
@@ -22,7 +24,8 @@ export interface AnimatedDiagramProps {
 }
 
 export function AnimatedDiagram({
-  items,
+  items = [],
+  equation,
   title,
   top = '50%',
   left = '50%',
@@ -34,6 +37,7 @@ export function AnimatedDiagram({
 
   const centerX = width / 2;
   const centerY = height / 2;
+  const formula = equation?.trim();
 
   return (
     <div
@@ -57,6 +61,30 @@ export function AnimatedDiagram({
           backdropFilter: 'blur(10px)',
         }}
       />
+
+      {/* Formula: a supported shape for equation-first model output. */}
+      {formula ? (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 36,
+            textAlign: 'center',
+            fontSize: 46,
+            fontWeight: 800,
+            lineHeight: 1.35,
+            letterSpacing: 1,
+            color: '#ffffff',
+            textShadow: '0 3px 18px rgba(0,0,0,0.65)',
+            opacity: fadeIn(frame, startFrame, 20),
+          }}
+        >
+          {formula}
+        </div>
+      ) : null}
 
       {/* Title */}
       {title && (
@@ -83,8 +111,8 @@ export function AnimatedDiagram({
         const opacity = fadeIn(frame, appearFrame, 20);
         const scale = pop(frame, appearFrame);
 
-        const posX = centerX + item.position.x;
-        const posY = centerY + item.position.y;
+        const posX = centerX + (item.position?.x ?? 0);
+        const posY = centerY + (item.position?.y ?? 0);
 
         return (
           <React.Fragment key={`item-${index}`}>
@@ -154,8 +182,8 @@ export function AnimatedDiagram({
               if (connIndex >= items.length) return null;
               const connItem = items[connIndex];
               if (!connItem) return null;
-              const connX = centerX + connItem.position.x;
-              const connY = centerY + connItem.position.y;
+              const connX = centerX + (connItem.position?.x ?? 0);
+              const connY = centerY + (connItem.position?.y ?? 0);
 
               const connectionOpacity = fadeIn(frame, appearFrame + 15, 20);
 
