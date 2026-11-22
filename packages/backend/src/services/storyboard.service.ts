@@ -4,8 +4,19 @@ import { storyboardValidator } from './storyboard.validation.js';
 import { buildStoryboardPrompt } from '../prompts/storyboard.prompt.js';
 import { ensureSceneVisuals, type SceneAssetUse } from './storyboard.visuals.js';
 import { directStoryboard } from './scene.director.js';
+import { normalizeStoryboardTiming } from './timing.service.js';
 import { parseLooseJson } from './json.repair.js';
-import { StoryboardPlanSchema, type StoryboardPlan, type VideoConfig, type SubtitleEntry, type SceneInstruction, type ComponentName } from '@edumotion/shared';
+import {
+  StoryboardPlanSchema,
+  type StoryboardPlan,
+  type VideoConfig,
+  type SubtitleEntry,
+  type SceneInstruction,
+  type ComponentName,
+  type ContentAnalysis,
+} from '@edumotion/shared';
+import { formatContentAnalysisForStoryboard } from '../prompts/content-analysis.prompt.js';
+import { deriveContentAnalysis } from './content.analysis.js';
 import { AppError } from '../middleware/errorHandler.js';
 import fs from 'fs';
 import path from 'path';
@@ -40,6 +51,15 @@ const COMPONENT_LOOKUP: ReadonlyMap<string, ComponentName> = new Map(
 );
 
 type ValidationSummary = ReturnType<typeof storyboardValidator.validate>;
+
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'been', 'were',
+  'will', 'into', 'than', 'then', 'they', 'them', 'their', 'there', 'here',
+  'its', 'our', 'your', 'you', 'are', 'was', 'but', 'not', 'can', 'could',
+  'would', 'should', 'about', 'when', 'where', 'which', 'while', 'what', 'how',
+  'why', 'who', 'all', 'any', 'each', 'more', 'most', 'some', 'such', 'very',
+  'also', 'just', 'like', 'over', 'under', 'between', 'through', 'because',
+]);
 
 /** One model response, exactly as received, plus what happened to it. */
 interface LlmAttemptLog {
@@ -110,8 +130,17 @@ class StoryboardService {
     config: VideoConfig,
     audioDurationMs: number,
     subtitles: SubtitleEntry[],
+    analysis?: ContentAnalysis,
   ): Promise<PlannedStoryboard> {
-    const prompt = buildStoryboardPrompt(script, config, audioDurationMs);
+    // The approved narration is the single source of truth. If the caller did
+    // not pass an analysis, derive a deterministic one instead of guessing from a
+    // topic string.
+    const content = analysis ?? deriveContentAnalysis({ script });
+    const prompt = buildStoryboardPrompt(script, config, audioDurationMs, content);
+    console.log(
+      `[Storyboard] Job ${jobId}: using ${content.domain} analysis ` +
+        `(${content.keyTerms.length} key term(s), ${content.claims.length} claim(s))`,
+    );
     const totalFrames = Math.ceil((audioDurationMs / 1000) * config.fps);
 
     const messages = [
@@ -204,12 +233,20 @@ class StoryboardService {
         totalFrames,
         fps: config.fps,
         audioDurationMs,
+        topic: content.topic,
+        domain: content.domain,
+        educationalObjective: content.learningObjectives[0],
       };
 
       const direct = StoryboardPlanSchema.safeParse(withMeta);
       if (direct.success) {
         const withCaptions = this.injectSubtitles(direct.data, subtitles);
-        const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(withCaptions, script);
+        const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(
+          withCaptions,
+          script,
+          content,
+          jobId,
+        );
 
         // Validate the storyboard
         const validation = storyboardValidator.validate(withVisuals, script);
@@ -262,7 +299,12 @@ class StoryboardService {
       );
       if (retryResult.success) {
         const withCaptions = this.injectSubtitles(retryResult.data, subtitles);
-        const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(withCaptions, script);
+        const { storyboard: withVisuals, injected, assetUses } = ensureSceneVisuals(
+          withCaptions,
+          script,
+          content,
+          jobId,
+        );
 
         const validation = storyboardValidator.validate(withVisuals, script);
         const relevanceScore = validation.sceneResults.reduce((sum: number, s: { visualRelevance?: number }) => sum + (s.visualRelevance || 0), 0) / validation.sceneResults.length;
@@ -338,7 +380,16 @@ class StoryboardService {
         );
       }
 
-      const finalValidation = storyboardValidator.validate(directed, script);
+      const { storyboard: timed, report: timing } = normalizeStoryboardTiming(directed);
+      writeJobJson(jobId, jobFiles.timingReport(jobId), timing);
+      if (timing.repaired > 0) {
+        console.warn(
+          `[Timing] Job ${jobId}: repaired ${timing.repaired} child start frame(s) ` +
+            `(${timing.issues.slice(0, 3).join('; ')})`,
+        );
+      }
+
+      const finalValidation = storyboardValidator.validate(timed, script);
       if (finalValidation.isValid) {
         console.log(
           `[Storyboard] Job ${jobId}: final storyboard valid with ${finalValidation.validScenes}/${finalValidation.totalScenes} scenes`,
@@ -359,18 +410,32 @@ class StoryboardService {
           `[Storyboard] Job ${jobId}: using directed storyboard despite ${finalValidation.overallIssues.length} issue(s)`,
         );
       }
-      flushLlmLog(directed);
-      return { storyboard: directed, assetUses: chosenAssetUses };
+      flushLlmLog(timed);
+      return { storyboard: timed, assetUses: chosenAssetUses };
     }
 
     // No attempt produced a usable storyboard: build a deterministic one and give
     // it the same visual direction so the output still looks designed.
     console.warn(`[Storyboard] Job ${jobId}: all attempts failed, creating fallback storyboard`);
-    const fallback = this.createFallbackStoryboard(jobId, script, config, totalFrames, subtitles);
+    const fallback = this.createFallbackStoryboard(
+      jobId,
+      script,
+      config,
+      totalFrames,
+      subtitles,
+      content,
+    );
     const directedFallback = directStoryboard(fallback, script).storyboard;
-    flushLlmLog(directedFallback);
-    // The fallback has no diagram tiles, so there is no artwork to report.
-    return { storyboard: directedFallback, assetUses: [] };
+    const { storyboard: timedFallback, report: fallbackTiming } =
+      normalizeStoryboardTiming(directedFallback);
+    writeJobJson(jobId, jobFiles.timingReport(jobId), fallbackTiming);
+    if (fallbackTiming.repaired > 0) {
+      console.warn(`[Timing] Job ${jobId}: fallback repaired ${fallbackTiming.repaired} child frame(s)`);
+    }
+    flushLlmLog(timedFallback);
+    // The fallback has no downloaded artwork to report here; the worker attaches
+    // scene artwork and writes the final manifest after planning.
+    return { storyboard: timedFallback, assetUses: [] };
   }
 
   /**
@@ -382,6 +447,7 @@ class StoryboardService {
     config: VideoConfig,
     totalFrames: number,
     subtitles: SubtitleEntry[],
+    analysis: ContentAnalysis,
   ): StoryboardPlan {
     const sentences = script.split('\n').filter(s => s.trim().length > 0);
     const sceneCount = Math.min(6, Math.max(3, sentences.length));
@@ -395,9 +461,7 @@ class StoryboardService {
 
       // Get sentence for this scene
       const sentence = sentences[Math.min(i, sentences.length - 1)] ?? '';
-
-      // Infer visual type from sentence
-      const visualType = this.inferVisualType(sentence);
+      const items = this.fallbackDiagramItems(sentence, analysis);
 
       scenes.push({
         id: `scene-${i + 1}`,
@@ -407,14 +471,15 @@ class StoryboardService {
         props: { theme: config.animationTheme || 'educational' },
         children: [
           {
-            component: 'EducationalObject',
+            // A neutral labelled diagram is used instead of guessing a random
+            // object from a keyword. Only an explicitly named object becomes an
+            // EducationalObject.
+            component: 'ConceptDiagram',
             props: {
-              type: visualType,
-              size: 200,
-              top: '50%',
+              items,
+              top: '52%',
               left: '50%',
-              startFrame: startFrame + 10,
-              animation: 'fadeIn',
+              startFrame: 10,
             },
           },
           {
@@ -424,7 +489,7 @@ class StoryboardService {
               animation: 'words',
               fontSize: 56,
               top: '20%',
-              startFrame: startFrame + 15,
+              startFrame: 4,
             },
           },
           {
@@ -437,7 +502,17 @@ class StoryboardService {
 
     // Inject subtitles
     const withCaptions = this.injectSubtitles(
-      { jobId, totalFrames, fps: config.fps, audioDurationMs: totalFrames * 1000 / config.fps, scenes },
+      {
+        jobId,
+        totalFrames,
+        fps: config.fps,
+        audioDurationMs: totalFrames * 1000 / config.fps,
+        topic: analysis.topic,
+        domain: analysis.domain,
+        educationalObjective: analysis.learningObjectives[0],
+        timingMode: 'scene-relative',
+        scenes,
+      },
       subtitles
     );
 
@@ -445,46 +520,47 @@ class StoryboardService {
   }
 
   /**
-   * Infer visual type from sentence
+   * Build a neutral, narration-grounded diagram for the deterministic fallback.
+   * It never maps a generic word to an unrelated icon.
    */
-  private inferVisualType(sentence: string): string {
+  private fallbackDiagramItems(
+    sentence: string,
+    analysis: ContentAnalysis,
+  ): Array<{ icon: string; label: string }> {
     const lower = sentence.toLowerCase();
+    const relevant = analysis.keyTerms.filter(
+      (term) =>
+        lower.includes(term.term.toLowerCase()) ||
+        term.synonyms.some((synonym) => lower.includes(synonym.toLowerCase())),
+    );
+    const chosen = (relevant.length > 0 ? relevant : analysis.keyTerms).slice(0, 3);
+    const labels = chosen.length > 0
+      ? chosen.map((term) => term.term)
+      : [...new Set(
+          lower
+            .replace(/[^a-z0-9 ]+/g, ' ')
+            .split(/\s+/)
+            .filter((word) => word.length > 4 && !STOPWORDS.has(word)),
+        )].slice(0, 3);
 
-    const typeMap: Array<[RegExp, string]> = [
-      [/photo\w*|chlorophyll|leaf|plant|sunlight|green/, 'leaf'],
-      [/bone|skeleton|femur|skull|rib|206/, 'skeleton'],
-      [/cell|dna|gene|nucleus|organism|liver|enzyme|intestin|stomach|digest|nutrient|protein/, 'cell'],
-      [/atom|molecule|electron|proton|neutron|chemistry/, 'atom'],
-      [/computer|network|internet|server|technology|digital/, 'computer'],
-      [/brain|neuron|mind|thinking|synaptic/, 'brain'],
-      [/heart|circulation|blood|pump|cardiovascular/, 'heart'],
-      [/water|liquid|ocean|river|rain|drink|h2o/, 'water'],
-      [/sun|light|solar|energy|star|day/, 'sun'],
-      [/math|mathematics|equation|algebra|geometry|calculus/, 'calculator'],
-      [/space|planet|moon|mars|rocket|astronaut|galaxy/, 'rocket'],
-      [/history|war|discovery|exploration|civilization|past/, 'book'],
-      [/map|country|continent|geography|location|place/, 'globe'],
-      [/food|nutrition|cooking|recipe|ingredient|eat/, 'apple'],
+    const items = labels.map((label) => ({
+      icon: this.explicitObjectType(label) ?? 'book',
+      label,
+    }));
+
+    return items.length > 0 ? items : [{ icon: 'book', label: this.extractKeyPhrase(sentence) }];
+  }
+
+  /** Only use an object type the narration actually names. */
+  private explicitObjectType(text: string): string | null {
+    const lower = text.toLowerCase();
+    const types = [
+      'book', 'apple', 'globe', 'atom', 'lightbulb', 'calculator', 'pencil', 'star',
+      'leaf', 'plant', 'sun', 'water', 'cloud', 'rocket', 'heart', 'cell', 'microscope',
+      'brain', 'bone', 'skeleton', 'dna', 'neuron', 'circuit', 'server', 'network',
+      'equation', 'chart', 'timeline', 'beaker', 'molecule', 'femur', 'skull', 'ribcage',
     ];
-
-    for (const [pattern, type] of typeMap) {
-      if (pattern.test(lower)) {
-        return type;
-      }
-    }
-
-    // Default based on common words
-    if (lower.includes('life') || lower.includes('organism') || lower.includes('body')) {
-      return 'cell';
-    }
-    if (lower.includes('earth') || lower.includes('world') || lower.includes('planet')) {
-      return 'globe';
-    }
-    if (lower.includes('idea') || lower.includes('think') || lower.includes('learn')) {
-      return 'lightbulb';
-    }
-
-    return 'book'; // Default
+    return types.find((type) => new RegExp(`\\b${type}\\b`, 'i').test(lower)) ?? null;
   }
 
   /**

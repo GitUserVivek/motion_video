@@ -36,6 +36,8 @@ export interface QualityReport {
   frozenSegments: number;
   frozenDurationSec: number;
   expected: QualityExpectation;
+  /** Representative frame extracted from each scene, for the E2E review. */
+  sampledFrames: string[];
   failures: string[];
   warnings: string[];
   reportPath: string;
@@ -89,6 +91,7 @@ class QualityService {
   async inspect(options: {
     jobId: string;
     videoPath: string;
+    sceneTimesSec?: number[];
   } & QualityExpectation): Promise<QualityReport> {
     const failures: string[] = [];
     const warnings: string[] = [];
@@ -218,6 +221,47 @@ class QualityService {
       }
     }
 
+    // Extract one frame per scene. Without this, a technically valid MP4 can
+    // still contain the wrong visual and nobody sees it until manual review.
+    const sampledFrames: string[] = [];
+    const framesDir = jobFiles.framesDir(options.jobId);
+    const sceneTimes = (options.sceneTimesSec ?? []).filter(
+      (time) => Number.isFinite(time) && time >= 0 && (durationSec === null || time < durationSec),
+    );
+    if (sceneTimes.length > 0) {
+      try {
+        fs.mkdirSync(framesDir, { recursive: true });
+        for (const [index, time] of sceneTimes.entries()) {
+          const framePath = path.join(
+            framesDir,
+            `scene-${String(index + 1).padStart(2, '0')}.jpg`,
+          );
+          try {
+            await run(
+              'ffmpeg',
+              [
+                '-hide_banner', '-loglevel', 'error', '-y',
+                '-ss', time.toFixed(3), '-i', options.videoPath,
+                '-frames:v', '1', '-q:v', '2', framePath,
+              ],
+              30_000,
+            );
+            if (fs.existsSync(framePath)) sampledFrames.push(framePath);
+          } catch (err) {
+            warnings.push(
+              `Could not sample scene ${index + 1}: ` +
+                (err instanceof Error ? err.message : String(err)),
+            );
+          }
+        }
+      } catch (err) {
+        warnings.push(
+          `Could not create the frame folder: ` +
+            (err instanceof Error ? err.message : String(err)),
+        );
+      }
+    }
+
     // The report belongs to the job's own folder, next to the video it describes.
     const reportPath = jobFiles.qualityReport(options.jobId);
     const report: QualityReport = {
@@ -236,6 +280,7 @@ class QualityService {
       frozenSegments,
       frozenDurationSec: Number(frozenDurationSec.toFixed(2)),
       expected,
+      sampledFrames,
       failures,
       warnings,
       reportPath,

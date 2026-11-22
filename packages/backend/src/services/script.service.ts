@@ -1,5 +1,6 @@
 import { ollamaService } from './ollama.service.js';
 import {
+  buildClaimSafeRewritePrompt,
   buildScriptGeneratePrompt,
   buildScriptSystemPrompt,
 } from '../prompts/script-generate.prompt.js';
@@ -13,6 +14,7 @@ import {
 } from '../prompts/script-rewrite.prompt.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { WORDS_PER_SECOND } from '@edumotion/shared';
+import { contentAnalysisService } from './content.analysis.js';
 
 class ScriptService {
   async generateFromTopic(
@@ -22,9 +24,20 @@ class ScriptService {
     const duration = videoConfig?.duration ?? 40;
     const language = videoConfig?.language ?? 'en';
 
+    // Understand the subject before writing so the script is not guided by a
+    // generic keyword. Research is deferred to the approved narration, where the
+    // actual claims are known; this pass only establishes domain and objectives.
+    const analysis = await contentAnalysisService.analyze({
+      topic,
+      research: false,
+    });
+
     const content = await ollamaService.chat([
       { role: 'system', content: buildScriptSystemPrompt() },
-      { role: 'user', content: buildScriptGeneratePrompt(topic, duration, language) },
+      {
+        role: 'user',
+        content: buildScriptGeneratePrompt(topic, duration, language, analysis),
+      },
     ], {
       temperature: 0.7,
       num_predict: 1024,
@@ -38,7 +51,54 @@ class ScriptService {
     // Keep the narration within the requested video length; the model tends to
     // overshoot, and an oversized script silently turns a 40s video into a 2min one.
     const targetWords = Math.round(duration * WORDS_PER_SECOND);
-    return this.enforceWordBudget(cleaned, Math.round(targetWords * 1.2));
+    const budgeted = this.enforceWordBudget(cleaned, Math.round(targetWords * 1.2));
+    return this.removeUnsupportedClaims(budgeted);
+  }
+
+  /**
+   * Before the user approves the script, remove claims that cannot be verified
+   * from a research source. This is the one place where automatic rewording is
+   * allowed: the narration has not been approved yet, and the rewrite is told
+   * explicitly not to add new facts. If the rewrite fails, the original script
+   * is kept and the unverified claims are logged for review.
+   */
+  private async removeUnsupportedClaims(script: string): Promise<string> {
+    try {
+      const analysis = await contentAnalysisService.analyze({
+        script,
+        research: true,
+      });
+      const unverified = analysis.claims.filter(
+        (claim) => claim.status !== 'supported' && claim.text.trim().length > 0,
+      );
+      if (unverified.length === 0) return script;
+
+      console.warn(
+        `[Script] ${unverified.length} unverified claim(s) found before approval; ` +
+          'asking the model to soften them.',
+      );
+      const rewritten = await ollamaService.chat(
+        [
+          { role: 'system', content: buildScriptSystemPrompt() },
+          {
+            role: 'user',
+            content: buildClaimSafeRewritePrompt(
+              script,
+              unverified.map((claim) => claim.text),
+            ),
+          },
+        ],
+        { temperature: 0.2, num_predict: 1024 },
+      );
+      const cleaned = this.cleanScriptOutput(rewritten);
+      return cleaned.length >= 20 ? cleaned : script;
+    } catch (err) {
+      console.warn(
+        '[Script] Claim verification failed; keeping the generated script: ' +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return script;
+    }
   }
 
   async validateScript(content: string): Promise<string> {

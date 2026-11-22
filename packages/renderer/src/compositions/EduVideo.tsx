@@ -174,10 +174,13 @@ function clampBottomPercent(value: unknown, minPercent: number): string | null {
 }
 
 /**
- * The storyboard model picks startFrame values relative to the video or to the
- * scene, inconsistently. Anything before the scene start would already be fully
- * faded in when the scene appears, which is why animations looked absent, so
- * rebase it onto the scene and keep it inside the scene window.
+ * Child timings are scene-relative by contract. Convert them once here:
+ *
+ *   absoluteStartFrame = scene.startFrame + child.startFrame
+ *
+ * No guessing based on the value: a child at 10 in a scene starting at 300
+ * always renders at 310. The backend normalises legacy storyboards before they
+ * reach this component.
  */
 function normalizeProps(
   scene: SceneInstruction,
@@ -188,13 +191,12 @@ function normalizeProps(
     _sceneStartFrame: scene.startFrame,
   };
 
+  const duration = Math.max(1, scene.endFrame - scene.startFrame);
+  const maxStart = Math.max(2, duration - 5);
   const raw = child.props['startFrame'];
-  if (typeof raw === 'number' && Number.isFinite(raw)) {
-    const start = raw < scene.startFrame ? scene.startFrame + Math.max(2, raw) : raw;
-    props['startFrame'] = Math.min(Math.max(start, scene.startFrame + 2), scene.endFrame - 5);
-  } else {
-    props['startFrame'] = scene.startFrame + 4;
-  }
+  const relative = typeof raw === 'number' && Number.isFinite(raw) ? raw : 4;
+  const clamped = Math.min(Math.max(relative, 2), maxStart);
+  props['startFrame'] = scene.startFrame + clamped;
 
   // Give titles a word-by-word reveal when the model did not ask for anything.
   if (child.component === 'AnimatedText' && !child.props['animation']) {

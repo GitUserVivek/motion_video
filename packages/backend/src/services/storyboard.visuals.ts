@@ -1,5 +1,11 @@
-import type { SceneChild, SceneInstruction, StoryboardPlan } from '@edumotion/shared';
+import type {
+  ContentAnalysis,
+  SceneChild,
+  SceneInstruction,
+  StoryboardPlan,
+} from '@edumotion/shared';
 import { assetSource, matchAssetImage } from './asset.library.js';
+import { verifyAssetMatch } from './asset.verify.js';
 
 /**
  * Icon set rendered by packages/renderer/src/utils/icons.tsx (and therefore by
@@ -129,6 +135,31 @@ export function pickTopicObject(text: string, fallback: TopicObjectType = 'book'
   return fallback;
 }
 
+const KNOWN_OBJECT_TYPES: TopicObjectType[] = [
+  'book', 'apple', 'globe', 'atom', 'lightbulb', 'calculator', 'pencil', 'star',
+  'leaf', 'plant', 'sun', 'water', 'cloud', 'rocket', 'heart', 'cell', 'microscope',
+  'brain', 'bone', 'skeleton', 'dna', 'neuron', 'circuit', 'server', 'network',
+  'equation', 'chart', 'timeline', 'beaker', 'molecule', 'femur', 'skull', 'ribcage',
+];
+
+/** Only return an object type when the text actually names that object. */
+export function explicitObjectType(text: string): TopicObjectType | null {
+  const tokens = new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  return KNOWN_OBJECT_TYPES.find((type) => tokens.has(type)) ?? null;
+}
+
+/** A neutral object used only when nothing specific was named. */
+function analysisFallbackObject(analysis?: ContentAnalysis): TopicObjectType {
+  if (!analysis) return 'book';
+  for (const term of analysis.keyTerms) {
+    for (const visual of term.visualCandidates) {
+      const explicit = explicitObjectType(visual);
+      if (explicit) return explicit;
+    }
+  }
+  return 'book';
+}
+
 /**
  * Re-point an EducationalObject at the concept the narration names. The model
  * happily renders a book next to "the heart pumps blood"; this fixes that
@@ -221,12 +252,12 @@ function pickDistinctIcon(
   used: Set<TopicObjectType>,
   fallback: TopicObjectType,
 ): TopicObjectType {
-  for (const [icon, pattern] of TOPIC_KEYWORDS) {
-    if (!used.has(icon) && pattern.test(segment)) return icon;
-  }
-  const preferred = pickTopicObject(segment, fallback);
-  if (!used.has(preferred)) return preferred;
-  return TOPIC_KEYWORDS.find(([icon]) => !used.has(icon))?.[0] ?? preferred;
+  const explicit = explicitObjectType(segment);
+  if (explicit && !used.has(explicit)) return explicit;
+  if (!used.has(fallback)) return fallback;
+  // Never invent a random glyph just to avoid a repeated icon. The label is the
+  // meaningful part of a text-labelled diagram.
+  return 'book';
 }
 
 /**
@@ -237,13 +268,26 @@ function pickDistinctIcon(
 function attachImages<T extends { icon: string; label: string; image?: string }>(
   tiles: T[],
   narration: string,
+  keyTerms: string[],
   record?: AssetRecorder,
 ): T[] {
   const used = new Set<string>();
   for (const tile of tiles) {
     if (tile.image) continue;
-    const match = matchAssetImage({ icon: tile.icon, label: tile.label, narration, exclude: used });
+    const match = matchAssetImage({
+      icon: tile.icon,
+      label: tile.label,
+      narration,
+      keyTerms,
+      exclude: used,
+    });
     if (match) {
+      const verdict = verifyAssetMatch(match, keyTerms);
+      if (!verdict.accepted) {
+        console.warn(`[Assets] Rejected ${match.id}: ${verdict.reason}`);
+        record?.(describePick(tile, null));
+        continue;
+      }
       tile.image = match.dataUrl;
       used.add(match.id);
     }
@@ -256,7 +300,9 @@ function attachImages<T extends { icon: string; label: string; image?: string }>
 function attachDiagramImages(
   child: SceneChild,
   narration: string,
+  keyTerms: string[],
   record?: AssetRecorder,
+  overwrite = false,
 ): SceneChild {
   const items = child.props['items'];
   if (!Array.isArray(items)) return child;
@@ -268,23 +314,30 @@ function attachDiagramImages(
     if (!raw || typeof raw !== 'object') return raw;
     const item = raw as { icon?: unknown; label?: unknown; image?: unknown };
     if (typeof item.icon !== 'string') return raw;
-    if (typeof item.image === 'string' && item.image.startsWith('data:image/')) return raw;
+    if (!overwrite && typeof item.image === 'string' && item.image.startsWith('data:image/')) {
+      return raw;
+    }
 
     const match = matchAssetImage({
       icon: item.icon,
       label: typeof item.label === 'string' ? item.label : '',
       narration,
+      keyTerms,
       exclude: used,
     });
+    const accepted = match ? verifyAssetMatch(match, keyTerms).accepted : false;
+    if (match && !accepted) {
+      console.warn(`[Assets] Rejected diagram image ${match.id} for "${String(item.label)}"`);
+    }
 
     record?.({
       label: typeof item.label === 'string' && item.label ? item.label : item.icon,
       icon: item.icon,
-      asset: match?.id ?? null,
-      source: match ? assetSource(match.id) : 'builtin',
+      asset: accepted ? match?.id ?? null : null,
+      source: accepted && match ? assetSource(match.id) : 'builtin',
     });
 
-    if (!match) return raw;
+    if (!match || !accepted) return raw;
 
     used.add(match.id);
     changed = true;
@@ -308,6 +361,8 @@ export function buildConceptItems(
   fallback: TopicObjectType,
   reserved: Set<string> = new Set(),
   record?: AssetRecorder,
+  analysis?: ContentAnalysis,
+  keyTerms: string[] = [],
 ): ConceptItem[] {
   const items: ConceptItem[] = [];
   const blocked = new Set(reserved);
@@ -333,7 +388,22 @@ export function buildConceptItems(
     }
   };
 
-  // Pass 1: this scene's own wording, avoiding labels an earlier scene used.
+  // Pass 1: analysis key terms the scene actually says, then the scene's own
+  // wording, avoiding labels an earlier scene used.
+  if (analysis) {
+    const lowerNarration = narration.toLowerCase();
+    for (const term of analysis.keyTerms) {
+      const named = [term.term, ...term.synonyms].some((word) =>
+        lowerNarration.includes(word.toLowerCase()),
+      );
+      if (!named) continue;
+      push(
+        explicitObjectType(`${term.term} ${term.visualCandidates.join(' ')}`) ?? fallback,
+        titleCase(term.term),
+      );
+      if (items.length >= MAX_CONCEPT_ITEMS) break;
+    }
+  }
   const narrationSegments = splitSegments(narration);
   narrationSegments.forEach(addSegment);
 
@@ -372,9 +442,21 @@ export function buildConceptItems(
       seenIcons.add(item.icon);
     }
     for (const item of items) reserved.add(item.label.toLowerCase());
-    return attachImages(items, narration, record);
+    return attachImages(items, narration, keyTerms, record);
   }
   return [];
+}
+
+function sceneKeyTerms(scene: SceneInstruction, analysis?: ContentAnalysis): string[] {
+  const terms = new Set<string>(scene.keyTerms ?? []);
+  const text = `${scene.visualBrief ?? ''} ${childText(scene.children ?? [])}`.toLowerCase();
+  for (const term of analysis?.keyTerms ?? []) {
+    if ([term.term, ...term.synonyms].some((word) => text.includes(word.toLowerCase()))) {
+      terms.add(term.term);
+      for (const synonym of term.synonyms) terms.add(synonym);
+    }
+  }
+  return [...terms].filter((term) => term.trim().length > 1);
 }
 
 function childText(children: SceneChild[]): string {
@@ -417,13 +499,13 @@ function findMeasurement(text: string): Measurement | null {
   return { target, suffix };
 }
 
-function numberVisual(measurement: Measurement, scene: SceneInstruction): SceneChild {
+function numberVisual(measurement: Measurement, _scene: SceneInstruction): SceneChild {
   return {
     component: 'AnimatedNumber',
     props: {
       target: measurement.target,
       suffix: measurement.suffix,
-      startFrame: scene.startFrame + 18,
+      startFrame: 18,
       duration: 45,
       fontSize: 96,
       color: '#FFD700',
@@ -445,11 +527,72 @@ function numberVisual(measurement: Measurement, scene: SceneInstruction): SceneC
  * Placement alternates so consecutive scenes do not look like one template, and
  * labels already used earlier in the video are skipped.
  */
+export function attachSceneArtwork(
+  storyboard: StoryboardPlan,
+  analysis?: ContentAnalysis,
+): { storyboard: StoryboardPlan; assetUses: SceneAssetUse[] } {
+  const assetUses: SceneAssetUse[] = [];
+
+  const scenes = storyboard.scenes.map((scene, index) => {
+    const children = scene.children ?? [];
+    const picks: AssetPick[] = [];
+    const record: AssetRecorder = (pick) => picks.push(pick);
+    const narration = childText(children);
+    const brief = scene.visualBrief ?? scene.keyTerms?.join(', ') ?? '';
+    const keyTerms = sceneKeyTerms(scene, analysis);
+
+    const nextChildren = children.map((child) => {
+      if (child.component === 'ConceptDiagram') {
+        return attachDiagramImages(
+          child,
+          `${brief} ${narration}`,
+          keyTerms,
+          record,
+          true,
+        );
+      }
+      if (child.component !== 'EducationalObject') return child;
+
+      const type = typeof child.props['type'] === 'string' ? child.props['type'] : 'book';
+      const match = matchAssetImage({
+        icon: type,
+        label: type,
+        narration: `${brief} ${narration}`,
+        keyTerms,
+      });
+      if (!match) return child;
+      const verdict = verifyAssetMatch(match, keyTerms);
+      record?.({
+        label: type,
+        icon: type,
+        asset: verdict.accepted ? match.id : null,
+        source: verdict.accepted ? assetSource(match.id) : 'builtin',
+      });
+      if (!verdict.accepted) {
+        console.warn(`[Assets] Rejected object image ${match.id}: ${verdict.reason}`);
+        return child;
+      }
+      return { ...child, props: { ...child.props, image: match.dataUrl } };
+    });
+
+    assetUses.push(...picks.map((pick) => ({ sceneIndex: index, ...pick })));
+    return { ...scene, children: nextChildren };
+  });
+
+  return { storyboard: { ...storyboard, scenes }, assetUses };
+}
+
 export function ensureSceneVisuals(
   storyboard: StoryboardPlan,
   script: string,
+  analysis?: ContentAnalysis,
+  jobId?: string,
 ): { storyboard: StoryboardPlan; injected: number; assetUses: SceneAssetUse[] } {
-  const fallback = pickTopicObject(script);
+  const fallback = analysisFallbackObject(analysis);
+  const sceneBriefs = new Map<string, string>();
+  for (const scene of storyboard.scenes) {
+    sceneBriefs.set(scene.id, scene.visualBrief ?? scene.keyTerms?.join(', ') ?? '');
+  }
   const reserved = new Set<string>();
   const assetUses: SceneAssetUse[] = [];
   let injected = 0;
@@ -464,28 +607,45 @@ export function ensureSceneVisuals(
     if (isClosing) return { ...scene, children };
 
     const narration = childText(children) || script;
-    // The model often picks an object unrelated to what the scene says, which
-    // used to fail validation deterministically (relevance 0.35) and discard the
-    // whole storyboard. Align it before anything is measured.
-    const aligned = children.map((child) => alignObjectChild(child, narration));
+    const brief = sceneBriefs.get(scene.id) ?? '';
+    const keyTerms = sceneKeyTerms(scene, analysis);
+    // Do not re-point an explicitly planned object. Only replace a generic
+    // object when the narration or analysis names a concrete one.
+    const aligned = children.map((child) => {
+      if (child.component !== 'EducationalObject') return child;
+      const explicit = explicitObjectType(`${brief} ${narration}`);
+      return explicit ? { ...child, props: { ...child.props, type: explicit } } : child;
+    });
     const alignedProps = scene.component === 'EducationalObject'
-      ? alignObjectChild({ component: scene.component, props: scene.props }, narration).props
+      ? aligned.find((child) => child.component === 'EducationalObject')?.props ?? scene.props
       : scene.props;
     const enriched = aligned.map((child) => {
-      if (child.component === 'ConceptDiagram') return attachDiagramImages(child, narration, record);
+      if (child.component === 'ConceptDiagram') {
+        return attachDiagramImages(child, `${brief} ${narration}`, keyTerms, record);
+      }
       if (child.component !== 'EducationalObject') return child;
       if (typeof child.props['image'] === 'string' && child.props['image'].startsWith('data:image/')) {
         return child;
       }
       const type = typeof child.props['type'] === 'string' ? child.props['type'] : fallback;
-      const match = matchAssetImage({ icon: type, label: type, narration });
+      const match = matchAssetImage({
+        icon: type,
+        label: type,
+        narration: `${brief} ${narration}`,
+        keyTerms,
+      });
       if (!match) return child;
+      const verdict = verifyAssetMatch(match, keyTerms);
       record?.({
         label: type,
         icon: type,
-        asset: match.id,
-        source: assetSource(match.id),
+        asset: verdict.accepted ? match.id : null,
+        source: verdict.accepted ? assetSource(match.id) : 'builtin',
       });
+      if (!verdict.accepted) {
+        console.warn(`[Assets] Rejected object image ${match.id}: ${verdict.reason}`);
+        return child;
+      }
       return { ...child, props: { ...child.props, image: match.dataUrl } };
     });
     const extra: SceneChild[] = [];
@@ -501,14 +661,22 @@ export function ensureSceneVisuals(
             animation: 'words',
             fontSize: 58,
             top: '12%',
-            startFrame: scene.startFrame + 4,
+            startFrame: 4,
           },
         });
       }
     }
 
     if (!children.some((child) => TOPIC_COMPONENTS.has(child.component))) {
-      const items = buildConceptItems(narration, script, fallback, reserved, record);
+      const items = buildConceptItems(
+        narration,
+        script,
+        fallback,
+        reserved,
+        record,
+        analysis,
+        keyTerms,
+      );
       if (items.length >= 2) {
         // Keep the graphic clear of the heading (~12%) and captions (bottom 8%).
         extra.push({
@@ -519,7 +687,7 @@ export function ensureSceneVisuals(
             iconSize: items.length >= 4 ? 118 : items.length === 3 ? 132 : 150,
             top: index % 2 === 0 ? '58%' : '62%',
             left: '50%',
-            startFrame: scene.startFrame + 8,
+            startFrame: 8,
           },
         });
       }

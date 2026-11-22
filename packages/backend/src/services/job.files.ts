@@ -50,6 +50,20 @@ export const jobFiles = {
   storyboard: (jobId: string) => path.join(jobDir(jobId), 'storyboard.json'),
   /** Every model response for this job, including the rejected attempts. */
   llmStoryboard: (jobId: string) => path.join(jobDir(jobId), 'llm', 'storyboard.json'),
+  /** Structured understanding of the approved narration. */
+  contentAnalysis: (jobId: string) => path.join(jobDir(jobId), 'content-analysis.json'),
+  /** Research sources used to verify claims, when a provider is enabled. */
+  research: (jobId: string) => path.join(jobDir(jobId), 'research.json'),
+  /** Scene-level asset candidates, verdicts and selected files. */
+  assetsManifest: (jobId: string) => path.join(jobDir(jobId), 'assets.json'),
+  /** Relative/absolute child frame audit. */
+  timingReport: (jobId: string) => path.join(jobDir(jobId), 'timing-report.json'),
+  /** Caption source and boundary-splitting audit. */
+  subtitleReport: (jobId: string) => path.join(jobDir(jobId), 'subtitle-report.json'),
+  /** Semantic/structural validation results. */
+  validationReport: (jobId: string) => path.join(jobDir(jobId), 'validation-report.json'),
+  /** Sampled frames used for the final visual review. */
+  framesDir: (jobId: string) => path.join(jobDir(jobId), 'frames'),
   /** Detailed render performance metrics (profile, timing, output size). */
   renderMetrics: (jobId: string) => path.join(jobDir(jobId), 'render-metrics.json'),
 } as const;

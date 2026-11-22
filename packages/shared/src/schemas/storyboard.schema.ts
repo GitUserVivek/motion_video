@@ -89,6 +89,13 @@ export const SceneInstructionSchema = z.object({
   // Educational metadata
   concept: z.string().optional(),
   visualStrategy: z.string().optional(),
+  // Additive, optional planning fields. Older storyboards parse unchanged.
+  purpose: z.string().optional(),
+  visualBrief: z.string().optional(),
+  keyTerms: z.array(z.string()).optional(),
+  assetQueries: z.array(z.string()).optional(),
+  animationIntent: z.string().optional(),
+  transition: z.string().optional(),
   cameraMovement: z.enum(['zoomIn', 'zoomOut', 'panLeft', 'panRight', 'static']).optional(),
 }).refine((s) => s.endFrame > s.startFrame, {
   message: 'endFrame must be greater than startFrame',
@@ -105,7 +112,10 @@ export const StoryboardPlanSchema = z.object({
   scenes: z.array(SceneInstructionSchema).min(1),
   // Metadata for validation
   topic: z.string().optional(),
+  domain: z.string().optional(),
   educationalObjective: z.string().optional(),
+  /** New storyboards declare that child startFrame values are scene-relative. */
+  timingMode: z.enum(['scene-relative']).optional(),
 }).superRefine((plan, ctx) => {
   // Validate frame continuity
   const scenes = plan.scenes;

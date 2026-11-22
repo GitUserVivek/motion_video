@@ -1,15 +1,26 @@
-import type { VideoConfig } from '@edumotion/shared';
+import type { ContentAnalysis, VideoConfig } from '@edumotion/shared';
+import { formatContentAnalysisForStoryboard } from './content-analysis.prompt.js';
 
 /**
- * Enhanced storyboard prompt with visual planning and educational scene structure
+ * Storyboard instructions.
+ *
+ * The old prompt inferred a topic from a handful of keywords and handed the
+ * model a canned icon list. This version gives it the actual narration analysis
+ * instead and asks for a concrete visual brief, asset queries and a scene
+ * purpose for every scene. Subtitles are injected by the backend, not invented
+ * here, and all child animation timings are scene-relative.
  */
 export function buildStoryboardPrompt(
   script: string,
   config: VideoConfig,
   audioDurationMs: number,
+  analysis?: ContentAnalysis,
 ): string {
   const totalFrames = Math.ceil((audioDurationMs / 1000) * config.fps);
   const sceneCount = Math.min(8, Math.max(4, Math.ceil(audioDurationMs / 10000)));
+  const analysisBlock = analysis
+    ? formatContentAnalysisForStoryboard(analysis)
+    : 'No structured analysis available. Derive the domain and key terms from the narration.';
 
   const availableComponents = [
     'AnimatedText', 'AnimatedNumber', 'Character', 'Teacher',
@@ -18,238 +29,82 @@ export function buildStoryboardPrompt(
     'Subtitle', 'QuestionCard', 'Confetti', 'EndScreen', 'ProgressBar',
     'SplitScreenComparison', 'ProcessFlow', 'Timeline', 'HighlightedRegion',
     'AnimatedDiagram', 'NumberCounter', 'KineticTypography', 'ObjectZoom', 'Callout',
-    'SpeechBubble', 'AnnotatedCallout', 'ComparisonChart', 'SummaryScene'
+    'SpeechBubble', 'AnnotatedCallout', 'ComparisonChart', 'SummaryScene',
   ];
 
-  // Extract key concepts from script for better visual planning
-  const concepts = extractKeyConcepts(script);
-  const topic = inferTopicFromScript(script);
+  return `You are a professional educational video storyboard planner. Plan a ${Math.round(audioDurationMs / 1000)}-second video from the narration below. Every visual must explain that scene's words; a pretty but unrelated icon is a failure.
 
-  return `You are a professional educational video storyboard planner. Create a detailed JSON storyboard for the following script. Every visual must REINFORCE the narration.
-
-SCRIPT:
+SCRIPT (the only narration the viewer hears):
 ${script}
+
+CONTENT ANALYSIS (derived from this narration):
+${analysisBlock}
 
 VIDEO SPECS:
 - Total frames: ${totalFrames}
 - FPS: ${config.fps}
-- Duration: ${Math.round(audioDurationMs / 1000)}s
 - Aspect ratio: ${config.aspectRatio}
-- Animation theme: ${config.animationTheme}
-- Estimated scenes: ${sceneCount}
+- Theme: ${config.animationTheme}
+- Scenes to create: ${sceneCount}
 
-INFERRED TOPIC: ${topic}
-KEY CONCEPTS: ${concepts.length > 0 ? concepts.join(', ') : 'general'}
+SCENE RULES:
+1. Each scene teaches ONE idea from the script and follows the script order.
+2. Set a short "purpose": hook | define | process | compare | example | data | recap | ending.
+3. Set "visualBrief" to a specific, drawable description of what should be on screen. Name the objects, people, arrows, values or relationship — not "a nice visual".
+4. Set 1-3 "keyTerms" copied from the narration or analysis. These are the only concepts the scene's artwork may depict.
+5. Set 1-3 "assetQueries": concrete illustration searches derived from the visual brief (e.g. "profit and loss statement", "water cycle diagram"), not generic words like "idea" or "business".
+6. Set "animationIntent" (what moves or reveals) and "transition" (cut, slide, fade, wipe).
+7. Use a composition that matches the purpose:
+   - process → ProcessFlow or AnimatedDiagram
+   - compare → SplitScreenComparison or ComparisonChart
+   - numbers → AnimatedNumber or NumberCounter
+   - timeline → Timeline
+   - definition/parts → AnnotatedCallout or ConceptDiagram
+   - recap → SummaryScene
+   - opening hook → QuestionCard or SpeechBubble
+8. Do NOT force AnimatedText into every scene. Add a title (3-8 words, never the narration) only when it names the scene's idea. Do not add a Subtitle child: the backend injects captions from measured audio.
+9. Do not use a generic calculator, plant, cloud, server, lightbulb or random icon unless the narration or analysis explicitly names that object/idea. Text-labelled diagrams are better than a wrong object.
+10. Avoid overcrowding: one visual focus plus one short title is enough. No wall of text.
+11. The final scene MUST contain EndScreen with a short recap.
 
-VISUAL STORYTELLING RULES (MANDATORY):
+FRAME TIMING (MANDATORY):
+- Scene "startFrame" and "endFrame" are absolute video frames.
+- Every child "startFrame" is RELATIVE to its own scene, starting at 0.
+- A child must start at least 2 frames into its scene and before the scene ends.
+- Scene frames must be contiguous, first starts at 0, last ends at ${totalFrames}.
 
-1. SCENE STRUCTURE:
-   - Create ${sceneCount} scenes that tell a visual story
-   - Each scene must teach ONE specific concept from the narration
-   - Scene order must match the script flow
-   - Each scene must have a clear visual focus
+AVAILABLE COMPONENTS:
+${availableComponents.join(', ')}
 
-2. VISUAL SELECTION:
-   - Every visual element MUST directly illustrate what's being said
-   - NO generic icons when a specific illustration is needed
-   - NO decorative elements that don't explain the concept
-   - NO repeating the same visual in consecutive scenes
-   - Use EducationalObject types that MATCH the narration: ${concepts.map(c => `"${c}"`).join(', ')}
-
-3. ASSET MATCHING (CRITICAL):
-   For topic "${topic}", use these specific visual types:
-   ${getTopicSpecificVisuals(topic)}
-
-   If the narration mentions specific things, SHOW THOSE THINGS:
-   - "skeleton" → show bones, skeleton
-   - "photosynthesis" → show leaf, sun, plant
-   - "computer network" → show servers, routers, connections
-   - "human body" → show organs, systems
-   - "mathematics" → show equations, diagrams, calculations
-
-4. LAYOUT & COMPOSITION:
-   - Main visual should occupy 60-80% of screen space
-   - Text should be LARGE and READABLE (fontSize: 50-90 for titles, 30-40 for body)
-   - Place text in top 25% or bottom 25% of screen
-   - Center important visuals at 50%/50%
-   - Use "left" and "right" positioning to create visual variety
-   - Alternate: left-aligned, center, right-aligned across scenes
-
-5. ANIMATION & MOVEMENT:
-   - EVERY scene must have at least one animation
-   - Use "animation": "fadeIn", "slideIn", "bounce", "zoom", "pop"
-   - Stagger animations: startFrame should be 5-15 frames apart
-   - Animate the most important element first
-   - Camera should move slightly in every scene (zoomIn, zoomOut, panLeft, panRight)
-
-6. EDUCATIONAL ENHANCEMENTS:
-   - If narration mentions a number with units (30%, 5km, 2 million), add AnimatedNumber
-   - If narration compares things, use SplitScreenComparison
-   - If narration explains a process, use ProcessFlow or Timeline
-   - If narration lists items, use ConceptDiagram
-   - If narration asks a question, use QuestionCard
-   - If narration quotes someone or asks a hook question, use SpeechBubble (text, speaker, variant)
-   - If narration defines or points at parts of one thing, use AnnotatedCallout (points: label + x/y %)
-   - If narration compares measured values, use ComparisonChart (bars: label + value)
-   - If narration recaps several points, use SummaryScene (title, points: string array)
-   - Final scene MUST have EndScreen with summary
-
-7. SCENE CONTENT REQUIREMENTS:
-   - Scene 1: Hook visual + title (grab attention)
-   - Middle scenes: Progressive explanation with changing visuals
-   - Final scene: Summary/EndScreen with key takeaway
-   - EVERY scene must have: BackgroundScene + at least 1 visual + AnimatedText + Subtitle
-
-8. TECHNICAL REQUIREMENTS:
-   - First scene: startFrame = 0
-   - Last scene: endFrame = ${totalFrames}
-   - Scene frames must be contiguous (no gaps, no overlaps)
-   - Distribute frames evenly: ~${Math.round(totalFrames / sceneCount)} per scene
-   - All frame values must be integers
-   - Leave backgrounds, palettes and camera moves to the system: do NOT set
-     "palette", "gradient", "color" or "camera" props.
-
-9. TITLE RULES:
-   - AnimatedText is a TITLE, not the narration. Use 3-8 words (max ~50 characters).
-   - Never paste the narration sentence into AnimatedText; Subtitle carries the full sentence.
-   - The title must name the concept being explained.
-
-10. ENDING:
-   - The final scene MUST include an EndScreen child with a short summary title.
-   - Do not end on an incomplete thought or a disappearing object.
-
-AVAILABLE COMPONENTS: ${availableComponents.join(', ')}
-
-EducationalObject types available:
+EducationalObject types (only when the narration names one):
 book, apple, globe, atom, lightbulb, calculator, pencil, star, leaf, plant, sun, water, cloud, rocket, heart, cell, microscope, brain, bone, skeleton, dna, neuron, circuit, server, network, equation, chart, timeline
 
-RETURN ONLY valid JSON with this exact structure:
+RETURN ONLY VALID JSON (no markdown fences):
 {
   "scenes": [
     {
       "id": "scene-1",
       "startFrame": 0,
       "endFrame": 120,
+      "purpose": "hook",
+      "visualBrief": "A shop owner comparing two receipts; one has a loss in red, the other a profit in green.",
+      "keyTerms": ["profit", "loss"],
+      "assetQueries": ["profit and loss statement", "shop receipts"],
+      "animationIntent": "reveal the loss receipt first, then slide the profit receipt beside it",
+      "transition": "fade",
       "component": "BackgroundScene",
-      "props": {"theme": "educational"},
+      "props": { "theme": "${config.animationTheme}" },
       "children": [
-        {"component": "EducationalObject", "props": {"type": "leaf", "size": 200, "top": "50%", "left": "50%", "startFrame": 10, "animation": "fadeIn"}},
-        {"component": "AnimatedText", "props": {"text": "How do plants feed themselves?", "animation": "words", "fontSize": 60, "top": "20%", "startFrame": 15}},
-        {"component": "Subtitle", "props": {"entries": []}}
+        {
+          "component": "AnimatedText",
+          "props": { "text": "Profit or Loss?", "animation": "words", "fontSize": 58, "top": "12%", "startFrame": 4 }
+        },
+        {
+          "component": "SplitScreenComparison",
+          "props": { "leftTitle": "Loss", "rightTitle": "Profit", "startFrame": 12, "top": "52%" }
+        }
       ]
     }
   ]
-}
-
-Remember: Every visual MUST help explain the narration. If you can't find a relevant visual, DON'T include one — an empty space is better than a wrong visual.`;
-}
-
-/**
- * Extract key concepts from script for better visual matching
- */
-function extractKeyConcepts(script: string): string[] {
-  const sentences = script.split('\n').filter(s => s.trim().length > 0);
-  const concepts: Set<string> = new Set();
-
-  const educationalTopics = [
-    // Science
-    'photosynthesis', 'chlorophyll', 'plant', 'leaf', 'sunlight', 'oxygen', 'carbon dioxide',
-    'bone', 'skeleton', 'femur', 'rib cage', 'skull', 'organ', 'heart', 'lung', 'brain',
-    'cell', 'dna', 'gene', 'protein', 'neuron', 'synaptic', 'bacteria', 'virus',
-    'atom', 'molecule', 'electron', 'proton', 'neutron', 'chemical', 'reaction',
-    'gravity', 'force', 'motion', 'energy', 'light', 'sound', 'wave',
-    // Technology
-    'computer', 'network', 'internet', 'router', 'server', 'database', 'algorithm',
-    'artificial intelligence', 'machine learning', 'neural network', 'ai', 'robot',
-    'circuit', 'processor', 'memory', 'storage', 'cloud', 'data', 'binary',
-    'programming', 'code', 'software', 'hardware', 'application',
-    // Mathematics
-    'mathematics', 'math', 'equation', 'algebra', 'geometry', 'calculus', 'statistics',
-    'number', 'addition', 'subtraction', 'multiplication', 'division',
-    'fraction', 'percentage', 'decimal', 'graph', 'chart', 'diagram',
-    // History/Geography
-    'history', 'war', 'revolution', 'discovery', 'exploration', 'civilization',
-    'map', 'country', 'continent', 'ocean', 'mountain', 'river', 'city',
-    // Everyday
-    'food', 'nutrition', 'cooking', 'recipe', 'ingredient',
-    'transportation', 'car', 'train', 'airplane', 'bicycle',
-    'communication', 'language', 'speech', 'writing', 'reading'
-  ];
-
-  for (const sentence of sentences) {
-    const lower = sentence.toLowerCase();
-    for (const topic of educationalTopics) {
-      if (lower.includes(topic)) {
-        concepts.add(topic);
-      }
-    }
-  }
-
-  // If no concepts found, try to extract nouns
-  if (concepts.size === 0) {
-    const words = script.toLowerCase().split(/\s+/);
-    for (const word of words) {
-      if (word.length > 4 && !['the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'been', 'were', 'will'].includes(word)) {
-        concepts.add(word);
-        if (concepts.size >= 5) break;
-      }
-    }
-  }
-
-  return Array.from(concepts).slice(0, 8);
-}
-
-/**
- * Infer the main topic from script
- */
-function inferTopicFromScript(script: string): string {
-  const sentences = script.split('\n').filter(s => s.trim().length > 0);
-  if (sentences.length === 0) return 'general';
-
-  const firstSentence = (sentences[0] ?? '').toLowerCase();
-
-  // Check for common topic patterns
-  const topicPatterns = [
-    { pattern: /photo\w*|chlorophyll|leaf.*sun|plant.*food|sunlight.*energy/, topic: 'photosynthesis' },
-    { pattern: /bone|skeleton|femur|rib.*cage|skull|206/, topic: 'human skeleton' },
-    { pattern: /computer|network|internet|router|server|ai|artificial/, topic: 'technology' },
-    { pattern: /cell|dna|gene|organ|heart|lung|brain/, topic: 'biology' },
-    { pattern: /atom|molecule|electron|proton|chemical|physics/, topic: 'chemistry' },
-    { pattern: /math|mathematics|equation|algebra|geometry|calculus/, topic: 'mathematics' },
-    { pattern: /history|war|discovery|exploration|civilization/, topic: 'history' },
-    { pattern: /map|country|continent|ocean|mountain|geography/, topic: 'geography' },
-    { pattern: /food|nutrition|cooking|recipe/, topic: 'nutrition' },
-    { pattern: /space|planet|moon|mars|rocket|astronaut|galaxy/, topic: 'space' },
-  ];
-
-  for (const { pattern, topic } of topicPatterns) {
-    if (pattern.test(firstSentence) || pattern.test(script.toLowerCase())) {
-      return topic;
-    }
-  }
-
-  // Return first few words as topic
-  const firstWords = firstSentence.split(' ').slice(0, 3).join(' ');
-  return firstWords || 'general';
-}
-
-/**
- * Get topic-specific visual recommendations
- */
-function getTopicSpecificVisuals(topic: string): string {
-  const visuals: Record<string, string> = {
-    'photosynthesis': 'Use: leaf, plant, sun, water, cloud, atom (for CO2). Show process flow: sun → leaf → plant → oxygen',
-    'human skeleton': 'Use: bone, skeleton, skull, femur. Show: full skeleton, bone structure, rib cage protecting organs',
-    'biology': 'Use: cell, dna, heart, lung, brain, neuron. Show: cellular structures, organ systems, biological processes',
-    'chemistry': 'Use: atom, molecule, beaker, test tube. Show: atomic structure, chemical reactions, periodic table',
-    'technology': 'Use: computer, circuit, server, network. Show: hardware, software, data flow, connections',
-    'space': 'Use: rocket, globe, star, planet. Show: solar system, galaxy, space exploration',
-    'mathematics': 'Use: calculator, chart, graph, equation. Show: calculations, geometric shapes, data visualization',
-    'history': 'Use: book, globe, timeline. Show: historical events, maps, artifacts',
-    'geography': 'Use: globe, map, mountain, river. Show: world map, landmarks, geographical features',
-    'nutrition': 'Use: apple, leaf, water. Show: healthy foods, nutritional information, food groups',
-    'general': 'Use: lightbulb (idea), book (knowledge), globe (world). Show: relevant concepts from narration'
-  };
-
-  return visuals[topic] ?? visuals['general'] ?? 'Use: lightbulb (idea), book (knowledge), globe (world)';
+}`;
 }

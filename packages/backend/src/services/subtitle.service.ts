@@ -124,14 +124,77 @@ class SubtitleService {
       const sceneStartMs = (scene.startFrame / scene.fps) * 1000;
       const sceneEndMs = (scene.endFrame / scene.fps) * 1000;
 
-      const sceneSubtitles = subtitles.filter(
-        (s) => s.startMs < sceneEndMs && s.endMs > sceneStartMs,
-      );
+      const sceneSubtitles: SubtitleEntry[] = [];
+      for (const cue of subtitles) {
+        if (cue.startMs >= sceneEndMs || cue.endMs <= sceneStartMs) continue;
+        const clipped = this.clipCueToWindow(cue, sceneStartMs, sceneEndMs);
+        if (clipped) sceneSubtitles.push(clipped);
+      }
 
       result.set(scene.id, sceneSubtitles);
     }
 
     return result;
+  }
+
+  /**
+   * Clip a cue to one scene window. A cue crossing a boundary is split into two
+   * scene-local pieces instead of being copied whole into both scenes. When the
+   * engine supplied word timings, the split follows them; otherwise words are
+   * divided proportionally across the cue's duration and marked as estimated.
+   */
+  private clipCueToWindow(
+    cue: SubtitleEntry,
+    windowStartMs: number,
+    windowEndMs: number,
+  ): SubtitleEntry | null {
+    const startMs = Math.max(cue.startMs, windowStartMs);
+    const endMs = Math.min(cue.endMs, windowEndMs);
+    if (endMs <= startMs) return null;
+
+    // Whole cue is already inside this scene.
+    if (startMs === cue.startMs && endMs === cue.endMs) {
+      return cue;
+    }
+
+    const words = cue.words;
+    if (words && words.length > 0) {
+      const keptWords = words
+        .filter((word) => word.endMs > startMs && word.startMs < endMs)
+        .map((word) => ({
+          ...word,
+          startMs: Math.max(word.startMs, startMs),
+          endMs: Math.min(word.endMs, endMs),
+        }))
+        .filter((word) => word.endMs > word.startMs);
+      const text = keptWords.map((word) => word.text).join(' ');
+      if (!text.trim()) return null;
+      return {
+        ...cue,
+        startMs,
+        endMs,
+        text: text.replace(/\s+([,.!?;:%])/g, '$1').trim(),
+        words: keptWords,
+      };
+    }
+
+    const text = this.textForWindow(cue, startMs, endMs);
+    if (!text) return null;
+    return { ...cue, startMs, endMs, text };
+  }
+
+  /** Split a cue without word timings at a proportional word boundary. */
+  private textForWindow(cue: SubtitleEntry, startMs: number, endMs: number): string {
+    const words = cue.text.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '';
+
+    const duration = Math.max(1, cue.endMs - cue.startMs);
+    const from = Math.max(0, Math.floor(((startMs - cue.startMs) / duration) * words.length));
+    const to = Math.min(
+      words.length,
+      Math.max(from + 1, Math.ceil(((endMs - cue.startMs) / duration) * words.length)),
+    );
+    return words.slice(from, to).join(' ');
   }
 
   /**

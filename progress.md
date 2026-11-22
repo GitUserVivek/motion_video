@@ -121,6 +121,9 @@ Paths are built in one place (`packages/backend/src/services/job.files.ts`), whi
 - `POST /api/jobs/:id/resume` re-queues failed or cancelled jobs (resets progress, error, retry counters and the artwork report); the render page and History page expose Resume.
 - Fixed completed jobs showing no video: the JSON store ignores SQL aliases, so `v.id AS video_id` was always empty. The jobs API now reads the video record by `job_id`, and the completed state still shows the player even if a video record is missing.
 
+### Backdrops are not artwork ✅ (2026-11-22)
+- The asset index skips `backgrounds/` (and `background/`, `backdrop/`, `bg/`) folders, so a backdrop such as `minimal_light.svg` can never be picked as a diagram tile just because the narration says "light-years".
+
 ### Visual relevance ✅ (2026-11-22)
 - Added digestion/liver/enzyme/intestine/stomach/nutrient/protein keywords to topic object matching and validation aliases, so scenes about food/digestion no longer render an unrelated object and fail relevance.
 

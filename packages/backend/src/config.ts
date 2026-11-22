@@ -131,6 +131,15 @@ export const config = {
     maxRasterBytes: 900 * 1024,
   },
 
+  research: {
+    // 'wikipedia' uses the official keyless REST API. 'none' keeps every job
+    // offline and marks claims unverified instead of inventing facts.
+    provider: (process.env['RESEARCH_PROVIDER'] ?? 'wikipedia').trim().toLowerCase(),
+    timeoutMs: Math.max(1000, parseInt(process.env['RESEARCH_TIMEOUT_MS'] ?? '7000', 10) || 7000),
+    maxSources: Math.max(1, parseInt(process.env['RESEARCH_MAX_SOURCES'] ?? '3', 10) || 3),
+    cacheDir: path.join(ROOT_DIR, 'data', 'research'),
+  },
+
   render: {
     fps: parseInt(process.env['RENDER_FPS'] ?? '30', 10),
     // auto | cpu | gpu | dual-gpu. Auto picks based on detected hardware.

@@ -12,6 +12,13 @@ import { config } from '../config.js';
 
 const IMAGE_EXTS = new Set(['.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif']);
 
+/**
+ * Backdrops are not scene artwork. A file like `backgrounds/minimal_light.svg`
+ * shares words such as "light" with ordinary narration ("a billion light-years"),
+ * so indexing it as an image tile puts a full-page background on a diagram.
+ */
+const BACKGROUND_DIRS = new Set(['background', 'backgrounds', 'backdrop', 'backdrops', 'bg']);
+
 const MIME_BY_EXT: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -80,6 +87,8 @@ export interface ImageAsset {
 export interface MatchedAsset {
   id: string;
   dataUrl: string;
+  /** Meaningful filename/folder tokens, used to verify the match. */
+  tokens: string[];
 }
 
 interface Cache {
@@ -122,6 +131,11 @@ function tokenize(name: string): string[] {
 
 function walk(dir: string, root: string, depth: number, out: ImageAsset[]): void {
   if (depth > MAX_DEPTH) return;
+  // Never index backdrop folders: they are for the scene background only.
+  const relativeDir = path.relative(root, dir);
+  if (relativeDir.split(path.sep).some((segment) => BACKGROUND_DIRS.has(segment.toLowerCase()))) {
+    return;
+  }
 
   let entries: fs.Dirent[];
   try {
@@ -207,6 +221,7 @@ export function matchAssetImage(options: {
   icon: string;
   label: string;
   narration?: string;
+  keyTerms?: string[];
   exclude?: Set<string>;
 }): MatchedAsset | null {
   const pool = assets();
@@ -215,6 +230,9 @@ export function matchAssetImage(options: {
   const iconTokens = new Set([options.icon, ...(ICON_TOKENS[options.icon] ?? [])]);
   const labelTokens = textTokens(options.label);
   const narrationTokens = options.narration ? textTokens(options.narration) : new Set<string>();
+  const keyTokens = new Set(
+    (options.keyTerms ?? []).flatMap((term) => [...textTokens(term)]),
+  );
   const exclude = options.exclude ?? new Set<string>();
 
   let best: ImageAsset | null = null;
@@ -222,6 +240,17 @@ export function matchAssetImage(options: {
 
   for (const asset of pool) {
     if (exclude.has(asset.id)) continue;
+
+    // Downloaded artwork is only allowed when it represents one of the scene's
+    // key terms. A narration-only coincidence is not enough for a downloaded
+    // full-page or unrelated illustration.
+    if (
+      asset.id.startsWith('auto/') &&
+      keyTokens.size > 0 &&
+      !asset.tokens.some((token) => keyTokens.has(token))
+    ) {
+      continue;
+    }
 
     let score = 0;
     for (const token of asset.tokens) {
@@ -245,5 +274,5 @@ export function matchAssetImage(options: {
 
   if (!best) return null;
   const dataUrl = embed(best);
-  return dataUrl ? { id: best.id, dataUrl } : null;
+  return dataUrl ? { id: best.id, dataUrl, tokens: best.tokens } : null;
 }

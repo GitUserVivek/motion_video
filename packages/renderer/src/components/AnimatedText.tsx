@@ -1,5 +1,6 @@
 import React from 'react';
-import { interpolate, useCurrentFrame } from 'remotion';
+import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { fitFontSize } from '@edumotion/shared';
 import { fadeIn, slideIn, bounce, zoomIn } from '../utils/animation.js';
 import type { SlideDirection } from '../utils/animation.js';
 
@@ -61,6 +62,16 @@ export function AnimatedText({
   lineHeight = 1.3,
 }: AnimatedTextProps): React.ReactElement {
   const frame = useCurrentFrame();
+  const { width: videoWidth } = useVideoConfig();
+  // Long titles shrink instead of flowing down over the artwork. The shared
+  // estimator is also used by the pre-render layout validator.
+  const fittedFontSize = fitFontSize(
+    text,
+    Math.max(320, videoWidth * 0.9 - 80),
+    260,
+    fontSize,
+    34,
+  );
 
   let opacity = 1;
   let transform = 'none';
@@ -99,7 +110,7 @@ export function AnimatedText({
     bottom,
     width,
     padding,
-    fontSize,
+    fontSize: fittedFontSize,
     fontWeight,
     color,
     textAlign,

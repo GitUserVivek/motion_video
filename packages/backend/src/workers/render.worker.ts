@@ -2,9 +2,12 @@ import { getDb } from '../db/db.js';
 import { ttsService } from '../services/tts.service.js';
 import { subtitleService } from '../services/subtitle.service.js';
 import { storyboardService } from '../services/storyboard.service.js';
+import { attachSceneArtwork } from '../services/storyboard.visuals.js';
 import { renderService } from '../services/render.service.js';
 import { qualityService } from '../services/quality.service.js';
 import { assetDiscovery } from '../services/asset.discovery.js';
+import { contentAnalysisService } from '../services/content.analysis.js';
+import { validateVideo } from '../services/content.validation.js';
 import { resetAssetCache } from '../services/asset.library.js';
 import { ensureJobDir, jobFiles } from '../services/job.files.js';
 import { config } from '../config.js';
@@ -95,38 +98,154 @@ async function processJob(job: JobRow): Promise<void> {
   // 3. Generate subtitles
   // edge-tts reports real word boundaries; only estimate from the audio length
   // when the engine cannot provide them (e.g. espeak).
+  const subtitleSource: 'measured' | 'estimated' =
+    measuredSubtitles && measuredSubtitles.length > 0 ? 'measured' : 'estimated';
   const subtitles = measuredSubtitles && measuredSubtitles.length > 0
     // edge-tts reports one cue per word; group them into readable phrases while
     // keeping the per-word timings for caption highlighting.
     ? subtitleService.groupWordCues(measuredSubtitles)
     : subtitleService.generateSubtitles(script, durationMs);
+  console.log(
+    `[Subtitles] Job ${job.id}: ${subtitles.length} cue(s) from ${subtitleSource} timings`,
+  );
   const srtPath = jobFiles.subtitlesSrt(job.id);
   const jsonSubPath = jobFiles.subtitlesJson(job.id);
   subtitleService.writeSrt(subtitles, srtPath);
   subtitleService.writeJson(subtitles, jsonSubPath);
 
-  // 4. Discover illustrations for the script's concepts. This only adds files to
-  // the local artwork library; every failure is contained and the built-in SVG
-  // glyphs are used instead.
-  updateJob(job.id, 'processing', 26, 'discovering_assets');
-  const discovery = await assetDiscovery.ensureAssetsForScript(script);
-  if (discovery.errors.length > 0) {
-    console.warn(`[Worker] Job ${job.id} asset discovery had ${discovery.errors.length} error(s)`);
-  }
-  // New files are on disk now; drop the 15 s index cache so the storyboard sees
-  // them immediately instead of re-using a stale file list.
-  resetAssetCache();
+  // 3b. Understand the approved narration. This is the single source of truth
+  // for the storyboard, so a topic guess from the project title cannot leak a
+  // wrong domain into the visuals. Research is best-effort and never blocks.
+  updateJob(job.id, 'processing', 22, 'analyzing_content');
+  const contentAnalysis = await contentAnalysisService.analyze({
+    script,
+    jobId: job.id,
+    research: true,
+  });
+  console.log(
+    `[Worker] Job ${job.id} content: ${contentAnalysis.domain} — ` +
+      `${contentAnalysis.keyTerms.length} key term(s), ` +
+      `${contentAnalysis.claims.filter((claim) => claim.status === 'supported').length}/` +
+      `${contentAnalysis.claims.length} claim(s) supported`,
+  );
 
   updateJob(job.id, 'processing', 30, 'planning_storyboard');
 
   // 4. Plan storyboard
   console.log(`[Worker] Job ${job.id} [3/4] planning storyboard (LLM)`);
-  const { storyboard, assetUses } = await storyboardService.planStoryboard(
+  const planned = await storyboardService.planStoryboard(
     job.id,
     script,
     videoConfig,
     durationMs,
     subtitles,
+    contentAnalysis,
+  );
+
+  // 4b. The storyboard now names what each scene needs. Discover artwork from
+  // those scene-specific queries, then re-attach only verified matches. This is
+  // deliberately after planning: a whole-script keyword list used to download
+  // generic icons that had nothing to do with the scene.
+  updateJob(job.id, 'processing', 34, 'discovering_scene_assets');
+  const sceneQueries = planned.storyboard.scenes.flatMap((scene) => [
+    ...(scene.assetQueries ?? []),
+    ...(scene.keyTerms ?? []),
+  ]);
+  const sceneDiscovery = await assetDiscovery.ensureAssetsForQueries(
+    sceneQueries,
+    Math.min(10, Math.max(4, planned.storyboard.scenes.length * 2)),
+  );
+  if (sceneDiscovery.errors.length > 0) {
+    console.warn(`[Worker] Job ${job.id} scene asset discovery had ${sceneDiscovery.errors.length} error(s)`);
+  }
+  resetAssetCache();
+  const attached = attachSceneArtwork(planned.storyboard, contentAnalysis);
+  const storyboard = attached.storyboard;
+  const assetUses = attached.assetUses;
+
+  // Persist the scene/asset audit for the render page and later verification.
+  const downloadedManifest = assetDiscovery.getManifest();
+  try {
+    fs.mkdirSync(jobFiles.dir(job.id), { recursive: true });
+    fs.writeFileSync(
+      jobFiles.assetsManifest(job.id),
+      JSON.stringify(
+        {
+          createdAt: new Date().toISOString(),
+          queries: sceneDiscovery.queries,
+          downloaded: downloadedManifest,
+          selections: assetUses,
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+  } catch (err) {
+    console.warn(
+      `[Worker] Job ${job.id} could not write the asset manifest: ` +
+        (err instanceof Error ? err.message : String(err)),
+    );
+  }
+
+  // 4c. Semantic and structural validation before any expensive render work.
+  updateJob(job.id, 'processing', 37, 'validating_storyboard');
+  const validation = validateVideo({
+    storyboard,
+    script,
+    analysis: contentAnalysis,
+    config: videoConfig,
+    audioDurationMs: durationMs,
+  });
+  try {
+    fs.mkdirSync(jobFiles.dir(job.id), { recursive: true });
+    fs.writeFileSync(
+      jobFiles.validationReport(job.id),
+      JSON.stringify(validation, null, 2),
+      'utf-8',
+    );
+    fs.writeFileSync(
+      jobFiles.subtitleReport(job.id),
+      JSON.stringify(
+        {
+          source: subtitleSource,
+          totalCues: subtitles.length,
+          scenes: storyboard.scenes.map((scene) => ({
+            sceneId: scene.id,
+            cues: (scene.children ?? [])
+              .filter((child) => child.component === 'Subtitle')
+              .flatMap((child) => (Array.isArray(child.props['entries']) ? child.props['entries'] : [])),
+          })),
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+  } catch (err) {
+    console.warn(
+      `[Worker] Job ${job.id} could not write validation reports: ` +
+        (err instanceof Error ? err.message : String(err)),
+    );
+  }
+
+  for (const warning of validation.warnings.slice(0, 8)) {
+    console.warn(`[Validation] ${warning.sceneId ?? 'job'}: ${warning.message}`);
+  }
+  if (!validation.passed) {
+    const first = validation.blocking.slice(0, 3).map((issue) => issue.message).join(' | ');
+    updateJob(
+      job.id,
+      'failed',
+      0,
+      'validation_failed',
+      `Semantic validation failed: ${first} (report: ${jobFiles.validationReport(job.id)})`,
+    );
+    console.error(`[Validation] Job ${job.id} blocked: ${first}`);
+    return;
+  }
+  console.log(
+    `[Validation] Job ${job.id} passed with ${validation.warnings.length} warning(s)`,
   );
 
   // Persist scenes to DB — replace any scenes left by a previous attempt so a
@@ -195,6 +314,9 @@ async function processJob(job: JobRow): Promise<void> {
   const report = await qualityService.inspect({
     jobId: job.id,
     videoPath: result.videoPath,
+    sceneTimesSec: storyboard.scenes.map(
+      (scene) => ((scene.startFrame + scene.endFrame) / 2) / videoConfig.fps,
+    ),
     expectedDurationSec: result.durationSec,
     expectedWidth: dimensions.width,
     expectedHeight: dimensions.height,

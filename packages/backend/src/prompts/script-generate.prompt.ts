@@ -1,20 +1,27 @@
+import type { ContentAnalysis } from '@edumotion/shared';
+import { formatContentAnalysisForScript } from './content-analysis.prompt.js';
+
 export function buildScriptGeneratePrompt(
   topic: string,
   durationSeconds: number,
   language: string,
+  analysis?: ContentAnalysis,
 ): string {
   const wordCount = Math.round(durationSeconds * 2.5);
   const sentenceCount = Math.max(6, Math.round(durationSeconds / 7));
+  const analysisBlock = analysis ? formatContentAnalysisForScript(analysis) : '';
 
   return `You are an expert educational content creator. Write a professional, engaging educational script for a ${durationSeconds}-second explainer video about: ${topic}
+
+${analysisBlock ? `CONTENT BRIEF (derived from the actual subject):\n${analysisBlock}\n` : ''}
 
 STRUCTURE REQUIREMENTS (MANDATORY):
 1. HOOK (First 1-2 sentences): Start with a surprising fact, thought-provoking question, common misconception, or relatable situation to grab attention and create curiosity.
 2. INTRODUCTION (Next 1-2 sentences): Introduce the main concept and why it matters. Explain what we'll learn.
 3. MAIN EXPLANATION (Middle sentences): Break down the concept progressively from simple to complex. Use the following techniques:
    - Explain WHY things happen, not just WHAT happens
-   - Use real-world examples and analogies
-   - Include interesting facts, comparisons, and statistics
+   - Use real-world examples and analogies from the content brief
+   - Include a number, date or statistic ONLY when it appears in VERIFIED FACTS; otherwise explain the idea qualitatively
    - Show cause-and-effect relationships
    - Use step-by-step reasoning
 4. PRACTICAL APPLICATION (1-2 sentences): Show how this knowledge is useful in real life.
@@ -27,9 +34,9 @@ CONTENT REQUIREMENTS:
 - Short, spoken sentences: 8-18 words each
 - Use natural, conversational language with contractions
 - Use everyday words, avoid jargon (or explain it immediately)
-- Include at least ONE analogy or real-world example
-- Include at least ONE interesting fact or surprising statistic
+- Include at least ONE analogy or concrete real-world example
 - Include at least ONE "why" or "how" explanation
+- Never invent statistics, dates, sources, formulas or precise numbers. If you are unsure, describe the idea without the number.
 - Progress from basic to advanced understanding
 
 STYLE REQUIREMENTS:
@@ -53,29 +60,26 @@ EDUCATIONAL TECHNIQUES TO USE:
 - Use "for example" to illustrate
 - Use "that means" to clarify
 
-EXAMPLE OF THE EXACT STYLE REQUIRED (for topic "photosynthesis"):
-Why do plants never seem to run out of food?
-They make it themselves using a process called photosynthesis.
-Imagine a tiny factory inside each leaf, capturing sunlight and turning it into energy.
-Using just sunlight, water, and carbon dioxide, plants create sugar to feed themselves.
-This happens in special structures called chloroplasts that contain a green pigment called chlorophyll.
-As a byproduct, plants release oxygen into the air — the very oxygen we breathe.
-Without photosynthesis, life on Earth as we know it wouldn't exist.
-So every meal you eat traces back to sunlight captured by a leaf.
-
-ANOTHER EXAMPLE (for topic "how bones work"):
-What's holding you up right now?
-Your skeleton — a remarkable framework of 206 bones that gives your body structure and protection.
-Bones aren't just rigid sticks; they're living tissue that constantly repairs and strengthens itself.
-Your femur, or thigh bone, is the strongest bone in your body and can support 30 times your body weight.
-But tiny bones like the stapes in your ear are just 2.8 millimeters long — about the size of a grain of rice.
-Bones also protect your vital organs: your rib cage shields your heart and lungs, while your skull protects your brain.
-Without bones, you couldn't stand, walk, or even breathe properly.
-So the next time you move, remember it's your amazing skeleton making it all possible.
+STYLE: open with a question or concrete situation, define the idea in plain language, show one example or analogy, explain the cause-and-effect, and close with a takeaway. The exact wording must come from the content brief and the topic — do not reuse a stock example from another subject.
 
 Write the script now (language: ${language}). DO NOT add any explanation, commentary, or markdown. Output ONLY the script sentences, one per line:`;
 }
 
+export function buildClaimSafeRewritePrompt(
+  script: string,
+  claims: string[],
+): string {
+  return `Rewrite this narration so it no longer states any of the unverified claims below. Keep the same topic, structure and approximate length. Do not add new numbers, dates, statistics, formulas, sources or facts. Replace a removed claim with a qualitative explanation or a concrete example already implied by the script.
+
+UNVERIFIED CLAIMS:
+${claims.map((claim) => `- ${claim}`).join('\n')}
+
+SCRIPT:
+${script}
+
+Return only the rewritten script, one sentence per line, with no markdown or commentary.`;
+}
+
 export function buildScriptSystemPrompt(): string {
-  return 'You are an expert educational script writer. You create engaging, accurate, and educational video scripts. You write in a conversational, natural style. You always follow the structure: Hook → Introduction → Explanation → Application → Conclusion. You output only the script text with no markdown, headings, or commentary.';
+  return 'You are an expert educational script writer. You create engaging, accurate, and educational video scripts. You write in a conversational, natural style. You always follow the structure: Hook → Introduction → Explanation → Application → Conclusion. You only use facts supplied in the content brief; when no verified fact is supplied you explain qualitatively instead of inventing numbers or sources. You output only the script text with no markdown, headings, or commentary.';
 }

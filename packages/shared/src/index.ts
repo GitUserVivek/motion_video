@@ -3,10 +3,12 @@
 
 export * from './types/index.js';
 export * from './constants.js';
+export * from './utils/text-metrics.js';
 
 // Re-export schemas (these already include the types)
 export * from './schemas/job.schema.js';
 export * from './schemas/script.schema.js';
+export * from './schemas/content.schema.js';
 export * from './schemas/storyboard.schema.js';
 
 // Note: ComponentName, SubtitleEntry, StoryboardPlan, etc. are exported from types/index.js

@@ -15,6 +15,15 @@ export type {
   SceneInstruction,
 } from '../schemas/storyboard.schema.js';
 
+export type {
+  ContentAnalysis,
+  ContentClaim,
+  ContentClaimKind,
+  ContentClaimStatus,
+  ContentKeyTerm,
+  ResearchSource,
+} from '../schemas/content.schema.js';
+
 export interface Project {
   id: string;
   title: string;

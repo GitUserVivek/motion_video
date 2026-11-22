@@ -6,7 +6,7 @@ import {
   type SceneInstruction,
   type StoryboardPlan,
 } from '@edumotion/shared';
-import { alignObjectChild, pickTopicObject } from './storyboard.visuals.js';
+import { pickTopicObject } from './storyboard.visuals.js';
 
 /**
  * Deterministic visual direction applied *after* the model produced a
@@ -342,7 +342,8 @@ function buildComposition(
   scene: SceneInstruction,
   children: SceneChild[],
 ): Composition | null {
-  const startFrame = scene.startFrame + 10;
+  // Child timings are scene-relative; the renderer adds the scene offset once.
+  const startFrame = 10;
 
   switch (intent) {
     case 'summary': {
@@ -624,14 +625,15 @@ export function directStoryboard(plan: StoryboardPlan, script: string): Directed
           fontSize: 62,
           fontWeight: 800,
           top: '12%',
-          startFrame: scene.startFrame + 6,
+          startFrame: 6,
         },
       });
       changes.push(`scene ${index + 1}: added heading`);
     }
 
-    // 3. Visual relevance: the object on screen should be the thing being said.
-    let directedChildren = children.map((child) => alignObjectChild(child, narration));
+    // 3. Visual relevance is planned by the storyboard from the narration and
+    //    analysis. Do not rewrite an explicit object here with a keyword guess.
+    let directedChildren = children;
 
     // 4. Composition: the narration's intent decides the shape of the visual, so
     //    a process does not get a comparison chart and a recap does not get an
@@ -692,7 +694,7 @@ export function directStoryboard(plan: StoryboardPlan, script: string): Directed
             title: topicTitle(script),
             subtitle: narration ? `In short: ${shorten(narration, 60)}` : 'Keep exploring with EduMotion',
             showConfetti: true,
-            startFrame: scene.startFrame + 10,
+            startFrame: 10,
           },
         });
         changes.push('added EndScreen to the final scene');

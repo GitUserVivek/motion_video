@@ -380,6 +380,60 @@ class AssetDiscoveryService {
     return summary;
   }
 
+  /**
+   * Download artwork for a set of scene-level queries. The storyboard has
+   * already named what each scene needs, so these queries are more specific than
+   * the old whole-script keyword list.
+   */
+  async ensureAssetsForQueries(
+    rawQueries: string[],
+    max = config.assets.maxQueriesPerJob,
+  ): Promise<DiscoverySummary> {
+    const summary: DiscoverySummary = {
+      enabled: this.isEnabled(),
+      queries: [],
+      downloaded: 0,
+      reused: 0,
+      skipped: 0,
+      errors: [],
+    };
+    if (!summary.enabled) return summary;
+
+    summary.queries = [...new Set(rawQueries.map((query) => query.trim()).filter(Boolean))]
+      .slice(0, Math.max(1, max));
+    if (summary.queries.length === 0) return summary;
+
+    for (const query of summary.queries) {
+      try {
+        const candidates = await this.discover(query);
+        const best = candidates[0];
+        if (!best) {
+          summary.skipped++;
+          continue;
+        }
+        const status = await this.persist(best, query);
+        if (status === 'downloaded') summary.downloaded++;
+        else if (status === 'reused') summary.reused++;
+        else summary.skipped++;
+      } catch (err) {
+        summary.errors.push(`${query}: ${message(err)}`);
+      }
+    }
+
+    this.writeCredits();
+    console.log(
+      `[Assets] scene queries: ${summary.downloaded} downloaded, ${summary.reused} reused, ` +
+        `${summary.skipped} skipped`,
+    );
+    for (const error of summary.errors) console.warn(`[Assets] ${error}`);
+    return summary;
+  }
+
+  /** Downloaded files recorded so far, including licence and query. */
+  getManifest(): AssetManifestEntry[] {
+    return [...this.loadManifest()];
+  }
+
   /** First provider that knows the query wins; results are cached for a week. */
   private async discover(query: string): Promise<AssetCandidate[]> {
     const cached = this.readSearchCache(query);
