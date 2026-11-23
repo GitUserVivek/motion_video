@@ -98,6 +98,14 @@ class RenderService {
         renderSettings.useNvenc,
       );
       const muxMs = Date.now() - muxStartedAt;
+      const renderFps = renderFramesMs > 0
+        ? storyboard.totalFrames / (renderFramesMs / 1000)
+        : 0;
+      console.log(
+        `[Render] Job ${jobId}: ${storyboard.totalFrames} frames in ` +
+          `${(renderFramesMs / 1000).toFixed(1)}s (${renderFps.toFixed(2)} fps), ` +
+          `mux ${(muxMs / 1000).toFixed(1)}s`,
+      );
 
       onProgress?.(90);
 
@@ -123,6 +131,7 @@ class RenderService {
           chunkCount: renderSettings.chunkCount,
           totalFrames: storyboard.totalFrames,
           fps: videoConfig.fps,
+          renderFps: Number(renderFps.toFixed(2)),
           renderFramesMs,
           muxMs,
           totalMs: Date.now() - renderStartedAt,

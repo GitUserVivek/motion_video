@@ -85,7 +85,6 @@ export function Timeline({
             <div
               style={{
                 background: 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(10px)',
                 border: `2px solid ${event.color || '#4A90D9'}`,
                 borderRadius: 16,
                 padding: 20,

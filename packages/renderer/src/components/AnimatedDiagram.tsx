@@ -60,7 +60,6 @@ export function AnimatedDiagram({
           background: 'rgba(255, 255, 255, 0.05)',
           borderRadius: 20,
           border: '2px solid rgba(255, 255, 255, 0.1)',
-          backdropFilter: 'blur(10px)',
         }}
       />
 

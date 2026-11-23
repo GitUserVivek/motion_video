@@ -102,7 +102,6 @@ export function Callout({
           fontSize,
           fontWeight: 600,
           textShadow: '0 2px 8px rgba(0, 0, 0, 0.5)',
-          backdropFilter: 'blur(10px)',
           whiteSpace: 'nowrap',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
         }}

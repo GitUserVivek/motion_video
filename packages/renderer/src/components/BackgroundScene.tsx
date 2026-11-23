@@ -97,8 +97,9 @@ export function BackgroundScene({
               marginLeft: -blob.size / 2,
               marginTop: -blob.size / 2,
               borderRadius: '50%',
-              background: `radial-gradient(circle, ${style[blob.tint]} 0%, rgba(255,255,255,0) 70%)`,
-              filter: 'blur(18px)',
+              // The gradient already fades to transparent; a CSS blur here
+              // re-rasterised four large layers on every rendered frame.
+              background: `radial-gradient(circle, ${style[blob.tint]} 0%, rgba(255,255,255,0) 76%)`,
               transform: `translate(${dx}%, ${dy}%) scale(${1 + 0.05 * Math.sin(phase)})`,
               willChange: 'transform',
             }}

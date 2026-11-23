@@ -5,6 +5,7 @@ import {
   buildSceneAssetQueries,
   isConfidentCandidate,
   sanitizeSvg,
+  selectWikimediaThumbnailUrl,
   scoreAssetCandidate,
   slugify,
   stripHtml,
@@ -85,6 +86,32 @@ describe('buildSceneAssetQueries', () => {
       3,
     );
     expect(queries[0]).toBe('solar panel');
+  });
+});
+
+describe('selectWikimediaThumbnailUrl', () => {
+  it('keeps a generated thumbnail URL', () => {
+    const thumb = 'https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/file.jpg/640px-file.jpg';
+    expect(selectWikimediaThumbnailUrl('File:file.jpg', { thumburl: thumb })).toBe(thumb);
+  });
+
+  it('replaces an unscaled original URL with a small thumbnail', () => {
+    expect(
+      selectWikimediaThumbnailUrl('File:Combustion Chamber.png', {
+        thumburl: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Combustion_Chamber.png?utm_content=thumbnail_unscaled',
+        url: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Combustion_Chamber.png?utm_content=original',
+        width: 526,
+      }),
+    ).toBe('https://commons.wikimedia.org/wiki/Special:FilePath/Combustion_Chamber.png?width=320');
+  });
+
+  it('rejects an original too small to thumbnail', () => {
+    expect(
+      selectWikimediaThumbnailUrl('File:tiny.png', {
+        thumburl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/tiny.png',
+        width: 300,
+      }),
+    ).toBeNull();
   });
 });
 

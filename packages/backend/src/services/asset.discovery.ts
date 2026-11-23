@@ -30,7 +30,7 @@ const USER_AGENT = 'EduMotion/1.0 (local educational video generator)';
 const SEARCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COLLECTION_LICENSE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Bump when cached search results gain fields, so old entries are ignored. */
-const SEARCH_CACHE_VERSION = 'v5';
+const SEARCH_CACHE_VERSION = 'v6';
 const OPENMOJI_VERSION = '15.1.0';
 const OPENMOJI_INDEX_URL =
   `https://cdn.jsdelivr.net/npm/openmoji@${OPENMOJI_VERSION}/data/openmoji.json`;
@@ -39,6 +39,15 @@ const MAX_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_FETCH_ATTEMPTS = 3;
 /** Wikimedia blocks bursty clients; keep all its API and upload calls serial. */
 const WIKIMEDIA_MIN_INTERVAL_MS = 1100;
+/**
+ * Wikimedia now throttles original-file URLs much more aggressively than real
+ * thumbnails. Ask for a normal 640px render, and for files narrower than that
+ * fall back to a 320px thumbnail instead of the original upload.
+ */
+const WIKIMEDIA_THUMBNAIL_WIDTH = 640;
+const WIKIMEDIA_SMALL_THUMBNAIL_WIDTH = 320;
+/** Stop hammering Wikimedia for two minutes after a 429. */
+const WIKIMEDIA_COOLDOWN_MS = 2 * 60 * 1000;
 
 export type AssetFormat = 'svg' | 'png' | 'jpg' | 'webp';
 export type AssetProviderId = 'iconify' | 'openmoji' | 'wikimedia';
@@ -100,6 +109,8 @@ interface WikimediaImageInfo {
   thumburl?: string;
   url?: string;
   mime?: string;
+  width?: number;
+  height?: number;
   extmetadata?: Record<string, { value?: string }>;
 }
 
@@ -136,6 +147,48 @@ const OPENMOJI_LICENSE: AssetLicense = {
   url: 'https://creativecommons.org/licenses/by-sa/4.0/',
   attribution: 'OpenMoji (HfG Schwäbisch Gmünd)',
 };
+
+/** True only for a URL that points at a generated thumbnail, not an original. */
+function isWikimediaThumbnailUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.startsWith('thumb.') || parsed.pathname.includes('/thumb/');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pick a URL that is guaranteed to be a thumbnail.
+ *
+ * The Commons API returns the original file as `thumburl` when the requested
+ * width is at least the source width (marked `thumbnail_unscaled`). Those
+ * original URLs are the ones that now return HTTP 429, while thumbnails from
+ * thumb.wikimedia.org work. For smaller files, Special:FilePath generates a
+ * 320px thumbnail instead of handing back the original.
+ */
+export function selectWikimediaThumbnailUrl(
+  title: string,
+  info: { thumburl?: string; url?: string; width?: number },
+): string | null {
+  const direct = info.thumburl ?? info.url;
+  if (direct && isWikimediaThumbnailUrl(direct)) return direct;
+
+  // A file this small has no smaller thumbnail; reject it instead of fetching
+  // an original URL that Wikimedia may rate-limit. Without a known width we
+  // cannot guarantee the fallback is scaled either, so skip it.
+  if (info.width === undefined || info.width <= WIKIMEDIA_SMALL_THUMBNAIL_WIDTH) {
+    return null;
+  }
+  if (!/^File:/i.test(title)) return null;
+
+  const name = title.replace(/^File:/i, '').trim().replace(/ /g, '_');
+  if (!name) return null;
+  return (
+    'https://commons.wikimedia.org/wiki/Special:FilePath/' +
+    `${encodeURIComponent(name)}?width=${WIKIMEDIA_SMALL_THUMBNAIL_WIDTH}`
+  );
+}
 
 /**
  * Iconify contains both monochrome outline sets and full-colour illustration
@@ -442,6 +495,7 @@ class AssetDiscoveryService {
   private openMojiIndex: OpenMojiEntry[] | null = null;
   private collectionLicenses: Record<string, AssetLicense> | null = null;
   private lastWikimediaRequestAt = 0;
+  private wikimediaBlockedUntil = 0;
 
   isEnabled(): boolean {
     return config.assets.discoveryEnabled && typeof fetch === 'function';
@@ -768,8 +822,8 @@ class AssetDiscoveryService {
       gsrsearch: query,
       gsrlimit: '8',
       prop: 'imageinfo',
-      iiprop: 'url|mime|extmetadata',
-      iiurlwidth: '900',
+      iiprop: 'url|mime|size|extmetadata',
+      iiurlwidth: String(WIKIMEDIA_THUMBNAIL_WIDTH),
     });
 
     const data = await this.fetchJson<WikimediaResponse>(
@@ -782,12 +836,17 @@ class AssetDiscoveryService {
 
     for (const page of Object.values(pages)) {
       const info = page.imageinfo?.[0];
-      const url = info?.thumburl ?? info?.url;
       const mime = info?.mime ?? '';
-      if (!url || !mime) continue;
+      if (!info || !mime) continue;
 
+      const title = stripHtml(page.title ?? query);
+      const url = selectWikimediaThumbnailUrl(title, info);
+      if (!url) continue;
+
+      // An SVG thumbnail from Commons is a PNG render, so it is treated as a
+      // raster image and does not need the SVG sanitiser.
       const format: AssetFormat | null = mime.includes('svg')
-        ? 'svg'
+        ? 'png'
         : mime.includes('png')
           ? 'png'
           : mime.includes('jpeg') || mime.includes('jpg')
@@ -797,7 +856,6 @@ class AssetDiscoveryService {
               : null;
       if (!format) continue;
 
-      const title = stripHtml(page.title ?? query);
       const licenseName = stripHtml(info?.extmetadata?.['LicenseShortName']?.value ?? '');
       const licenseUrl = stripHtml(info?.extmetadata?.['LicenseUrl']?.value ?? '');
       const artist = stripHtml(info?.extmetadata?.['Artist']?.value ?? '');
@@ -877,6 +935,16 @@ class AssetDiscoveryService {
     candidate: AssetCandidate,
     query: string,
   ): Promise<'downloaded' | 'reused' | 'skipped'> {
+    // A previous job may already have this exact provider asset. Re-fetching it
+    // just to hash the bytes wastes bandwidth and triggers Wikimedia's limiter.
+    const alreadyStored = this.loadManifest().some(
+      (entry) =>
+        entry.provider === candidate.provider &&
+        entry.id === candidate.id &&
+        fs.existsSync(path.join(config.storage.resourcesDir, entry.relativePath)),
+    );
+    if (alreadyStored) return 'reused';
+
     const isSvg = candidate.format === 'svg';
     const limit = isSvg ? config.assets.maxSvgBytes : config.assets.maxRasterBytes;
 
@@ -1056,9 +1124,21 @@ class AssetDiscoveryService {
     this.lastWikimediaRequestAt = Date.now();
   }
 
-  /** GET with a hard deadline and retries on 429/5xx; null instead of throwing. */
+  /** GET with a hard deadline and retries on 5xx; null instead of throwing. */
+  private isWikimediaUrl(url: string): boolean {
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      return host === 'wikimedia.org' || host.endsWith('.wikimedia.org');
+    } catch {
+      return false;
+    }
+  }
+
   private async fetchBuffer(url: string, maxBytes: number): Promise<Buffer | null> {
     if (typeof fetch !== 'function') return null;
+    // After a 429, skip the rest of this job's Wikimedia candidates instead of
+    // spending a minute on retries that cannot succeed during the cooldown.
+    if (this.isWikimediaUrl(url) && Date.now() < this.wikimediaBlockedUntil) return null;
 
     for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
       const controller = new AbortController();
@@ -1076,6 +1156,18 @@ class AssetDiscoveryService {
 
         if (!response.ok) {
           const status = response.status;
+          if (status === 429 && this.isWikimediaUrl(url)) {
+            const retryAfter = Number(response.headers.get('retry-after') ?? '');
+            const cooldown = Number.isFinite(retryAfter) && retryAfter > 0
+              ? Math.min(WIKIMEDIA_COOLDOWN_MS, Math.max(30_000, retryAfter * 1000))
+              : WIKIMEDIA_COOLDOWN_MS;
+            this.wikimediaBlockedUntil = Date.now() + cooldown;
+            console.warn(
+              `[Assets] Wikimedia rate-limited (HTTP 429); pausing Wikimedia requests for ` +
+                `${Math.round(cooldown / 1000)}s`,
+            );
+            return null;
+          }
           retryable = status === 429 || status >= 500;
           if (retryable && attempt < MAX_FETCH_ATTEMPTS) {
             const retryAfter = Number(response.headers.get('retry-after') ?? '');

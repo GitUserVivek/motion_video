@@ -86,7 +86,8 @@ export function ParticleField({
             borderRadius: '50%',
             backgroundColor: color,
             opacity: dot.alpha,
-            filter: `blur(${dot.size > 10 ? 3 : 0}px)`,
+            // A blur filter per dot forced 26 extra raster passes per frame;
+            // at these sizes the soft edge is not worth the render cost.
             transform: `translate3d(0, ${height * 0.001}px, 0)`,
           }}
         />
