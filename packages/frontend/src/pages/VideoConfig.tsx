@@ -89,11 +89,11 @@ export function VideoConfig(): React.ReactElement {
         </select>
 
         <div style={{ display: 'flex', gap: 24, marginBottom: 20 }}>
-          {[['subtitles', 'Subtitles'], ['backgroundMusic', 'Background Music']] .map(([key, label]) => (
+          {([['subtitles', 'Subtitles'], ['backgroundMusic', 'Background Music']] as const).map(([key, label]) => (
             <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, color: '#a0a0c0' }}>
               <input
                 type="checkbox"
-                checked={videoConfig[key as keyof typeof videoConfig] as boolean}
+                checked={videoConfig[key]}
                 onChange={(e) => setVideoConfig({ [key]: e.target.checked })}
                 style={{ width: 'auto', accentColor: '#4A90D9' }}
               />

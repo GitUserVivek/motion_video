@@ -17,7 +17,7 @@
     "build": "npm run build:shared && npm run build:renderer && npm run build:backend && npm run build:frontend",
     "dev:backend": "npm run dev --workspace=packages/backend",
     "dev:frontend": "npm run dev --workspace=packages/frontend",
-    "typecheck": "tsc --build",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint packages/**/src --ext .ts,.tsx",
     "test": "npm run test --workspaces --if-present"
   },

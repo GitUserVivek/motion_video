@@ -47,7 +47,7 @@ export function Dashboard(): React.ReactElement {
         {health ? (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <ServiceBadge ok={health.services.database} label="Database" />
-            <ServiceBadge ok={health.services.ollama} label="Ollama AI" />
+            <ServiceBadge ok={health.services.llm} label="Local LLM" />
             <ServiceBadge ok={health.services.ffmpeg} label="FFmpeg" />
             <ServiceBadge ok={health.services.tts} label="TTS" />
             <ServiceBadge ok={health.status === 'ok'} label={`Status: ${health.status}`} />

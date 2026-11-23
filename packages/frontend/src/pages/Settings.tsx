@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Settings } from '@edumotion/shared';
 import { api } from '../api/client.js';
 
 export function SettingsPage(): React.ReactElement {
@@ -8,19 +9,23 @@ export function SettingsPage(): React.ReactElement {
   const [saved, setSaved] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
 
-  const { data: settings } = useQuery({
+  const { data: settings } = useQuery<Settings>({
     queryKey: ['settings'],
     queryFn: api.getSettings,
-    onSuccess: (data) => {
-      setForm({
-        llm_model_name: data.llmModelName,
-        tts_engine: data.ttsEngine,
-        tts_voice: data.ttsVoice,
-        default_duration: String(data.defaultDuration),
-        max_concurrent_jobs: String(data.maxConcurrentJobs),
-      });
-    },
   });
+
+  // React Query v5 removed the per-query `onSuccess` callback. Sync the form
+  // when the settings arrive instead, without refetching or changing the cache.
+  useEffect(() => {
+    if (!settings) return;
+    setForm({
+      llm_model_name: settings.llmModelName,
+      tts_engine: settings.ttsEngine,
+      tts_voice: settings.ttsVoice,
+      default_duration: String(settings.defaultDuration),
+      max_concurrent_jobs: String(settings.maxConcurrentJobs),
+    });
+  }, [settings]);
 
   const { data: health } = useQuery({
     queryKey: ['health'],

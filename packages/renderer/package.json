@@ -6,7 +6,8 @@
     "dev": "remotion studio",
     "build": "tsc -p tsconfig.json",
     "render": "remotion render",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@edumotion/shared": "*",
