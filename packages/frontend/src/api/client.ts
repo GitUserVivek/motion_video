@@ -12,14 +12,36 @@ import type {
 const BASE = '/api';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-    ...init,
-  });
-  const json = (await res.json()) as ApiResponse<T>;
-  if (!json.success || !res.ok) {
-    throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    });
+  } catch {
+    throw new Error('Cannot reach the server. Check that the backend is running.');
   }
+
+  const text = await res.text();
+  let json: ApiResponse<T> | null = null;
+  if (text) {
+    try {
+      json = JSON.parse(text) as ApiResponse<T>;
+    } catch {
+      // A proxy or crash can return HTML instead of the JSON envelope. Surface
+      // the HTTP status instead of the misleading JSON parse error.
+      throw new Error(
+        res.ok
+          ? 'The server returned an unexpected response.'
+          : `Request failed (HTTP ${res.status}).`,
+      );
+    }
+  }
+
+  if (!res.ok || !json?.success) {
+    throw new Error(json?.error?.message ?? `Request failed (HTTP ${res.status}).`);
+  }
+
   return json.data as T;
 }
 

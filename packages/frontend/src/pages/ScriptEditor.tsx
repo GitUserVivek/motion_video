@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useProjectStore } from '../store/projectStore.js';
+import { ErrorNotice, errorMessage } from '../components/Feedback.js';
 
 export function ScriptEditor(): React.ReactElement {
   const navigate = useNavigate();
@@ -9,13 +10,11 @@ export function ScriptEditor(): React.ReactElement {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  if (!script) {
-    navigate('/create');
-    return <></>;
-  }
+  if (!script) return <Navigate to="/create" replace />;
 
   const wordCount = script.content.split(/\s+/).filter(Boolean).length;
   const estDuration = (wordCount / 2.5).toFixed(0);
+  const canApprove = script.content.trim().length > 0 && !loading;
 
   async function handleRegenerate(mode: 'improve' | 'preserve'): Promise<void> {
     setError(null);
@@ -24,7 +23,7 @@ export function ScriptEditor(): React.ReactElement {
       const updated = await api.rewriteScript(script!.scriptId, mode);
       setScript(updated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Rewrite failed');
+      setError(errorMessage(e, 'Rewrite failed'));
     } finally {
       setLoading(null);
     }
@@ -37,7 +36,7 @@ export function ScriptEditor(): React.ReactElement {
       await api.approveScript(script!.scriptId, script!.content);
       navigate('/configure');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Approval failed');
+      setError(errorMessage(e, 'Approval failed'));
     } finally {
       setLoading(null);
     }
@@ -45,13 +44,21 @@ export function ScriptEditor(): React.ReactElement {
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4, color: '#fff' }}>Review Script</h1>
-      <p style={{ color: '#666', marginBottom: 24, fontSize: 13 }}>Edit the script below, then approve it to continue.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4, color: '#fff' }}>Review Script</h1>
+          <p style={{ color: '#666', fontSize: 13 }}>Edit the script below, then approve it to continue.</p>
+        </div>
+        <Link to="/create" style={{ fontSize: 13, color: '#a0a0c0', whiteSpace: 'nowrap' }}>← Start over</Link>
+      </div>
 
+      <label htmlFor="script-content" className="sr-only">Narration script</label>
       <textarea
+        id="script-content"
         value={script.content}
         onChange={(e) => updateScriptContent(e.target.value)}
         rows={16}
+        disabled={!!loading}
         style={{ marginBottom: 8, resize: 'vertical', lineHeight: 1.7, fontSize: 15 }}
       />
 
@@ -60,33 +67,41 @@ export function ScriptEditor(): React.ReactElement {
         <span>~{estDuration}s estimated</span>
       </div>
 
-      {error && (
-        <div style={{ padding: '10px 14px', backgroundColor: '#e74c3c20', border: '1px solid #e74c3c', borderRadius: 8, color: '#e74c3c', fontSize: 13, marginBottom: 16 }}>{error}</div>
-      )}
+      {error && <ErrorNotice message={error} />}
 
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <button
+          type="button"
           onClick={() => void handleRegenerate('preserve')}
           disabled={!!loading}
-          style={{ ...secondaryBtn, flex: 1 }}
+          style={{ ...secondaryBtn, flex: '1 1 130px' }}
         >
           {loading === 'rewriting' ? '⏳' : '🔧'} Fix Grammar
         </button>
         <button
+          type="button"
           onClick={() => void handleRegenerate('improve')}
           disabled={!!loading}
-          style={{ ...secondaryBtn, flex: 1 }}
+          style={{ ...secondaryBtn, flex: '1 1 130px' }}
         >
           {loading === 'rewriting' ? '⏳' : '✨'} Improve
         </button>
         <button
+          type="button"
           onClick={() => void handleApprove()}
-          disabled={!!loading}
-          style={{ ...primaryBtn, flex: 2 }}
+          disabled={!canApprove}
+          aria-busy={loading === 'approving'}
+          style={{ ...primaryBtn, flex: '2 1 220px' }}
         >
           {loading === 'approving' ? '⏳ Approving…' : '✅ Approve & Continue'}
         </button>
       </div>
+
+      {!script.content.trim() && (
+        <p style={{ color: '#c9a227', fontSize: 12, marginTop: 12 }}>
+          Add some narration before approving the script.
+        </p>
+      )}
     </div>
   );
 }

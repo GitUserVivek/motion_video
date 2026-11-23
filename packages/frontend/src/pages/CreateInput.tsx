@@ -2,31 +2,48 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useProjectStore } from '../store/projectStore.js';
+import { ErrorNotice, errorMessage } from '../components/Feedback.js';
 
 export function CreateInput(): React.ReactElement {
   const navigate = useNavigate();
-  const { mode, topic, ownScriptContent, ownScriptMode, setMode, setTopic, setOwnScript, setOwnScriptMode, setScript } = useProjectStore();
+  const {
+    mode, topic, ownScriptContent, ownScriptMode, videoConfig,
+    setMode, setTopic, setOwnScript, setOwnScriptMode, setScript,
+  } = useProjectStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const activeMode = mode ?? 'topic';
+  const ownWordCount = ownScriptContent.trim()
+    ? ownScriptContent.split(/\s+/).filter(Boolean).length
+    : 0;
 
-  async function handleSubmit(): Promise<void> {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (loading) return;
+
+    if (activeMode === 'topic' && !topic.trim()) {
+      setError('Please enter a topic.');
+      return;
+    }
+    if (activeMode === 'own-script' && !ownScriptContent.trim()) {
+      setError('Please enter your script.');
+      return;
+    }
+
     setError(null);
     setLoading(true);
     try {
       let script;
       if (activeMode === 'topic') {
-        if (!topic.trim()) { setError('Please enter a topic.'); return; }
-        script = await api.generateScript(topic.trim());
+        script = await api.generateScript(topic.trim(), videoConfig.duration);
       } else {
-        if (!ownScriptContent.trim()) { setError('Please enter your script.'); return; }
         script = await api.validateScript(ownScriptContent.trim(), ownScriptMode);
       }
       setScript(script);
       navigate('/script');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to process script');
+      setError(errorMessage(e, 'Failed to process script'));
     } finally {
       setLoading(false);
     }
@@ -34,86 +51,105 @@ export function CreateInput(): React.ReactElement {
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 24, color: '#fff' }}>Create Video</h1>
+      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, color: '#fff' }}>Create Video</h1>
+      <p style={{ color: '#666', marginBottom: 24, fontSize: 13 }}>
+        Start from a topic or bring your own narration script.
+      </p>
 
-      {/* Mode Toggle */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 28 }}>
-        {(['topic', 'own-script'] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            style={{
-              flex: 1, padding: '10px 0', borderRadius: 8, border: 'none',
-              backgroundColor: activeMode === m ? '#4A90D9' : '#1e1e36',
-              color: activeMode === m ? '#fff' : '#a0a0c0',
-              fontWeight: 600, fontSize: 14,
-            }}
-          >
-            {m === 'topic' ? '💡 Generate from Topic' : '📝 Use My Script'}
-          </button>
-        ))}
-      </div>
-
-      {activeMode === 'topic' ? (
-        <div>
-          <label style={labelStyle}>Educational Topic</label>
-          <input
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="e.g. How does photosynthesis work?"
-            onKeyDown={(e) => e.key === 'Enter' && void handleSubmit()}
-            style={{ marginBottom: 8 }}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginBottom: 20 }}>
-            AI will generate a 40-second educational script based on this topic.
-          </p>
+      <form onSubmit={(event) => void handleSubmit(event)}>
+        {/* Mode Toggle */}
+        <div className="mode-toggle" style={{ marginBottom: 28 }}>
+          {(['topic', 'own-script'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              aria-pressed={activeMode === m}
+              style={{
+                padding: '10px 12px', borderRadius: 8, border: 'none',
+                backgroundColor: activeMode === m ? '#4A90D9' : '#1e1e36',
+                color: activeMode === m ? '#fff' : '#a0a0c0',
+                fontWeight: 600, fontSize: 14,
+              }}
+            >
+              {m === 'topic' ? '💡 Generate from Topic' : '📝 Use My Script'}
+            </button>
+          ))}
         </div>
-      ) : (
-        <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            {(['preserve', 'improve'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setOwnScriptMode(m)}
-                style={{
-                  flex: 1, padding: '8px 0', borderRadius: 6, border: 'none',
-                  backgroundColor: ownScriptMode === m ? '#4A90D920' : 'transparent',
-                  color: ownScriptMode === m ? '#4A90D9' : '#888',
-                  fontWeight: 600, fontSize: 13,
-                  borderBottom: `2px solid ${ownScriptMode === m ? '#4A90D9' : 'transparent'}`,
-                }}
-              >
-                {m === 'preserve' ? '🔒 Preserve (fix only)' : '✨ Improve (rewrite)'}
-              </button>
-            ))}
+
+        {activeMode === 'topic' ? (
+          <div>
+            <label htmlFor="video-topic" style={labelStyle}>Educational Topic</label>
+            <input
+              id="video-topic"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="e.g. How does photosynthesis work?"
+              disabled={loading}
+              style={{ marginBottom: 8 }}
+            />
+            <p style={{ fontSize: 12, color: '#666', marginBottom: 20 }}>
+              AI will generate a {videoConfig.duration}-second educational script based on this topic.
+            </p>
           </div>
-          <label style={labelStyle}>Your Narration Script</label>
-          <textarea
-            value={ownScriptContent}
-            onChange={(e) => setOwnScript(e.target.value)}
-            rows={10}
-            placeholder="Paste your educational script here…"
-            style={{ marginBottom: 8, resize: 'vertical' }}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginBottom: 20 }}>
-            {ownScriptContent.split(/\s+/).filter(Boolean).length} words
+        ) : (
+          <div>
+            <div className="mode-toggle" style={{ marginBottom: 12 }}>
+              {(['preserve', 'improve'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setOwnScriptMode(m)}
+                  aria-pressed={ownScriptMode === m}
+                  style={{
+                    padding: '8px 0', borderRadius: 6, border: 'none',
+                    backgroundColor: ownScriptMode === m ? '#4A90D920' : 'transparent',
+                    color: ownScriptMode === m ? '#4A90D9' : '#888',
+                    fontWeight: 600, fontSize: 13,
+                    borderBottom: `2px solid ${ownScriptMode === m ? '#4A90D9' : 'transparent'}`,
+                  }}
+                >
+                  {m === 'preserve' ? '🔒 Preserve (fix only)' : '✨ Improve (rewrite)'}
+                </button>
+              ))}
+            </div>
+            <label htmlFor="own-script" style={labelStyle}>Your Narration Script</label>
+            <textarea
+              id="own-script"
+              value={ownScriptContent}
+              onChange={(e) => setOwnScript(e.target.value)}
+              rows={10}
+              placeholder="Paste your educational script here…"
+              disabled={loading}
+              style={{ marginBottom: 8, resize: 'vertical' }}
+            />
+            <p style={{ fontSize: 12, color: '#666', marginBottom: 20 }}>
+              {ownWordCount} {ownWordCount === 1 ? 'word' : 'words'}
+            </p>
+          </div>
+        )}
+
+        {error && <ErrorNotice message={error} />}
+
+        <button
+          type="submit"
+          disabled={loading}
+          aria-busy={loading}
+          style={primaryBtn}
+        >
+          {loading
+            ? '⏳ Processing…'
+            : activeMode === 'topic'
+              ? '✨ Generate Script'
+              : '→ Continue'}
+        </button>
+
+        {loading && (
+          <p style={{ color: '#666', fontSize: 12, textAlign: 'center', marginTop: 10 }}>
+            This can take a little while while the local model writes and checks the script.
           </p>
-        </div>
-      )}
-
-      {error && (
-        <div style={{ padding: '12px 16px', backgroundColor: '#e74c3c20', border: '1px solid #e74c3c', borderRadius: 8, color: '#e74c3c', fontSize: 13, marginBottom: 16 }}>
-          {error}
-        </div>
-      )}
-
-      <button
-        onClick={() => void handleSubmit()}
-        disabled={loading}
-        style={primaryBtn}
-      >
-        {loading ? '⏳ Processing…' : activeMode === 'topic' ? '✨ Generate Script' : '→ Continue'}
-      </button>
+        )}
+      </form>
     </div>
   );
 }

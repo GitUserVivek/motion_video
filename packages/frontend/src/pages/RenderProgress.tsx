@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, Link, Navigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.js';
 import { useProjectStore } from '../store/projectStore.js';
 import { ProgressTracker } from '../components/ProgressTracker.js';
 import { VideoPlayer } from '../components/VideoPlayer.js';
+import { ErrorNotice, LoadingState, errorMessage } from '../components/Feedback.js';
 import { STEP_LABELS, type SceneAssetUsage } from '@edumotion/shared';
 
 const STEPS = [
@@ -88,8 +89,10 @@ export function RenderProgress(): React.ReactElement {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { activeJobId, setCompletedVideo, reset } = useProjectStore();
+  const [actionBusy, setActionBusy] = useState<'cancel' | 'resume' | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const { data: job } = useQuery({
+  const jobQuery = useQuery({
     queryKey: ['job', activeJobId],
     queryFn: () => api.getJob(activeJobId!),
     enabled: !!activeJobId,
@@ -99,10 +102,11 @@ export function RenderProgress(): React.ReactElement {
       return 2000;
     },
   });
+  const job = jobQuery.data;
 
   // The artwork report changes at most once per job, so it is fetched once from
   // its own endpoint instead of being repeated in every 2-second poll.
-  const { data: assetReport, isLoading: assetsLoading } = useQuery({
+  const assetsQuery = useQuery({
     queryKey: ['job-assets', activeJobId],
     queryFn: () => api.getJobAssets(activeJobId!),
     enabled: !!activeJobId && job?.assetsAvailable === true,
@@ -113,6 +117,7 @@ export function RenderProgress(): React.ReactElement {
     refetchOnReconnect: false,
     retry: false,
   });
+  const assetReport = assetsQuery.data;
 
   // Stay on this page and play the result here; the preview route is still
   // reachable from the link below for sharing/download details.
@@ -122,19 +127,43 @@ export function RenderProgress(): React.ReactElement {
     }
   }, [job?.status, job?.videoId, setCompletedVideo]);
 
-  if (!activeJobId) {
-    navigate('/create');
-    return <></>;
-  }
+  if (!activeJobId) return <Navigate to="/create" replace />;
 
   async function handleCancel(): Promise<void> {
-    if (activeJobId) await api.cancelJob(activeJobId);
+    if (!activeJobId || actionBusy) return;
+    if (!window.confirm('Cancel this render? The job can be resumed later.')) return;
+
+    setActionBusy('cancel');
+    setActionError(null);
+    try {
+      await api.cancelJob(activeJobId);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['job', activeJobId] }),
+        queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+      ]);
+    } catch (e) {
+      setActionError(errorMessage(e, 'Could not cancel this job.'));
+    } finally {
+      setActionBusy(null);
+    }
   }
 
   async function handleResume(): Promise<void> {
-    if (!activeJobId) return;
-    await api.resumeJob(activeJobId);
-    await queryClient.invalidateQueries({ queryKey: ['job', activeJobId] });
+    if (!activeJobId || actionBusy) return;
+
+    setActionBusy('resume');
+    setActionError(null);
+    try {
+      await api.resumeJob(activeJobId);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['job', activeJobId] }),
+        queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+      ]);
+    } catch (e) {
+      setActionError(errorMessage(e, 'Could not resume this job.'));
+    } finally {
+      setActionBusy(null);
+    }
   }
 
   const completed = job?.status === 'completed';
@@ -146,12 +175,25 @@ export function RenderProgress(): React.ReactElement {
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, color: '#fff' }}>
-        {completed ? (job?.videoId ? 'Your Video Is Ready' : 'Render Complete') : 'Rendering Video'}
-      </h1>
-      <p style={{ color: '#666', marginBottom: 24, fontSize: 13 }}>Job ID: {activeJobId}</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 8 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 800, color: '#fff' }}>
+          {completed ? (job?.videoId ? 'Your Video Is Ready' : 'Render Complete') : 'Rendering Video'}
+        </h1>
+        <Link to="/history" style={{ fontSize: 13, color: '#a0a0c0', whiteSpace: 'nowrap' }}>← History</Link>
+      </div>
+      <p style={{ color: '#666', marginBottom: 24, fontSize: 13 }}>
+        Job ID: <code>{activeJobId}</code>
+      </p>
 
-      {job ? (
+      {jobQuery.isError && (
+        <ErrorNotice
+          message={errorMessage(jobQuery.error, 'Could not refresh this render. Retrying may restore it.')}
+          onRetry={() => void jobQuery.refetch()}
+        />
+      )}
+      {!job && jobQuery.isPending ? (
+        <LoadingState label="Loading job status…" />
+      ) : job ? (
         <>
           {/* While rendering, show the progress phases. Once the video is done,
               the phases are replaced on screen by the finished video itself. */}
@@ -194,12 +236,17 @@ export function RenderProgress(): React.ReactElement {
                 })}
               </div>
 
+              {actionError && <ErrorNotice message={actionError} />}
+
               {['failed', 'cancelled'].includes(job.status) && (
                 <button
+                  type="button"
                   onClick={() => void handleResume()}
-                  style={{ marginTop: 20, padding: '10px 20px', backgroundColor: '#4A90D920', color: '#4A90D9', border: '1px solid #4A90D9', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                  disabled={!!actionBusy}
+                  aria-busy={actionBusy === 'resume'}
+                  style={{ marginTop: 20, padding: '10px 20px', backgroundColor: '#4A90D920', color: '#4A90D9', border: '1px solid #4A90D9', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
                 >
-                  Resume Job
+                  {actionBusy === 'resume' ? '⏳ Resuming…' : '↻ Resume Job'}
                 </button>
               )}
             </>
@@ -221,22 +268,23 @@ export function RenderProgress(): React.ReactElement {
                 </div>
               )}
 
-              <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
+              <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 <button
+                  type="button"
                   onClick={() => { reset(); navigate('/create'); }}
-                  style={{ flex: 1, padding: '12px', backgroundColor: '#4A90D9', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+                  style={{ flex: '1 1 150px', padding: '12px', backgroundColor: '#4A90D9', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700 }}
                 >
                   + Create Another
                 </button>
                 <Link
                   to="/preview"
-                  style={{ flex: 1, padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
+                  style={{ flex: '1 1 150px', padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
                 >
                   Video details
                 </Link>
                 <Link
                   to="/history"
-                  style={{ flex: 1, padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
+                  style={{ flex: '1 1 150px', padding: '12px', backgroundColor: '#1e1e36', color: '#a0a0c0', border: '1px solid #3a3a5a', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}
                 >
                   History
                 </Link>
@@ -252,7 +300,12 @@ export function RenderProgress(): React.ReactElement {
                 Artwork used
               </h2>
 
-              {assets.length > 0 ? (
+              {assetsQuery.isError ? (
+                <ErrorNotice
+                  message={errorMessage(assetsQuery.error, 'Could not load the artwork report.')}
+                  onRetry={() => void assetsQuery.refetch()}
+                />
+              ) : assets.length > 0 ? (
                 <>
                   <p style={{ color: '#666', fontSize: 12, marginTop: 0, marginBottom: 12 }}>
                     {downloadedCount} downloaded · {libraryCount} from the local library ·{' '}
@@ -315,26 +368,32 @@ export function RenderProgress(): React.ReactElement {
                     ))}
                   </div>
                 </>
+              ) : assetsQuery.isPending ? (
+                <LoadingState label="Loading artwork…" />
               ) : (
                 <p style={{ color: '#666', fontSize: 12 }}>
-                  {assetsLoading ? 'Loading artwork…' : 'No artwork was picked for this job.'}
+                  No artwork was picked for this job.
                 </p>
               )}
             </section>
           ) : null}
 
           {['pending', 'processing'].includes(job.status) && (
-            <button
-              onClick={() => void handleCancel()}
-              style={{ marginTop: 24, padding: '10px 20px', backgroundColor: '#e74c3c20', color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
-            >
-              Cancel Job
-            </button>
+            <>
+              {actionError && <ErrorNotice message={actionError} />}
+              <button
+                type="button"
+                onClick={() => void handleCancel()}
+                disabled={!!actionBusy}
+                aria-busy={actionBusy === 'cancel'}
+                style={{ marginTop: 24, padding: '10px 20px', backgroundColor: '#e74c3c20', color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
+              >
+                {actionBusy === 'cancel' ? '⏳ Cancelling…' : 'Cancel Job'}
+              </button>
+            </>
           )}
         </>
-      ) : (
-        <p style={{ color: '#666' }}>Loading job status…</p>
-      )}
+      ) : null}
     </div>
   );
 }

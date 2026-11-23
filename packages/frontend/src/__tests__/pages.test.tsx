@@ -14,6 +14,7 @@ vi.mock('../api/client.js', () => ({
       uptime: 100,
     }),
     listVideos: vi.fn().mockResolvedValue([]),
+    listJobs: vi.fn().mockResolvedValue([]),
   },
 }));
 
