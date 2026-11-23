@@ -125,7 +125,7 @@ export const config = {
     creditsPath: path.join(ROOT_DIR, 'resources', 'auto', 'CREDITS.txt'),
     maxQueriesPerJob: Math.max(
       1,
-      parseInt(process.env['ASSET_MAX_QUERIES'] ?? '12', 10) || 12,
+      parseInt(process.env['ASSET_MAX_QUERIES'] ?? '18', 10) || 18,
     ),
     timeoutMs: Math.max(1000, parseInt(process.env['ASSET_TIMEOUT_MS'] ?? '8000', 10) || 8000),
     // A tile is small; anything bigger only bloats the inlined props JSON.

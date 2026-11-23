@@ -209,6 +209,26 @@ function textTokens(text: string): Set<string> {
   return new Set(tokenize(text.replace(/[^A-Za-z0-9]+/g, ' ')));
 }
 
+function wordVariants(token: string): string[] {
+  if (token.endsWith('ies') && token.length > 4) return [token, `${token.slice(0, -3)}y`];
+  if (token.endsWith('ing') && token.length > 5) {
+    const stem = token.slice(0, -3);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('ed') && token.length > 5) {
+    const stem = token.slice(0, -2);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) {
+    return [token, token.slice(0, -1)];
+  }
+  return [token, `${token}s`];
+}
+
+function hasToken(tokens: Set<string>, token: string): boolean {
+  return wordVariants(token).some((variant) => tokens.has(variant));
+}
+
 /**
  * Find the artwork that best describes one diagram tile.
  *
@@ -247,16 +267,18 @@ export function matchAssetImage(options: {
     if (
       asset.id.startsWith('auto/') &&
       keyTokens.size > 0 &&
-      !asset.tokens.some((token) => keyTokens.has(token))
+      !asset.tokens.some((token) =>
+        wordVariants(token).some((variant) => keyTokens.has(variant)),
+      )
     ) {
       continue;
     }
 
     let score = 0;
     for (const token of asset.tokens) {
-      if (iconTokens.has(token)) score = Math.max(score, 3);
-      else if (labelTokens.has(token)) score = Math.max(score, 2);
-      else if (narrationTokens.has(token) && token.length >= 4) score = Math.max(score, 1);
+      if (hasToken(iconTokens, token)) score = Math.max(score, 3);
+      else if (hasToken(labelTokens, token)) score = Math.max(score, 2);
+      else if (hasToken(narrationTokens, token) && token.length >= 4) score = Math.max(score, 1);
     }
     // Allow a weak (narration-only) match as a fallback so a downloaded or
     // hand-placed file that is named after a word the scene actually says is

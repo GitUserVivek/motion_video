@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { StoryboardPlan } from '@edumotion/shared';
 import { validateLayout } from '../services/layout.validation.js';
 import { validateSubtitles } from '../services/subtitle.validation.js';
+import { storyboardValidator } from '../services/storyboard.validation.js';
 
 function storyboard(children: StoryboardPlan['scenes'][number]['children']): StoryboardPlan {
   return {
@@ -43,6 +44,30 @@ describe('validateLayout', () => {
       1920,
     );
     expect(issues).toEqual([]);
+  });
+});
+
+describe('storyboardValidator visual relevance', () => {
+  it('counts the verified concepts carried by attached artwork', () => {
+    const caption = 'Neurons pass messages between layers.';
+    const sb = storyboard([
+      { component: 'Subtitle', props: { entries: [{ index: 0, startMs: 0, endMs: 3000, text: caption }] } },
+      { component: 'AnimatedText', props: { text: 'How neurons work' } },
+      {
+        component: 'ProcessFlow',
+        props: {
+          steps: [
+            { label: 'Step one', imageAlt: 'input data' },
+            { label: 'Step two', imageAlt: 'neuron message passing' },
+            { label: 'Step three', imageAlt: 'output prediction' },
+          ],
+        },
+      },
+    ]);
+
+    const result = storyboardValidator.validate(sb, caption);
+    expect(result.sceneResults[0]?.visualRelevance).toBeGreaterThanOrEqual(0.5);
+    expect(result.sceneResults[0]?.issues.join(' ')).not.toMatch(/Low visual relevance/);
   });
 });
 

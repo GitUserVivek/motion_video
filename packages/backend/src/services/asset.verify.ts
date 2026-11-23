@@ -28,6 +28,26 @@ function tokenize(text: string): string[] {
     .filter((token) => token.length > 1);
 }
 
+function wordVariants(token: string): string[] {
+  if (token.endsWith('ies') && token.length > 4) return [token, `${token.slice(0, -3)}y`];
+  if (token.endsWith('ing') && token.length > 5) {
+    const stem = token.slice(0, -3);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('ed') && token.length > 5) {
+    const stem = token.slice(0, -2);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) {
+    return [token, token.slice(0, -1)];
+  }
+  return [token, `${token}s`];
+}
+
+function hasToken(tokens: Set<string>, token: string): boolean {
+  return wordVariants(token).some((variant) => tokens.has(variant));
+}
+
 export function verifyAssetMatch(
   match: MatchedAsset,
   keyTerms: string[],
@@ -58,7 +78,7 @@ export function verifyAssetMatch(
     };
   }
 
-  const matchedTerms = [...keyTokens].filter((token) => assetTokens.has(token));
+  const matchedTerms = [...keyTokens].filter((token) => hasToken(assetTokens, token));
   if (matchedTerms.length === 0) {
     return {
       accepted: false,

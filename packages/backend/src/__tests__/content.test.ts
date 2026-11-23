@@ -71,6 +71,15 @@ describe('verifyAssetMatch', () => {
     expect(verdict.matchedTerms).toEqual(expect.arrayContaining(['profit', 'loss']));
   });
 
+  it('accepts singular/plural variants of a scene term', () => {
+    const verdict = verifyAssetMatch(
+      { id: 'auto/neurons-1234.svg', dataUrl: 'data:image/svg+xml;base64,x', tokens: ['neurons', 'signals'] },
+      ['neuron'],
+    );
+    expect(verdict.accepted).toBe(true);
+    expect(verdict.matchedTerms).toEqual(['neuron']);
+  });
+
   it('rejects a backdrop or an unrelated asset', () => {
     const backdrop = verifyAssetMatch(
       { id: 'backgrounds/minimal_light.svg', dataUrl: 'data:image/svg+xml;base64,x', tokens: ['minimal', 'light'] },

@@ -356,7 +356,11 @@ function attachDiagramImages(
 
     used.add(match.id);
     changed = true;
-    return { ...item, image: match.dataUrl };
+    return {
+      ...item,
+      image: match.dataUrl,
+      imageAlt: match.tokens.slice(0, 8).join(' '),
+    };
   });
 
   return changed ? { ...child, props: { ...child.props, items: next } } : child;
@@ -364,6 +368,11 @@ function attachDiagramImages(
 
 function hasEmbeddedImage(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith('data:image/');
+}
+
+interface VerifiedArtwork {
+  dataUrl: string;
+  alt: string;
 }
 
 /** One verified library image for a labelled scene element. */
@@ -375,7 +384,7 @@ function verifiedArtwork(options: {
   used: Set<string>;
   record?: AssetRecorder;
   fallback?: TopicObjectType;
-}): string | null {
+}): VerifiedArtwork | null {
   const { label, icon, narration, keyTerms, used, record, fallback = 'book' } = options;
   const match = matchAssetImage({
     icon,
@@ -402,7 +411,10 @@ function verifiedArtwork(options: {
   }
 
   used.add(match.id);
-  return match.dataUrl;
+  return {
+    dataUrl: match.dataUrl,
+    alt: match.tokens.slice(0, 8).join(' '),
+  };
 }
 
 function attachAnimatedDiagramImages(
@@ -435,7 +447,7 @@ function attachAnimatedDiagramImages(
     });
     if (!image) return raw;
     changed = true;
-    return { ...item, image };
+    return { ...item, image: image.dataUrl, imageAlt: image.alt };
   });
 
   return changed ? { ...child, props: { ...child.props, items: next } } : child;
@@ -477,7 +489,12 @@ function attachProcessFlowImages(
     });
     if (image) {
       changed = true;
-      return { ...step, iconName: icon, image };
+      return {
+        ...step,
+        iconName: icon,
+        image: image.dataUrl,
+        imageAlt: image.alt,
+      };
     }
     if (typeof step['iconName'] === 'string') return raw;
     changed = true;
@@ -522,7 +539,7 @@ function attachSplitScreenImages(
       fallback,
     });
     if (!image) continue;
-    props[side] = { ...pane, image };
+    props[side] = { ...pane, image: image.dataUrl, imageAlt: image.alt };
     changed = true;
   }
 
@@ -553,7 +570,9 @@ function attachAnnotatedCalloutImage(
     record,
     fallback,
   });
-  return image ? { ...child, props: { ...child.props, image } } : child;
+  return image
+    ? { ...child, props: { ...child.props, image: image.dataUrl, imageAlt: image.alt } }
+    : child;
 }
 
 function attachSingleImage(
@@ -578,7 +597,9 @@ function attachSingleImage(
     record,
     fallback,
   });
-  return image ? { ...child, props: { ...child.props, image } } : child;
+  return image
+    ? { ...child, props: { ...child.props, image: image.dataUrl, imageAlt: image.alt } }
+    : child;
 }
 
 function attachTimelineImages(
@@ -616,7 +637,7 @@ function attachTimelineImages(
     });
     if (!image) return raw;
     changed = true;
-    return { ...event, image };
+    return { ...event, image: image.dataUrl, imageAlt: image.alt };
   });
 
   return changed ? { ...child, props: { ...child.props, events: next } } : child;
@@ -840,7 +861,9 @@ export function attachSceneArtwork(
           record,
           fallback,
         });
-        return image ? { ...child, props: { ...child.props, image } } : child;
+        return image
+          ? { ...child, props: { ...child.props, image: image.dataUrl, imageAlt: image.alt } }
+          : child;
       }
 
       if (child.component === 'AnimatedDiagram') {
@@ -1012,7 +1035,14 @@ export function ensureSceneVisuals(
         console.warn(`[Assets] Rejected object image ${match.id}: ${verdict.reason}`);
         return child;
       }
-      return { ...child, props: { ...child.props, image: match.dataUrl } };
+      return {
+        ...child,
+        props: {
+          ...child.props,
+          image: match.dataUrl,
+          imageAlt: match.tokens.slice(0, 8).join(' '),
+        },
+      };
     });
     const extra: SceneChild[] = [];
 

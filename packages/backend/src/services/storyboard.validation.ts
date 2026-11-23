@@ -23,6 +23,23 @@ const STOPWORDS = new Set([
   'made', 'get', 'gets', 'got', 'has', 'had', 'does', 'did', 'doing', 'being',
 ]);
 
+/** Singular/plural and simple verb forms, so "processing" matches "process". */
+function wordVariants(token: string): string[] {
+  if (token.endsWith('ies') && token.length > 4) return [token, `${token.slice(0, -3)}y`];
+  if (token.endsWith('ing') && token.length > 5) {
+    const stem = token.slice(0, -3);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('ed') && token.length > 5) {
+    const stem = token.slice(0, -2);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) {
+    return [token, token.slice(0, -1)];
+  }
+  return [token, `${token}s`];
+}
+
 /**
  * Words that name the same idea. A leaf diagram *is* relevant to sentences about
  * photosynthesis even though the sentence never says "leaf".
@@ -220,6 +237,10 @@ export class StoryboardValidator {
     push(child.props['title']);
     push(child.props['text']);
     push(child.props['question']);
+    push(child.props['equation']);
+    // Artwork carries the tokens it was verified against, so an image that
+    // illustrates the narration counts even when the label is generic.
+    push(child.props['imageAlt']);
 
     for (const key of ['items', 'steps', 'milestones', 'points', 'values', 'bars', 'events']) {
       const list = child.props[key];
@@ -232,6 +253,7 @@ export class StoryboardValidator {
         push(record['text']);
         push(record['title']);
         push(record['date']);
+        push(record['imageAlt']);
       }
     }
 
@@ -245,8 +267,11 @@ export class StoryboardValidator {
   }
 
   private isNamedBy(token: string, narration: Set<string>): boolean {
-    if (narration.has(token)) return true;
-    return (CONCEPT_ALIASES[token] ?? []).some((alias) => narration.has(alias));
+    for (const variant of wordVariants(token)) {
+      if (narration.has(variant)) return true;
+      if ((CONCEPT_ALIASES[variant] ?? []).some((alias) => narration.has(alias))) return true;
+    }
+    return false;
   }
 
   /**

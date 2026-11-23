@@ -3,6 +3,7 @@ import type { SceneInstruction } from '@edumotion/shared';
 import {
   buildAssetQueries,
   buildSceneAssetQueries,
+  isConfidentCandidate,
   sanitizeSvg,
   scoreAssetCandidate,
   slugify,
@@ -146,6 +147,60 @@ describe('scoreAssetCandidate', () => {
       'leaf',
     );
     expect(colorful).toBeGreaterThan(scoreAssetCandidate(base, 'leaf'));
+  });
+});
+
+describe('isConfidentCandidate', () => {
+  const base = {
+    provider: 'wikimedia' as const,
+    id: 'File:test.png',
+    name: 'test',
+    tags: ['diagram'],
+    format: 'png' as const,
+    url: 'https://example.invalid/test.png',
+    license: { name: 'CC BY-SA 4.0' },
+  };
+
+  it('rejects a single generic word from a two-word query', () => {
+    expect(
+      isConfidentCandidate(
+        { ...base, name: 'Layered depressions', tags: ['mars', 'space'] },
+        'layered processing',
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts singular and plural forms of the same concept', () => {
+    expect(
+      isConfidentCandidate(
+        { ...base, name: 'Neural network architecture', tags: ['artificial intelligence'] },
+        'neural networks',
+      ),
+    ).toBe(true);
+  });
+
+  it('matches simple verb and adjective forms of the same word', () => {
+    expect(
+      isConfidentCandidate(
+        { ...base, name: 'Layer process', tags: [] },
+        'layered processing',
+      ),
+    ).toBe(true);
+  });
+
+  it('requires at least two real hits for longer queries', () => {
+    expect(
+      isConfidentCandidate(
+        { ...base, name: 'Neuron message passing', tags: [] },
+        'neuron message passing diagram',
+      ),
+    ).toBe(true);
+    expect(
+      isConfidentCandidate(
+        { ...base, name: 'Neuron cell', tags: [] },
+        'neuron message passing diagram',
+      ),
+    ).toBe(false);
   });
 });
 

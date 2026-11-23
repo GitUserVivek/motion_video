@@ -43,6 +43,22 @@ function tokens(text: string): string[] {
     .filter((word) => word.length > 2 && !STOPWORDS.has(word));
 }
 
+function wordVariants(token: string): string[] {
+  if (token.endsWith('ies') && token.length > 4) return [token, `${token.slice(0, -3)}y`];
+  if (token.endsWith('ing') && token.length > 5) {
+    const stem = token.slice(0, -3);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('ed') && token.length > 5) {
+    const stem = token.slice(0, -2);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) {
+    return [token, token.slice(0, -1)];
+  }
+  return [token, `${token}s`];
+}
+
 function sceneNarration(scene: SceneInstruction): string {
   const captions = (scene.children ?? [])
     .filter((child) => child.component === 'Subtitle')
@@ -152,7 +168,9 @@ function validateContent(
       visuals.flatMap((child) => visualStrings(child).flatMap((text) => tokens(text))),
     );
     const known = new Set([...narrationTokens, ...terms.flatMap((term) => tokens(term))]);
-    const named = [...visualTokens].filter((token) => known.has(token));
+    const named = [...visualTokens].filter((token) =>
+      wordVariants(token).some((variant) => known.has(variant)),
+    );
     if (known.size > 0 && named.length === 0) {
       issues.push({
         sceneId: scene.id,

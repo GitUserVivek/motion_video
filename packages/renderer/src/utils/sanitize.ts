@@ -73,8 +73,15 @@ function dataImage(value: unknown): string | null {
 function sanitizeImageProp(record: Props): Props {
   const next = { ...record };
   const image = dataImage(record['image']);
-  if (image) next['image'] = image;
-  else delete next['image'];
+  if (image) {
+    next['image'] = image;
+    const alt = str(record['imageAlt'], '').slice(0, 120);
+    if (alt) next['imageAlt'] = alt;
+    else delete next['imageAlt'];
+  } else {
+    delete next['image'];
+    delete next['imageAlt'];
+  }
   return next;
 }
 

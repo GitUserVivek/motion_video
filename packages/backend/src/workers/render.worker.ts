@@ -151,7 +151,7 @@ async function processJob(job: JobRow): Promise<void> {
   // generic icons that had nothing to do with the scene.
   updateJob(job.id, 'processing', 34, 'discovering_scene_assets');
   const sceneQueries = planned.storyboard.scenes.flatMap((scene) =>
-    buildSceneAssetQueries(scene, 3),
+    buildSceneAssetQueries(scene, 2),
   );
   console.log(
     `[Worker] Job ${job.id} asset queries (${sceneQueries.length}): ` +
@@ -159,7 +159,7 @@ async function processJob(job: JobRow): Promise<void> {
   );
   const sceneDiscovery = await assetDiscovery.ensureAssetsForQueries(
     sceneQueries,
-    Math.min(24, Math.max(8, planned.storyboard.scenes.length * 3)),
+    Math.min(18, Math.max(6, planned.storyboard.scenes.length * 2)),
   );
   if (sceneDiscovery.errors.length > 0) {
     console.warn(`[Worker] Job ${job.id} scene asset discovery had ${sceneDiscovery.errors.length} error(s)`);

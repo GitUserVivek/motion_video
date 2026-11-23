@@ -30,12 +30,15 @@ const USER_AGENT = 'EduMotion/1.0 (local educational video generator)';
 const SEARCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COLLECTION_LICENSE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Bump when cached search results gain fields, so old entries are ignored. */
-const SEARCH_CACHE_VERSION = 'v4';
+const SEARCH_CACHE_VERSION = 'v5';
 const OPENMOJI_VERSION = '15.1.0';
 const OPENMOJI_INDEX_URL =
   `https://cdn.jsdelivr.net/npm/openmoji@${OPENMOJI_VERSION}/data/openmoji.json`;
 const OPENMOJI_SVG_BASE = `https://cdn.jsdelivr.net/npm/openmoji@${OPENMOJI_VERSION}/color/svg`;
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
+const MAX_FETCH_ATTEMPTS = 3;
+/** Wikimedia blocks bursty clients; keep all its API and upload calls serial. */
+const WIKIMEDIA_MIN_INTERVAL_MS = 1100;
 
 export type AssetFormat = 'svg' | 'png' | 'jpg' | 'webp';
 export type AssetProviderId = 'iconify' | 'openmoji' | 'wikimedia';
@@ -340,7 +343,10 @@ export function buildSceneAssetQueries(scene: SceneInstruction, max = 3): string
     .join(' ')
     .trim();
 
-  const explicit = [...(scene.assetQueries ?? []), ...(scene.keyTerms ?? [])]
+  const explicit = (scene.assetQueries ?? [])
+    .map((query) => query.trim())
+    .filter(Boolean);
+  const keyTerms = (scene.keyTerms ?? [])
     .map((query) => query.trim())
     .filter(Boolean);
   const derived = buildAssetQueries(
@@ -350,7 +356,7 @@ export function buildSceneAssetQueries(scene: SceneInstruction, max = 3): string
 
   const queries: string[] = [];
   const seen = new Set<string>();
-  for (const query of [...explicit, ...derived]) {
+  for (const query of [...explicit, ...derived, ...keyTerms]) {
     const slug = slugify(query);
     if (!slug || seen.has(slug)) continue;
     seen.add(slug);
@@ -358,6 +364,51 @@ export function buildSceneAssetQueries(scene: SceneInstruction, max = 3): string
     if (queries.length >= Math.max(1, max)) break;
   }
   return queries;
+}
+
+function tokenVariants(token: string): string[] {
+  if (token.endsWith('ies') && token.length > 4) return [token, `${token.slice(0, -3)}y`];
+  if (token.endsWith('ing') && token.length > 5) {
+    const stem = token.slice(0, -3);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('ed') && token.length > 5) {
+    const stem = token.slice(0, -2);
+    return [token, stem, `${stem}e`];
+  }
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) {
+    return [token, token.slice(0, -1)];
+  }
+  return [token, `${token}s`];
+}
+
+function coversToken(candidateTokens: Set<string>, queryToken: string): boolean {
+  return tokenVariants(queryToken).some((variant) => candidateTokens.has(variant));
+}
+
+function candidateTokens(candidate: Omit<AssetCandidate, 'score'>): Set<string> {
+  return new Set([
+    ...tokenizeText(candidate.name),
+    ...candidate.tags.flatMap((tag) => tokenizeText(tag)),
+  ]);
+}
+
+/**
+ * A result is only usable when it actually names the query. Multi-word queries
+ * need two real hits, not one generic word, so a random photo whose description
+ * happens to contain "layered" cannot stand in for "layered processing".
+ */
+export function isConfidentCandidate(
+  candidate: Omit<AssetCandidate, 'score'>,
+  query: string,
+): boolean {
+  const queryTokens = new Set(tokenizeText(query));
+  if (queryTokens.size === 0) return false;
+
+  const tokens = candidateTokens(candidate);
+  const matched = [...queryTokens].filter((token) => coversToken(tokens, token)).length;
+  const required = queryTokens.size <= 2 ? queryTokens.size : 2;
+  return matched >= required;
 }
 
 /** Higher is better: how much of the query the candidate actually covers. */
@@ -368,14 +419,10 @@ export function scoreAssetCandidate(
   const queryTokens = new Set(tokenizeText(query));
   if (queryTokens.size === 0) return 0;
 
-  const candidateTokens = new Set([
-    ...tokenizeText(candidate.name),
-    ...candidate.tags.flatMap((tag) => tokenizeText(tag)),
-  ]);
-
+  const tokens = candidateTokens(candidate);
   let matched = 0;
   for (const token of queryTokens) {
-    if (candidateTokens.has(token)) matched++;
+    if (coversToken(tokens, token)) matched++;
   }
 
   const providerWeight =
@@ -394,6 +441,7 @@ class AssetDiscoveryService {
   private manifest: AssetManifestEntry[] | null = null;
   private openMojiIndex: OpenMojiEntry[] | null = null;
   private collectionLicenses: Record<string, AssetLicense> | null = null;
+  private lastWikimediaRequestAt = 0;
 
   isEnabled(): boolean {
     return config.assets.discoveryEnabled && typeof fetch === 'function';
@@ -429,14 +477,12 @@ class AssetDiscoveryService {
     for (const query of summary.queries) {
       try {
         const candidates = await this.discover(query);
-        const best = candidates[0];
-
-        if (!best) {
+        if (candidates.length === 0) {
           summary.skipped++;
           continue;
         }
 
-        const status = await this.persist(best, query);
+        const status = await this.persistFirst(candidates, query);
         if (status === 'downloaded') summary.downloaded++;
         else if (status === 'reused') summary.reused++;
         else summary.skipped++;
@@ -483,12 +529,11 @@ class AssetDiscoveryService {
     for (const query of summary.queries) {
       try {
         const candidates = await this.discover(query);
-        const best = candidates[0];
-        if (!best) {
+        if (candidates.length === 0) {
           summary.skipped++;
           continue;
         }
-        const status = await this.persist(best, query);
+        const status = await this.persistFirst(candidates, query);
         if (status === 'downloaded') summary.downloaded++;
         else if (status === 'reused') summary.reused++;
         else summary.skipped++;
@@ -529,10 +574,11 @@ class AssetDiscoveryService {
       else if (provider === 'openmoji') candidates = await this.searchOpenMoji(query);
       else if (provider === 'wikimedia') candidates = await this.searchWikimedia(query);
 
-      if (candidates.length === 0) continue;
-      collected.push(...candidates);
+      const confident = candidates.filter((candidate) => isConfidentCandidate(candidate, query));
+      if (confident.length === 0) continue;
+      collected.push(...confident);
 
-      const best = Math.max(...candidates.map((candidate) => candidate.score));
+      const best = Math.max(...confident.map((candidate) => candidate.score));
       if (best >= CONFIDENT_ASSET_SCORE) break;
     }
 
@@ -581,7 +627,7 @@ class AssetDiscoveryService {
         provider: 'iconify',
         id: `${prefix}:${name}`,
         name: name.replace(/-/g, ' '),
-        tags: [prefix, name.replace(/-/g, ' '), query],
+        tags: [prefix, name.replace(/-/g, ' ')],
         format: 'svg',
         colorful,
         // Colour sets carry their own palette; monochrome sets get a warm tint
@@ -688,7 +734,8 @@ class AssetDiscoveryService {
             ),
           ),
         ];
-        const hits = tags.filter((tag) => queryTokens.has(tag)).length;
+        const tagSet = new Set(tags);
+        const hits = [...queryTokens].filter((token) => coversToken(tagSet, token)).length;
         return { entry, tags, hits };
       })
       .filter((item) => item.hits > 0 && typeof item.entry.hexcode === 'string')
@@ -714,7 +761,6 @@ class AssetDiscoveryService {
     const params = new URLSearchParams({
       action: 'query',
       format: 'json',
-      origin: '*',
       generator: 'search',
       gsrnamespace: '6',
       // Keep drawings/SVG diagrams as well as photos: a labelled diagram is
@@ -755,12 +801,15 @@ class AssetDiscoveryService {
       const licenseName = stripHtml(info?.extmetadata?.['LicenseShortName']?.value ?? '');
       const licenseUrl = stripHtml(info?.extmetadata?.['LicenseUrl']?.value ?? '');
       const artist = stripHtml(info?.extmetadata?.['Artist']?.value ?? '');
+      const description = stripHtml(
+        info?.extmetadata?.['ImageDescription']?.value ?? '',
+      ).slice(0, 500);
 
       const base: Omit<AssetCandidate, 'score'> = {
         provider: 'wikimedia',
         id: title,
         name: title.replace(/^File:/i, '').replace(/\.[^.]+$/, ''),
-        tags: [query, title],
+        tags: [title, description],
         format,
         colorful: true,
         url,
@@ -812,6 +861,18 @@ class AssetDiscoveryService {
 
   // ---- download & storage ---------------------------------------------
 
+  /** If the best URL is throttled or unsafe, try the next confident match. */
+  private async persistFirst(
+    candidates: AssetCandidate[],
+    query: string,
+  ): Promise<'downloaded' | 'reused' | 'skipped'> {
+    for (const candidate of candidates.slice(0, 2)) {
+      const status = await this.persist(candidate, query);
+      if (status !== 'skipped') return status;
+    }
+    return 'skipped';
+  }
+
   private async persist(
     candidate: AssetCandidate,
     query: string,
@@ -840,7 +901,11 @@ class AssetDiscoveryService {
     if (existing) return 'reused';
 
     fs.mkdirSync(config.assets.autoAssetsDir, { recursive: true });
-    const fileName = `${slugify(query) || 'asset'}-${sha256.slice(0, 8)}.${candidate.format}`;
+    // Name by the asset's own title, not the search query. The local matcher and
+    // verifier read tokens from the file name, so query-based names would make
+    // every downloaded file look like it matched the query by definition.
+    const stem = (slugify(candidate.name) || slugify(candidate.id) || 'asset').slice(0, 60);
+    const fileName = `${stem}-${sha256.slice(0, 8)}.${candidate.format}`;
     const filePath = path.join(config.assets.autoAssetsDir, fileName);
     fs.writeFileSync(filePath, body);
 
@@ -976,22 +1041,52 @@ class AssetDiscoveryService {
     }
   }
 
-  /** GET with a hard deadline and one retry; null instead of an exception. */
+  /** One serial request at a time to Wikimedia; bursty clients get HTTP 429. */
+  private async paceWikimediaRequest(url: string): Promise<void> {
+    let host = '';
+    try {
+      host = new URL(url).hostname.toLowerCase();
+    } catch {
+      return;
+    }
+    if (host !== 'wikimedia.org' && !host.endsWith('.wikimedia.org')) return;
+
+    const wait = this.lastWikimediaRequestAt + WIKIMEDIA_MIN_INTERVAL_MS - Date.now();
+    if (wait > 0) await delay(wait);
+    this.lastWikimediaRequestAt = Date.now();
+  }
+
+  /** GET with a hard deadline and retries on 429/5xx; null instead of throwing. */
   private async fetchBuffer(url: string, maxBytes: number): Promise<Buffer | null> {
     if (typeof fetch !== 'function') return null;
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), config.assets.timeoutMs);
+      let retryable = true;
 
       try {
+        await this.paceWikimediaRequest(url);
+
         const response = await fetch(url, {
           signal: controller.signal,
           headers: { 'User-Agent': USER_AGENT, Accept: '*/*' },
           redirect: 'follow',
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          const status = response.status;
+          retryable = status === 429 || status >= 500;
+          if (retryable && attempt < MAX_FETCH_ATTEMPTS) {
+            const retryAfter = Number(response.headers.get('retry-after') ?? '');
+            const wait = Number.isFinite(retryAfter) && retryAfter > 0
+              ? retryAfter * 1000
+              : 1200 * attempt;
+            await delay(Math.min(15_000, Math.max(1000, wait)));
+            continue;
+          }
+          throw new Error(`HTTP ${status}`);
+        }
 
         const declared = Number(response.headers.get('content-length') ?? '0');
         if (Number.isFinite(declared) && declared > maxBytes) {
@@ -1003,11 +1098,11 @@ class AssetDiscoveryService {
         if (buffer.byteLength === 0 || buffer.byteLength > maxBytes) return null;
         return buffer;
       } catch (err) {
-        if (attempt === 2) {
+        if (attempt === MAX_FETCH_ATTEMPTS || !retryable) {
           console.warn(`[Assets] Download failed: ${url} — ${message(err)}`);
           return null;
         }
-        await delay(300 * attempt);
+        await delay(800 * attempt);
       } finally {
         clearTimeout(timer);
       }
