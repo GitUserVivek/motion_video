@@ -200,8 +200,24 @@ Edit `.env` to customize settings:
 | `RESEARCH_TIMEOUT_MS` | `7000` | Research request timeout |
 | `RESEARCH_MAX_SOURCES` | `3` | Max sources kept per job |
 | `ASSET_DISCOVERY` | `on` | Automatic artwork search/download |
+| `VISION_API_URL` | unset | Optional OpenAI-compatible vision endpoint for uploaded images |
+| `VISION_API_KEY` | unset | Optional key for the vision endpoint |
+| `VISION_MODEL` | unset | Vision model, e.g. `qwen2.5vl:3b` or a free provider model |
+| `VISION_TIMEOUT_MS` | `30000` | Per-image identification timeout |
 
 You can also change most settings at runtime from the **Settings** page in the app.
+
+### Optional images on Review Script
+
+On **Review Script**, you can attach up to six PNG, JPEG, or WebP images. They are
+compressed in the browser, stored with the script, and analyzed once when the
+storyboard is planned. An image is only placed in a scene when its caption or
+keywords match that scene; unrelated uploads are left unused.
+
+Image recognition is optional. Without `VISION_API_URL`/`VISION_MODEL`, EduMotion
+uses the filename and any local metadata. Point it at any OpenAI-compatible free
+or self-hosted vision endpoint (for example a local Qwen2.5-VL server) to enable
+automatic captioning and keyword extraction.
 
 ---
 
