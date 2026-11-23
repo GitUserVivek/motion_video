@@ -111,6 +111,29 @@ export interface GenerateVideoRequest {
   config: VideoConfig;
 }
 
+/** One image attached to a script before approval. */
+export interface ScriptAsset {
+  id: string;
+  scriptId: string;
+  fileName: string;
+  mimeType: string;
+  caption: string | null;
+  keywords: string[];
+  /** Same-origin URL for the Review Script thumbnail. */
+  previewUrl: string;
+  createdAt: string;
+}
+
+/** Optional user upload sent from Review Script. */
+export interface ScriptAssetUpload {
+  name: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  dataUrl: string;
+  label?: string;
+  width?: number;
+  height?: number;
+}
+
 /** One diagram tile of one scene and the artwork it ended up with. */
 export interface SceneAssetUsage {
   sceneIndex: number;
@@ -118,7 +141,7 @@ export interface SceneAssetUsage {
   icon: string;
   /** Library-relative file, e.g. `auto/heart-1a2b3c4d.svg`; null = built-in glyph. */
   asset: string | null;
-  source: 'downloaded' | 'library' | 'builtin';
+  source: 'downloaded' | 'library' | 'builtin' | 'user';
   /** Same-origin URL that renders the file, so the UI can show a preview. */
   previewUrl?: string;
 }

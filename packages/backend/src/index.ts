@@ -26,6 +26,7 @@ function ensureDirectories(): void {
     config.storage.assetsDir,
     config.storage.resourcesDir,
     config.storage.dataDir,
+    config.storage.userAssetsDir,
     config.assets.autoAssetsDir,
     config.assets.cacheDir,
     path.join(config.storage.assetsDir, 'characters'),
@@ -83,7 +84,9 @@ async function bootstrap(): Promise<void> {
   const app = express();
 
   app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json({ limit: '10mb' }));
+  // Review Script uploads compressed images as base64 JSON. Keep a bounded
+  // limit here; the upload route also enforces count and per-file size.
+  app.use(express.json({ limit: '25mb' }));
   app.use(requestLogger);
 
   mountOutputStatic(app);

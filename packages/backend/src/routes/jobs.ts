@@ -66,6 +66,12 @@ function withPreviewUrls(assets: SceneAssetUsage[] | undefined): SceneAssetUsage
   if (!assets) return [];
   return assets.map((use) => {
     if (!use.asset || use.source === 'builtin') return use;
+    if (use.source === 'user' && use.asset.startsWith('user/')) {
+      return {
+        ...use,
+        previewUrl: `/api/scripts/assets/${encodeURIComponent(use.asset.slice(5))}/preview`,
+      };
+    }
     const encoded = use.asset
       .split('/')
       .filter((segment) => segment.length > 0)

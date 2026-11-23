@@ -172,6 +172,7 @@ export function RenderProgress(): React.ReactElement {
   const downloadedCount = assets.filter((use) => use.source === 'downloaded').length;
   const libraryCount = assets.filter((use) => use.source === 'library').length;
   const builtinCount = assets.filter((use) => use.source === 'builtin').length;
+  const userCount = assets.filter((use) => use.source === 'user').length;
 
   return (
     <div style={{ maxWidth: 720 }}>
@@ -308,8 +309,8 @@ export function RenderProgress(): React.ReactElement {
               ) : assets.length > 0 ? (
                 <>
                   <p style={{ color: '#666', fontSize: 12, marginTop: 0, marginBottom: 12 }}>
-                    {downloadedCount} downloaded · {libraryCount} from the local library ·{' '}
-                    {builtinCount} built-in glyph{builtinCount === 1 ? '' : 's'}
+                    {userCount} your upload{userCount === 1 ? '' : 's'} · {downloadedCount} downloaded ·{' '}
+                    {libraryCount} from the local library · {builtinCount} built-in glyph{builtinCount === 1 ? '' : 's'}
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {groupByScene(assets).map(([sceneIndex, picks]) => (
@@ -347,7 +348,21 @@ export function RenderProgress(): React.ReactElement {
                                 {pick.asset ?? `built-in glyph (${pick.icon})`}
                               </div>
                             </div>
-                            {pick.source === 'downloaded' ? (
+                            {pick.source === 'user' ? (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: '#2ecc71',
+                                  border: '1px solid #2ecc71',
+                                  borderRadius: 4,
+                                  padding: '1px 5px',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                YOURS
+                              </span>
+                            ) : pick.source === 'downloaded' ? (
                               <span
                                 style={{
                                   fontSize: 10,

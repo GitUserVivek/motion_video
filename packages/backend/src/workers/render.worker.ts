@@ -9,6 +9,7 @@ import { assetDiscovery, buildSceneAssetQueries } from '../services/asset.discov
 import { contentAnalysisService } from '../services/content.analysis.js';
 import { validateVideo } from '../services/content.validation.js';
 import { resetAssetCache } from '../services/asset.library.js';
+import { userAssetService } from '../services/user.asset.service.js';
 import { ensureJobDir, jobFiles } from '../services/job.files.js';
 import { config } from '../config.js';
 import fs from 'fs';
@@ -145,7 +146,20 @@ async function processJob(job: JobRow): Promise<void> {
     contentAnalysis,
   );
 
-  // 4b. The storyboard now names what each scene needs. Discover artwork from
+  // 4b. Optional images uploaded by the user on Review Script. Analyze them
+  // once, then let the scene matcher attach only the ones whose caption or
+  // keywords explain that specific scene. The data URLs are inlined for the
+  // renderer, so no network or source path is needed at render time.
+  updateJob(job.id, 'processing', 33, 'analyzing_user_assets');
+  const userAssets = await userAssetService.loadForJob(job.script_id);
+  if (userAssets.length > 0) {
+    console.log(
+      `[Worker] Job ${job.id} user assets: ${userAssets.length} uploaded, ` +
+        `${userAssets.filter((asset) => asset.keywords.length > 0).length} with metadata`,
+    );
+  }
+
+  // 4c. The storyboard now names what each scene needs. Discover artwork from
   // those scene-specific queries, then re-attach only verified matches. This is
   // deliberately after planning: a whole-script keyword list used to download
   // generic icons that had nothing to do with the scene.
@@ -165,9 +179,42 @@ async function processJob(job: JobRow): Promise<void> {
     console.warn(`[Worker] Job ${job.id} scene asset discovery had ${sceneDiscovery.errors.length} error(s)`);
   }
   resetAssetCache();
-  const attached = attachSceneArtwork(planned.storyboard, contentAnalysis);
+  const attached = attachSceneArtwork(planned.storyboard, contentAnalysis, userAssets);
   const storyboard = attached.storyboard;
   const assetUses = attached.assetUses;
+
+  const usedUserAssetIds = new Set(
+    assetUses
+      .filter((use) => use.source === 'user' && use.asset)
+      .map((use) => use.asset!.replace(/^user\//, '')),
+  );
+  try {
+    fs.writeFileSync(
+      jobFiles.userAssets(job.id),
+      JSON.stringify(
+        {
+          uploaded: userAssets.map((asset) => ({
+            id: asset.id,
+            fileName: asset.fileName,
+            caption: asset.caption,
+            keywords: asset.keywords,
+            used: usedUserAssetIds.has(asset.id),
+          })),
+          unused: userAssets
+            .filter((asset) => !usedUserAssetIds.has(asset.id))
+            .map((asset) => asset.id),
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+  } catch (err) {
+    console.warn(
+      `[Worker] Job ${job.id} could not write the user asset manifest: ` +
+        (err instanceof Error ? err.message : String(err)),
+    );
+  }
 
   // Persist the scene/asset audit for the render page and later verification.
   const selectedAssetIds = new Set(

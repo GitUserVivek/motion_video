@@ -7,6 +7,8 @@ import type {
   VideoListItem,
   Settings,
   VideoConfig,
+  ScriptAsset,
+  ScriptAssetUpload,
 } from '@edumotion/shared';
 
 const BASE = '/api';
@@ -71,6 +73,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ scriptId, content }),
     }),
+
+  listScriptAssets: async (scriptId: string): Promise<ScriptAsset[]> => {
+    const data = await request<{ assets: ScriptAsset[] }>(`/scripts/${scriptId}/assets`);
+    return data.assets;
+  },
+
+  uploadScriptAssets: async (
+    scriptId: string,
+    assets: ScriptAssetUpload[],
+  ): Promise<ScriptAsset[]> => {
+    const data = await request<{ assets: ScriptAsset[] }>(`/scripts/${scriptId}/assets`, {
+      method: 'POST',
+      body: JSON.stringify({ assets }),
+    });
+    return data.assets;
+  },
+
+  deleteScriptAsset: (scriptId: string, assetId: string): Promise<void> =>
+    request(`/scripts/${scriptId}/assets/${assetId}`, { method: 'DELETE' }),
 
   generateVideo: (scriptId: string, config: VideoConfig): Promise<JobResponse> =>
     request('/videos/generate', {

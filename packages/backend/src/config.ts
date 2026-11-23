@@ -98,6 +98,22 @@ export const config = {
     // matched to a scene's concepts by file name and inlined into the props.
     resourcesDir: path.join(ROOT_DIR, 'resources'),
     dataDir: path.join(ROOT_DIR, 'data'),
+    // Optional images uploaded against a draft script on Review Script.
+    userAssetsDir: path.join(ROOT_DIR, 'data', 'user-assets'),
+  },
+
+  vision: {
+    // Optional free/self-hosted image description. Use any OpenAI-compatible
+    // vision endpoint (local Qwen2.5-VL, OpenRouter free model, Gemini free tier).
+    // Unset means the deterministic filename/label metadata is used.
+    provider: process.env['VISION_PROVIDER'] ?? 'auto',
+    apiUrl: process.env['VISION_API_URL'] ?? '',
+    apiKey: process.env['VISION_API_KEY'] ?? '',
+    model: process.env['VISION_MODEL'] ?? '',
+    timeoutMs: Math.max(
+      1000,
+      parseInt(process.env['VISION_TIMEOUT_MS'] ?? '30000', 10) || 30000,
+    ),
   },
 
   tts: {

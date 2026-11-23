@@ -59,6 +59,22 @@ CREATE TABLE IF NOT EXISTS videos (
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS script_assets (
+  id              TEXT PRIMARY KEY,
+  script_id       TEXT NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+  file_name       TEXT NOT NULL,
+  stored_name     TEXT NOT NULL,
+  mime_type       TEXT NOT NULL,
+  file_path       TEXT NOT NULL,
+  bytes           INTEGER NOT NULL DEFAULT 0,
+  width           INTEGER,
+  height          INTEGER,
+  caption         TEXT,
+  keywords_json   TEXT NOT NULL DEFAULT '[]',
+  metadata_source TEXT NOT NULL DEFAULT 'filename',
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL

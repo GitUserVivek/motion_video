@@ -56,6 +56,8 @@ export const jobFiles = {
   research: (jobId: string) => path.join(jobDir(jobId), 'research.json'),
   /** Scene-level asset candidates, verdicts and selected files. */
   assetsManifest: (jobId: string) => path.join(jobDir(jobId), 'assets.json'),
+  /** User-uploaded images and whether each made it into the storyboard. */
+  userAssets: (jobId: string) => path.join(jobDir(jobId), 'user-assets.json'),
   /** Relative/absolute child frame audit. */
   timingReport: (jobId: string) => path.join(jobDir(jobId), 'timing-report.json'),
   /** Caption source and boundary-splitting audit. */

@@ -6,6 +6,8 @@ import type {
 } from '@edumotion/shared';
 import { assetSource, matchAssetImage } from './asset.library.js';
 import { verifyAssetMatch } from './asset.verify.js';
+import { pickUserAsset } from './user.asset.match.js';
+import type { UserAsset } from './user.asset.service.js';
 
 /**
  * Icon set rendered by packages/renderer/src/utils/icons.tsx (and therefore by
@@ -114,7 +116,7 @@ export interface SceneAssetUse {
   icon: string;
   /** Library-relative file, e.g. `auto/heart-1a2b3c4d.svg`; null = built-in glyph. */
   asset: string | null;
-  source: 'downloaded' | 'library' | 'builtin';
+  source: 'downloaded' | 'library' | 'builtin' | 'user';
 }
 
 export type AssetPick = Omit<SceneAssetUse, 'sceneIndex'>;
@@ -127,6 +129,160 @@ function describePick(tile: { icon: string; label: string }, asset: string | nul
     asset,
     source: asset ? assetSource(asset) : 'builtin',
   };
+}
+
+interface UserImageContext {
+  assets: UserAsset[];
+  used: Set<string>;
+  record: AssetRecorder;
+  narration: string;
+  brief: string;
+  keyTerms: string[];
+}
+
+/** Attach a user upload only when its caption/keywords explain this slot. */
+function attachUserImage(
+  child: SceneChild,
+  context: UserImageContext,
+  label: string,
+  icon: string,
+  text: string,
+): { image: string; imageAlt: string; imageSource: 'user' } | null {
+  const asset = pickUserAsset(
+    context.assets,
+    { text: `${text} ${context.narration}`, brief: context.brief, keyTerms: context.keyTerms, label },
+    context.used,
+  );
+  if (!asset) return null;
+  context.used.add(asset.id);
+  context.record({
+    label,
+    icon,
+    asset: asset.assetPath,
+    source: 'user',
+  });
+  return { image: asset.dataUrl, imageAlt: asset.caption, imageSource: 'user' };
+}
+
+function attachUserArtwork(child: SceneChild, context: UserImageContext): SceneChild {
+  if (child.component === 'ImageScene') {
+    if (hasEmbeddedImage(child.props['image'])) return child;
+    const image = attachUserImage(
+      child,
+      context,
+      context.brief || 'Scene image',
+      'image',
+      `${context.brief} ${context.narration}`,
+    );
+    return image ? { ...child, props: { ...child.props, ...image } } : child;
+  }
+
+  if (child.component === 'EducationalObject') {
+    if (hasEmbeddedImage(child.props['image'])) return child;
+    const label = typeof child.props['type'] === 'string' ? child.props['type'] : 'object';
+    const image = attachUserImage(child, context, label, label, `${label} ${context.narration}`);
+    return image ? { ...child, props: { ...child.props, ...image } } : child;
+  }
+
+  if (child.component === 'AnnotatedCallout') {
+    if (hasEmbeddedImage(child.props['image'])) return child;
+    const label = context.brief || 'Annotated subject';
+    const image = attachUserImage(child, context, label, 'image', `${context.brief} ${context.narration}`);
+    return image ? { ...child, props: { ...child.props, ...image } } : child;
+  }
+
+  if (child.component === 'SplitScreenComparison') {
+    let changed = false;
+    const props = { ...child.props } as Record<string, unknown>;
+    for (const side of ['left', 'right'] as const) {
+      const raw = props[side];
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      const pane = raw as Record<string, unknown>;
+      if (hasEmbeddedImage(pane['image'])) continue;
+      const label = typeof pane['content'] === 'string' ? pane['content'] : side;
+      const image = attachUserImage(
+        child,
+        context,
+        label,
+        'image',
+        `${label} ${context.narration}`,
+      );
+      if (image) {
+        props[side] = { ...pane, ...image };
+        changed = true;
+      }
+    }
+    return changed ? { ...child, props } : child;
+  }
+
+  if (child.component === 'ConceptDiagram' || child.component === 'AnimatedDiagram') {
+    const items = child.props['items'];
+    if (!Array.isArray(items)) return child;
+    let changed = false;
+    const next = items.map((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+      const item = raw as Record<string, unknown>;
+      if (hasEmbeddedImage(item['image'])) return raw;
+      const label = typeof item['label'] === 'string' ? item['label'] : '';
+      if (!label) return raw;
+      const image = attachUserImage(
+        child,
+        context,
+        label,
+        typeof item['icon'] === 'string' ? item['icon'] : 'image',
+        label,
+      );
+      if (!image) return raw;
+      changed = true;
+      return { ...item, ...image };
+    });
+    return changed ? { ...child, props: { ...child.props, items: next } } : child;
+  }
+
+  if (child.component === 'ProcessFlow') {
+    const steps = child.props['steps'];
+    if (!Array.isArray(steps)) return child;
+    let changed = false;
+    const next = steps.map((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+      const step = raw as Record<string, unknown>;
+      if (hasEmbeddedImage(step['image'])) return raw;
+      const label = typeof step['label'] === 'string' ? step['label'] : '';
+      if (!label) return raw;
+      const image = attachUserImage(child, context, label, 'image', label);
+      if (!image) return raw;
+      changed = true;
+      return { ...step, ...image };
+    });
+    return changed ? { ...child, props: { ...child.props, steps: next } } : child;
+  }
+
+  if (child.component === 'Timeline') {
+    const events = child.props['events'];
+    if (!Array.isArray(events)) return child;
+    let changed = false;
+    const next = events.map((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+      const event = raw as Record<string, unknown>;
+      if (hasEmbeddedImage(event['image'])) return raw;
+      const label = typeof event['title'] === 'string' ? event['title'] : '';
+      if (!label) return raw;
+      const image = attachUserImage(child, context, label, 'image', label);
+      if (!image) return raw;
+      changed = true;
+      return { ...event, ...image };
+    });
+    return changed ? { ...child, props: { ...child.props, events: next } } : child;
+  }
+
+  if (child.component === 'SummaryScene' || child.component === 'ComparisonChart') {
+    if (hasEmbeddedImage(child.props['image'])) return child;
+    const label = typeof child.props['title'] === 'string' ? child.props['title'] : context.brief;
+    const image = attachUserImage(child, context, label, 'image', label);
+    return image ? { ...child, props: { ...child.props, ...image } } : child;
+  }
+
+  return child;
 }
 
 const MAX_CONCEPT_ITEMS = 5;
@@ -329,8 +485,10 @@ function attachDiagramImages(
     if (!raw || typeof raw !== 'object') return raw;
     const item = raw as { icon?: unknown; label?: unknown; image?: unknown };
     if (typeof item.icon !== 'string') return raw;
-    if (!overwrite && typeof item.image === 'string' && item.image.startsWith('data:image/')) {
-      return raw;
+    if (typeof item.image === 'string' && item.image.startsWith('data:image/')) {
+      // Never replace a file the user explicitly uploaded. Ordinary downloaded
+      // artwork may still be re-attached on a later pass.
+      if (!overwrite || item.imageSource === 'user') return raw;
     }
 
     const match = matchAssetImage({
@@ -828,9 +986,11 @@ function numberVisual(measurement: Measurement, _scene: SceneInstruction): Scene
 export function attachSceneArtwork(
   storyboard: StoryboardPlan,
   analysis?: ContentAnalysis,
+  userAssets: UserAsset[] = [],
 ): { storyboard: StoryboardPlan; assetUses: SceneAssetUse[] } {
   const assetUses: SceneAssetUse[] = [];
   const fallback = analysisFallbackObject(analysis);
+  const usedUserAssets = new Set<string>();
 
   const scenes = storyboard.scenes.map((scene, index) => {
     const children = scene.children ?? [];
@@ -843,8 +1003,17 @@ export function attachSceneArtwork(
     const brief = scene.visualBrief ?? scene.keyTerms?.join(', ') ?? '';
     const displayText = `${brief} ${narration}`;
     const keyTerms = sceneKeyTerms(scene, analysis);
+    const userContext: UserImageContext = {
+      assets: userAssets,
+      used: usedUserAssets,
+      record,
+      narration,
+      brief,
+      keyTerms,
+    };
+    const userChildren = children.map((child) => attachUserArtwork(child, userContext));
 
-    const nextChildren = children.map((child) => {
+    const nextChildren = userChildren.map((child) => {
       if (child.component === 'ConceptDiagram') {
         return attachDiagramImages(child, displayText, keyTerms, record, true, used);
       }
