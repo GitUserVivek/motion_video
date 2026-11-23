@@ -17,7 +17,7 @@
 - **🔍 Quality Validation**: Comprehensive scene and storyboard validation
 - **🚀 Model Upgrade**: Qwen3 8B (was Qwen2.5 7B) for better JSON output
 
-**Status**: 🟡 **85% COMPLETE** - See [progress.md](progress.md) for details
+**Status**: 🟡 **Dynamic-content plan code-complete; tests/build green; GPU render review pending** - See [update_phases.md](update_phases.md) for details
 
 ---
 
@@ -543,7 +543,7 @@ cd packages/shared && npm run build
 | Document | Description |
 |----------|-------------|
 | `README.md` | This file - Setup, usage, configuration |
-| `progress.md` | Detailed progress tracking (85% complete) |
+| `progress.md` | Detailed progress tracking and verification status |
 | `dev.md` | Development plan and current status |
 | `project.md` | Project overview and structure |
 | `e2e/VERIFICATION.md` | End-to-end testing checklist |
@@ -564,16 +564,15 @@ cd packages/shared && npm run build
 - Qwen3 8B model for better quality
 
 ### ⏳ What's Next
-- Fix TypeScript errors in new files
-- Implement audio synchronization
-- Add word-level subtitle timing
-- Implement final quality validation
+- Run the Phase 7 three-topic render review on the GPU box
+- Inspect sampled frames and the semantic/QC reports
+- Fix any visual issues found on real output
 
-**Status**: 🟡 **85% COMPLETE** - See [progress.md](progress.md) for details
+**Status**: 🟡 **Dynamic-content plan code-complete; tests/build green; GPU render review pending** - See [update_phases.md](update_phases.md) for details
 
 ---
 
-**Last Updated**: 2026-11-22  
-**Version**: 2.0 (Enhanced)  
-**Model**: Qwen3 8B Instruct Q4  
-**Status**: 🟡 **ENHANCEMENT PHASE - 85% COMPLETE**
+**Last Updated**: 2026-11-23<br>
+**Version**: 2.0 (Enhanced)<br>
+**Model**: Qwen3 8B Instruct Q4<br>
+**Status**: 🟡 **DYNAMIC CONTENT PLAN CODE-COMPLETE — GPU RENDER REVIEW PENDING**

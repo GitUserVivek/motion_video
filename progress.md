@@ -1,12 +1,12 @@
 # EduMotion AI — Progress Tracker
 
-> Last updated: 2026-11-22
+> Last updated: 2026-11-23
 > Plan: [`update_phases.md`](./update_phases.md) · Request: [`Update_Instructions.md`](./Update_Instructions.md)
-> Status: 🟡 dynamic-content upgrade implemented in code — GPU render verification pending
+> Status: 🟡 dynamic-content upgrade code-complete, tests/build green — GPU render verification pending
 
 ---
 
-## Dynamic content & rendering correctness (2026-11-22)
+## Dynamic content & rendering correctness (2026-11-23)
 
 Implemented the new plan in `update_phases.md`; the old visual-upgrade notes below are historical.
 
@@ -39,9 +39,12 @@ Implemented the new plan in `update_phases.md`; the old visual-upgrade notes bel
 ### New artifacts
 `content-analysis.json`, `research.json`, `assets.json`, `timing-report.json`, `subtitle-report.json`, `validation-report.json`, `frames/`.
 
-### Verification status
-- Backend and renderer `tsc --noEmit`: pass. Frontend changed files: clean; pre-existing `Dashboard.tsx`/`Settings.tsx` errors remain.
-- Added tests: `timing.test.ts`, `subtitles.test.ts`, `content.test.ts`, `validation.test.ts`. Vitest cannot run in this sandbox (missing rollup native binary); run on the GPU box.
+### Verification status (2026-11-23)
+- `npm run typecheck`: pass in shared, backend, renderer and frontend.
+- `npm test`: pass — 61 tests (shared 12, backend 47, frontend 2; renderer has no test files and exits 0).
+- `npm run build`: pass (shared tsup DTS, renderer/backend tsc, frontend tsc + Vite).
+- `pipeline.integration.test.ts` runs a fake LLM + measured captions through the real planner and asserts relative timings, split captions, validation, asset reporting and persisted artifacts.
+- Backend Vitest resolves `@edumotion/shared` from source, so a stale `dist/` cannot mask a missing export.
 - Not run here: TTS, LLM, research network, Remotion render, frame review.
 
 ---
@@ -179,7 +182,7 @@ Paths are built in one place (`packages/backend/src/services/job.files.ts`), whi
 | Phase | Status | Notes |
 |---|---|---|
 | 6 — Composition & typography set | ✅ code complete | speech bubble, annotated callout, comparison chart and summary scene; director picks composition from narration intent; visual check still needed |
-| 8 — End-to-end verification | ⛔ blocked here | needs the GPU box: build, render 3 topics, sample frames, compare to `expected_video_style.mp4` |
+| 7 — End-to-end verification | 🟡 automated checks pass | unit + integration tests pass; render 3 topics and sample frames on the GPU box still pending |
 
 > The five component names that had no renderer (`QuestionReveal`, `FactHighlight`,
 > `ScientificVisualization`, `ChartAnimation`, `BeforeAfterComparison`) are removed from
@@ -188,10 +191,12 @@ Paths are built in one place (`packages/backend/src/services/job.files.ts`), whi
 
 ## Verification status
 
-- Backend/shared `tsc --noEmit`: exit 0. Renderer `tsc --noEmit`: exit 0 (both run against shared *source*, not the stale `dist/`).
-- Director smoke test (backend emitted to a temp folder and run under node, temp folder deleted afterwards): eight sample narrations produced `SpeechBubble` (question), `ProcessFlow` (3 steps), `ComparisonChart` (two `%` bars, distinct labels), `AnnotatedCallout` (3 labelled points on `plant`), `SummaryScene` (2 recap rows), `SplitScreenComparison` (two sides), `Timeline` (2 dated events) and `EndScreen` on the closing scene, with one `directed …` change line per scene. The first run of this test caught two real bugs — `\b` after `%` rejected every percentage, and a definition scene with no existing object had no subject — both fixed before the final run. It does **not** prove the components look right on screen; that needs a render.
-- `vitest run src/__tests__/assets.test.ts`: **could not run here** — rollup's native binary (`@rollup/rollup-linux-x64-gnu`) is missing because `node_modules` was installed on Windows. The new tests are type-checked; they must be executed on the box with `npm test --workspace=packages/backend`.
-- No render was produced here: this sandbox has no GPU, no model, and `@rollup/rollup-linux-x64-gnu` is missing so Vite/tsup/vitest cannot run. Visual quality must be checked on the Kaggle box.
+- `npm run typecheck`: pass in all four workspaces.
+- `npm test`: pass — 61 tests, including the new fake-LLM/fake-TTS pipeline integration fixture.
+- `npm run build`: pass end to end.
+- `pipeline.integration.test.ts` asserts scene-relative child timing, boundary-split captions with no duplicates, a passing semantic validation report, the asset report shape, and the written storyboard/timing/LLM artifacts.
+- Director smoke test (historical): eight sample narrations produced the intended compositions and an EndScreen. It does **not** prove the components look right on screen; that needs a render.
+- No render was produced here: this sandbox has no ffmpeg, TTS, complete LLM model, or GPU. Visual quality must be checked on the Kaggle/GPU box.
 
 ## How to check on the GPU box
 

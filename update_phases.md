@@ -1,11 +1,14 @@
 # EduMotion — Dynamic Content & Rendering Correctness Plan
 
 Source of truth: [`Update_Instructions.md`](./Update_Instructions.md)
-Last rewritten: 2026-11-22
-Status: **implemented in code (2026-11-22)** — Phases 1–6 and 8 are complete at the code/typecheck
-level. Phase 7 unit tests are added; the real GPU render review is still blocked because this
-sandbox cannot run TTS, the LLM, Remotion, or ffmpeg. Existing features listed under “Baseline”
-are reused, not rebuilt. Progress details are in `progress.md`.
+Last rewritten: 2026-11-23
+Status: **implemented and unit/integration verified (2026-11-23)** — Phases 1–6 and 8 are
+code-complete. `npm run typecheck` passes in all four workspaces, `npm test` passes 61 tests
+(shared 12, backend 47, frontend 2; the renderer has no test files and exits cleanly), and
+`npm run build` passes. Phase 7 now has unit + integration coverage; the real three-topic GPU
+render/frame review is still blocked because this sandbox has no TTS, LLM, ffmpeg, complete
+model, or GPU. Existing features listed under “Baseline” are reused, not rebuilt. Progress
+details are in `progress.md`.
 
 Legend: `[ ]` planned · `[~]` in progress · `[x]` done and verified
 
@@ -92,7 +95,7 @@ These are the specific defects the phases must remove:
 
 Goal: understand the actual narration before a storyboard is planned, for any topic.
 
-- [ ] Add `services/content.analysis.ts` and `prompts/content-analysis.prompt.ts`.
+- [x] Add `services/content.analysis.ts` and `prompts/content-analysis.prompt.ts`.
   The LLM returns strict JSON (reuse `json.repair.ts`) with:
   - `topic`, `domain` (e.g. business/finance, biology, history), `subtopics`;
   - `audience`, `learningObjectives` (2–4);
@@ -101,38 +104,38 @@ Goal: understand the actual narration before a storyboard is planned, for any to
   - `claims`: numbers, percentages, dates, formulas, or statistics in the script, each
     marked `supported` / `unverified` / `needsResearch`;
   - `visualStyle`, `exampleIdeas`, and `researchNeeded` (boolean + reasons).
-- [ ] Validate the analysis with an additive shared Zod schema; persist it to
+- [x] Validate the analysis with an additive shared Zod schema; persist it to
   `output/<jobId>/content-analysis.json`. A malformed analysis must degrade to a
   deterministic, low-confidence analysis derived from the narration, never abort the job.
-- [ ] Run analysis twice when appropriate:
+- [x] Run analysis twice when appropriate:
   - before script generation, so the script prompt receives the real domain and objectives;
   - after approval, on the actual narration, which is the single source of truth for the
     storyboard. Do not let an early topic guess override the approved text.
-- [ ] Add `services/research.service.ts` behind a provider interface:
+- [x] Add `services/research.service.ts` behind a provider interface:
   - default keyless provider may use the official Wikipedia/Wikimedia REST APIs;
     no HTML scraping and no mandatory paid key;
   - configurable via `RESEARCH_PROVIDER`, `RESEARCH_TIMEOUT_MS`, `RESEARCH_MAX_SOURCES`;
   - cache results per topic/job, record URL, title, licence/attribution, retrieval time,
     and extract;
   - all failures are logged and produce `unverified` claims, not invented facts.
-- [ ] Add claim verification before approval:
+- [x] Add claim verification before approval:
   - exact numbers/dates/formulas are compared with researched extracts;
   - unsupported claims are flagged in the script validation/approval flow and must be
     softened, removed, or explicitly accepted by the user; the system never silently
     changes an approved script;
   - never require a statistic when the research provides none.
-- [ ] Update `prompts/script-generate.prompt.ts`:
+- [x] Update `prompts/script-generate.prompt.ts`:
   - remove the mandatory “surprising statistic” requirement;
   - use only facts supplied by analysis/research, otherwise explain qualitatively;
   - include the analysis domain/objectives/example ideas instead of the canned
     photosynthesis/skeleton examples;
   - keep the existing hook → explanation → example → takeaway structure.
-- [ ] Update `services/script.service.ts` to pass analysis context into generation and to
+- [x] Update `services/script.service.ts` to pass analysis context into generation and to
   log which facts were researched.
-- [ ] Remove topic inference from the storyboard prompt. `planStoryboard()` should receive
+- [x] Remove topic inference from the storyboard prompt. `planStoryboard()` should receive
   the final `ContentAnalysis`; missing analysis is derived from the script, not from
   unrelated metadata.
-- [ ] Tests: a business profit/loss script must analyse as business/finance (not
+- [x] Tests: a business profit/loss script must analyse as business/finance (not
   technology); two unrelated topics must produce distinct domains and key terms; offline
   research must leave the job runnable with `unverified` claims.
 
@@ -147,13 +150,13 @@ network dependency is mandatory.
 Goal: every scene’s visual plan explains that scene’s narration, and every selected asset
 is tied to the concept it was selected for.
 
-- [ ] Extend the shared storyboard schema with optional, additive fields:
+- [x] Extend the shared storyboard schema with optional, additive fields:
   - `SceneInstruction`: `purpose`, `visualBrief`, `keyTerms`, `assetQueries`,
     `animationIntent`, `transition`;
   - `StoryboardPlan`: `analysis` reference or `topic`/`domain` metadata and
     `timingMode: 'scene-relative'`;
   - keep all fields optional so existing storyboards still parse.
-- [ ] Rewrite `prompts/storyboard.prompt.ts`:
+- [x] Rewrite `prompts/storyboard.prompt.ts`:
   - remove `inferTopicFromScript`, `extractKeyConcepts`, `getTopicSpecificVisuals`, and the
     hardcoded “skeleton → bones” style examples;
   - inject the content analysis (domain, objectives, key terms, visual candidates,
@@ -167,7 +170,7 @@ is tied to the concept it was selected for.
     by the system, and text is added only when it communicates the scene’s idea;
   - keep titles to 3–8 words and forbid repeating the narration;
   - state the scene-relative child timing contract explicitly (see Phase 3).
-- [ ] Replace generic visual selection:
+- [x] Replace generic visual selection:
   - `services/storyboard.visuals.ts`: use the analysis key terms/visual candidates and the
     scene’s own narration to choose objects and diagram tiles; remove (or reduce to a
     last-resort text-only diagram) the global `TOPIC_KEYWORDS` and `pickTopicObject`
@@ -177,18 +180,18 @@ is tied to the concept it was selected for.
     random calculator/plant/cloud/server;
   - `scene.director.ts`: keep palette/pattern/camera/heading/EndScreen direction, but stop
     rewriting an object type to an unrelated topic object; respect the scene brief.
-- [ ] Move artwork attachment to a scene-aware two-step flow:
+- [x] Move artwork attachment to a scene-aware two-step flow:
   1. plan/repair the storyboard text and briefs;
   2. discover assets from each scene’s `assetQueries`/`keyTerms`, verify them, then attach
      approved images and record `assetUses`.
   Reuse `asset.discovery.ts`, `asset.library.ts`, and `job.files.ts`; do not add a second
   downloader or a new asset folder layout.
-- [ ] Make `buildAssetQueries()` scene-aware:
+- [x] Make `buildAssetQueries()` scene-aware:
   - accept the scene brief, key terms, and analysis instead of only the full script;
   - prefer specific phrases/illustrations over generic icon words;
   - keep the existing cache, timeout, SVG sanitisation, duplicate detection, and licence
     metadata.
-- [ ] Add asset verification (`services/asset.verify.ts`):
+- [x] Add asset verification (`services/asset.verify.ts`):
   - rank the top few candidates per query instead of attaching the first download;
   - deterministic check first: candidate name/tags/description must cover the assigned key
     term and not be a generic icon when the brief asks for a specific illustration;
@@ -197,17 +200,17 @@ is tied to the concept it was selected for.
     fall back to strict tag/key-term matching when the model is disabled;
   - record accepted/rejected verdicts and reasons;
   - reject failed downloads and leave a built-in glyph or text-only diagram, with a warning.
-- [ ] Support animation assets without scraping: accept only public-API providers and safe
+- [x] Support animation assets without scraping: accept only public-API providers and safe
   formats; when a suitable animation is unavailable, use the existing Remotion motion
   components instead of inserting a static image where movement is required.
-- [ ] Tighten `asset.library.matchAssetImage()`:
+- [x] Tighten `asset.library.matchAssetImage()`:
   - only match files under `resources/`/`assets/` that cover a scene key term or the visual
     brief; narration-only matches are allowed only when the word is a scene key term;
   - keep the backdrop exclusion and one-file-per-scene rule;
   - re-check the “light-years vs minimal_light.svg” regression.
-- [ ] Persist `output/<jobId>/assets.json`: scene id, query, provider, licence, score,
+- [x] Persist `output/<jobId>/assets.json`: scene id, query, provider, licence, score,
   verdict, selected file, and rejection reason. Add the path to `job.files.ts`.
-- [ ] Tests: business P&L produces finance-related briefs, not technology icons; a biology
+- [x] Tests: business P&L produces finance-related briefs, not technology icons; a biology
   scene and a history scene receive different visual plans; an unrelated downloaded icon is
   rejected; an offline discovery failure still renders a sensible text/glyph fallback.
 
@@ -221,23 +224,23 @@ image is traceable to a scene concept; generic unrelated icons are rejected.
 Goal: scene frames are absolute; every child animation is scene-relative; conversion happens
 once in the renderer; invalid timing is rejected before rendering.
 
-- [ ] Document the contract in the schema and prompt:
+- [x] Document the contract in the schema and prompt:
   - `scene.startFrame` / `scene.endFrame` are absolute video frames;
   - every child `props.startFrame` (and optional `endFrame`/duration) is relative to its
     scene: `0 <= startFrame < sceneDuration`;
   - subtitles use absolute milliseconds and are **not** part of this conversion.
-- [ ] Add `services/timing.service.ts` with `normalizeStoryboardTiming()`:
+- [x] Add `services/timing.service.ts` with `normalizeStoryboardTiming()`:
   - default missing child timings to a small in-scene offset;
   - clamp relative values to the scene window and reject negative/non-finite values;
   - mark the storyboard `timingMode: 'scene-relative'`;
   - for legacy storyboards without the marker, normalize once at ingestion (rebase
     unambiguous absolute values, clamp, and log) so the renderer has one rule.
-- [ ] Fix every producer of child timings:
+- [x] Fix every producer of child timings:
   - `createFallbackStoryboard()` and `repairStoryboard()` emit relative values (remove
     `startFrame + 10` / `startFrame + 15`);
   - `ensureSceneVisuals()` and the director emit relative values;
   - the prompt example shows a scene starting at a non-zero frame with relative children.
-- [ ] Simplify `packages/renderer/src/compositions/EduVideo.tsx`:
+- [x] Simplify `packages/renderer/src/compositions/EduVideo.tsx`:
   - remove the `raw < scene.startFrame` heuristic;
   - always compute `absoluteStartFrame = scene.startFrame + child.startFrame`;
   - pass the absolute value to the component (or to a small `useSceneClock` helper);
@@ -245,13 +248,13 @@ once in the renderer; invalid timing is rejected before rendering.
     parent scene-relative start for their own internal staggers; do not double-add the
     scene offset inside them;
   - keep subtitles outside this conversion and keep the camera/transition windows.
-- [ ] Validate timing before rendering:
+- [x] Validate timing before rendering:
   - every child has a finite, non-negative relative start;
   - no child starts before its scene or after `scene.endFrame - minimumOnScreenFrames`;
   - optional child durations do not outlive the scene;
   - write `output/<jobId>/timing-report.json` with relative and absolute values plus any
     repairs.
-- [ ] Add unit tests for scenes starting at 300/700 frames, fallback/repair output, and
+- [x] Add unit tests for scenes starting at 300/700 frames, fallback/repair output, and
   invalid child values; verify no animation starts before its scene.
 
 **Acceptance:** the renderer has no guessing; a child at 10 in a scene starting at 300
@@ -264,28 +267,28 @@ renders at 310; no child animation is scheduled outside its scene.
 Goal: measured TTS word timings are the source of truth; captions are assigned once to the
 correct scene and never duplicated at boundaries.
 
-- [ ] Treat measured `ttsService.synthesize().subtitles` as primary. Proportional
+- [x] Treat measured `ttsService.synthesize().subtitles` as primary. Proportional
   `generateSubtitles()` remains a fallback only for engines without word boundaries; log
   and record `subtitleSource: 'measured' | 'estimated'`.
-- [ ] Rewrite `subtitleService.alignToScenes()`:
+- [x] Rewrite `subtitleService.alignToScenes()`:
   - clip every cue to the scene’s `[startMs, endMs]` window;
   - split a cue that crosses a boundary into two entries, using word-level timings when
     present; when absent, split words proportionally and mark the result estimated;
   - split the `words` array too, so highlighting remains correct inside each scene;
   - preserve first/last word timings, keep entries ordered, and never duplicate the same
     text in two adjacent scenes.
-- [ ] Keep subtitle timing independent of scene-relative animation timing. `Subtitle.tsx`
+- [x] Keep subtitle timing independent of scene-relative animation timing. `Subtitle.tsx`
   continues to use absolute video time; only the per-scene entries are clipped.
-- [ ] Validate subtitles before rendering:
+- [x] Validate subtitles before rendering:
   - start/end within audio duration and the scene window;
   - no negative or inverted ranges;
   - no duplicate cue text/segment across adjacent scenes;
   - no overlapping cues within a scene;
   - measured cues are not replaced by estimates when both exist.
-- [ ] Write `output/<jobId>/subtitle-report.json` with source, cue count, boundary splits,
+- [x] Write `output/<jobId>/subtitle-report.json` with source, cue count, boundary splits,
   gaps/overlaps, and per-scene counts. Keep `subtitles.srt` / `subtitles.json` as the
   canonical outputs.
-- [ ] Tests: a cue spanning two scenes appears once in each scene with split text and word
+- [x] Tests: a cue spanning two scenes appears once in each scene with split text and word
   timings; no-duplicate assertions; measured-versus-estimated selection.
 
 **Acceptance:** every caption appears exactly once at its audio timestamp; scene boundaries
@@ -298,31 +301,31 @@ split rather than duplicate cues.
 Goal: scenes explain through examples, relationships, and progression instead of static
 icons plus labels.
 
-- [ ] Add a scene purpose taxonomy (hook, define, process, compare, example, data, recap,
+- [x] Add a scene purpose taxonomy (hook, define, process, compare, example, data, recap,
   ending) derived from the analysis + narration; store it on the scene.
-- [ ] Let the director choose a composition only when the purpose/brief supports it:
+- [x] Let the director choose a composition only when the purpose/brief supports it:
   process → process flow/diagram; comparison → split screen/comparison chart; numbers →
   number counter; cause/effect → annotated callout or flow; recap → summary. Do not rotate
   compositions arbitrarily.
-- [ ] Prompt for examples and relationships: each explanation scene must show what changes,
+- [x] Prompt for examples and relationships: each explanation scene must show what changes,
   what causes what, or how two things compare; a label-only tile row is not sufficient when
   a process or comparison is described.
-- [ ] Enforce content budgets:
+- [x] Enforce content budgets:
   - at most one title plus one visual focus per scene; no wall of text;
   - title ≤ 8 words, safe-area bands respected;
   - no more than 2–3 diagram tiles per narration segment;
   - use the existing `ComparisonChart`, `ProcessFlow`, `AnimatedDiagram`, `Timeline`,
     `NumberCounter`, `HighlightedRegion`, `Callout`, `SummaryScene` where appropriate.
-- [ ] Highlight important numbers/equations/keywords from the analysis claims, using the
+- [x] Highlight important numbers/equations/keywords from the analysis claims, using the
   existing components rather than plain text.
-- [ ] Add renderer-level text fitting:
+- [x] Add renderer-level text fitting:
   - put the estimate of rendered text width/height (font size × character count) in
     `packages/shared` so validation and the renderer use the same numbers;
   - shrink long titles/labels instead of overflowing;
   - keep title/caption safe bands and prevent overlapping visual cards.
-- [ ] Keep typography, spacing, palette, and transition rules consistent across scenes;
+- [x] Keep typography, spacing, palette, and transition rules consistent across scenes;
   preserve the existing palette/camera system.
-- [ ] Acceptance: sampled storyboards show a mix of compositions, real examples, and no
+- [x] Acceptance: sampled storyboards show a mix of compositions, real examples, and no
   scene dominated by three or more competing text blocks.
 
 ---
@@ -332,32 +335,32 @@ icons plus labels.
 Goal: reject a storyboard that merely parses but does not explain the narration or cannot
 render correctly.
 
-- [ ] Add `services/content.validation.ts`:
+- [x] Add `services/content.validation.ts`:
   - analysis-to-narration consistency: domain, objectives, and key terms actually appear
     in the approved script;
   - scene-to-narration relevance using analysis key terms/synonyms and `visualBrief`, not
     a static global alias list;
   - flag generic/decoration-only icon scenes and scenes whose brief is unrelated to the
     scene narration.
-- [ ] Add `services/math.check.ts`:
+- [x] Add `services/math.check.ts`:
   - safely parse simple arithmetic, percentages, and equations (no `eval`);
   - verify computed values and displayed values against each other and the narration;
   - flag unsupported statistics/dates that were not verified in Phase 1.
-- [ ] Extend `storyboard.validation.ts`:
+- [x] Extend `storyboard.validation.ts`:
   - frame and child-timing checks (Phase 3);
   - missing/failed asset checks using the manifest;
   - duplicate/misassigned subtitle checks (Phase 4);
   - text length/overflow/overlap/safe-boundary checks using the shared estimator;
   - asset-to-visual-brief relevance from the manifest;
   - keep the existing EndScreen, continuity, and visual-variety rules.
-- [ ] Make validation results actionable and severity-aware:
+- [x] Make validation results actionable and severity-aware:
   - blocking issues stop the render after the bounded repair attempts, with a precise
     per-scene/per-asset report;
   - warnings are logged and included in the report but do not silently discard a designed
     storyboard;
   - never fall back to a generic slideshow while claiming success.
-- [ ] Persist `output/<jobId>/validation-report.json` and include it in the job logs.
-- [ ] Extend post-render QC (`quality.service.ts` / worker):
+- [x] Persist `output/<jobId>/validation-report.json` and include it in the job logs.
+- [x] Extend post-render QC (`quality.service.ts` / worker):
   - keep ffprobe, duration, dimensions, black-frame, and frozen-frame checks;
   - extract one representative frame per scene into
     `output/<jobId>/frames/scene-XX.jpg` and a contact sheet;
@@ -365,7 +368,7 @@ render correctly.
     with its narration and storyboard;
   - technical QC alone must not mark the job successful when the semantic report is
     blocked.
-- [ ] Tests for every validator: valid fixture, business-vs-technology mismatch, bad math,
+- [x] Tests for every validator: valid fixture, business-vs-technology mismatch, bad math,
   duplicate subtitle, out-of-scene child, missing asset, overflow.
 
 **Acceptance:** a structurally valid but semantically wrong storyboard fails before
@@ -377,9 +380,13 @@ rendering with a report explaining why; every check has a deterministic fixture.
 
 Goal: prove the fixes on actual output, not only on JSON.
 
-- [ ] Add unit tests for the new analysis, timing, subtitle, asset-verification, math, and
+> **Automated portion verified here:** unit tests, the fake-LLM/fake-TTS integration fixture,
+> all workspace typechecks and the full build pass. The three rendered topics and sampled-frame
+> review remain blocked on the GPU box (no ffmpeg/TTS/model/GPU in this sandbox).
+
+- [x] Add unit tests for the new analysis, timing, subtitle, asset-verification, math, and
   layout modules. Keep existing asset and schema tests passing.
-- [ ] Add an integration fixture that runs storyboard planning with a fake LLM response and
+- [x] Add an integration fixture that runs storyboard planning with a fake LLM response and
   a fake TTS result, then asserts the final Remotion props: relative child timings, split
   subtitles, attached assets, and validation report.
 - [ ] On the GPU box, render at least three unrelated topics:
@@ -396,9 +403,9 @@ Goal: prove the fixes on actual output, not only on JSON.
 - [ ] Fix issues found, re-run the affected topic, and record the result. Preserve logs for
   topic classification, research sources, asset queries/scores/rejections, timing repairs,
   subtitle splits, validation failures, and rendering errors.
-- [ ] Update `e2e/VERIFICATION.md` with exact commands, expected artifacts, and the sampled
+- [x] Update `e2e/VERIFICATION.md` with exact commands, expected artifacts, and the sampled
   frame checklist.
-- [ ] Performance guard: analysis/research/asset verification must respect timeouts and
+- [x] Performance guard: analysis/research/asset verification must respect timeouts and
   caching; a research provider outage must not block rendering.
 
 **Acceptance:** three unrelated rendered videos pass semantic and visual review; the
@@ -409,22 +416,22 @@ in the sampled frames.
 
 ## Phase 8 — Compatibility, artifacts, and documentation ✅
 
-- [ ] Preserve the public API and schema:
+- [x] Preserve the public API and schema:
   - optional new fields only;
   - `planStoryboard()` remains usable without analysis (derive it internally);
   - old storyboards render through the ingestion normalizer;
   - existing `/api/jobs`, videos, output, and resume contracts stay unchanged.
-- [ ] Extend `services/job.files.ts` with `contentAnalysis`, `research`, `assetsManifest`,
+- [x] Extend `services/job.files.ts` with `contentAnalysis`, `research`, `assetsManifest`,
   `timingReport`, `subtitleReport`, `validationReport`, and `framesDir`, all under
   `output/<jobId>/`.
-- [ ] Extend the asset/artwork report so the render page can show selected assets,
+- [x] Extend the asset/artwork report so the render page can show selected assets,
   rejected candidates, and the scene/concept they belong to, without redesigning the page.
-- [ ] Add structured log prefixes:
+- [x] Add structured log prefixes:
   `[Content]`, `[Research]`, `[Assets]`, `[Timing]`, `[Subtitles]`, `[Validation]`,
   `[QC]`, so a failed job can be diagnosed from logs alone.
-- [ ] Document configuration: `RESEARCH_PROVIDER`, `RESEARCH_TIMEOUT_MS`,
+- [x] Document configuration: `RESEARCH_PROVIDER`, `RESEARCH_TIMEOUT_MS`,
   `RESEARCH_MAX_SOURCES`, `ASSET_VERIFY`, and any analysis/validation toggles.
-- [ ] Update `README.md`, `project.md`, `dev.md`, `progress.md`, and this file as phases
+- [x] Update `README.md`, `project.md`, `dev.md`, `progress.md`, and this file as phases
   complete. Do not mark a phase `[x]` until its tests and E2E checks pass.
 
 ---
@@ -443,22 +450,28 @@ in the sampled frames.
 - Asset verification is deterministic and offline (key-term/token + backdrop checks). An
   optional local-LLM judge was left out to avoid an extra LLM call per tile; the deterministic
   verdict is recorded in the logs and the manifest.
-- Phase 7 tests were added under `packages/backend/src/__tests__/` (`timing`, `subtitles`,
-  `content`, `validation`). They are type-checked here but cannot run in this sandbox because
-  `@rollup/rollup-linux-x64-gnu` is missing; run them on the GPU box.
+- 2026-11-23: added `pipeline.integration.test.ts`, which runs a fake LLM storyboard and fake
+  measured captions through the real planner and asserts relative child timings, boundary-split
+  captions, validation, the asset report and persisted artifacts.
+- Backend Vitest now aliases `@edumotion/shared` to `../shared/src/index.ts`, so tests cannot
+  silently pass or fail against a stale `dist/index.mjs`; `tsup` remains the production build.
+- Workspace checks are fixed: `npm run typecheck` runs every package, `renderer` exits cleanly
+  with no tests, and the frontend’s React Query v5/type errors are resolved.
+- `npm run build` passes end to end (shared DTS, renderer/backend tsc, frontend tsc + Vite).
 - Not verified here: real TTS timings, real research network calls, Remotion rendering,
   sampled frames, and the three-topic visual review.
 
 ## Verification commands
 
-- Backend typecheck: `node node_modules/typescript/bin/tsc -p /tmp/em/be.json`
-- Shared/renderer typechecks: use the project's normal `tsc --noEmit` configs.
-- Unit tests (GPU box): `npm test --workspace=packages/backend`.
+- All workspace typechecks: `npm run typecheck`
+- All workspace tests: `npm test` (61 passing)
+- Full build: `npm run build`
 - Full E2E: `./start.sh`, then render the acceptance topics and inspect the artifacts listed
   in Phase 7.
 
 ## Sandbox limitations
 
-- No TTS, LLM, Remotion render, or full server run here.
-- `@rollup/rollup-linux-x64-gnu` is missing, so Vite/tsup/vitest cannot run in this
-  environment; real verification must happen on the Kaggle/GPU box.
+- No ffmpeg/ffprobe, edge-tts/espeak, complete LLM model, GPU, Remotion render, or full server
+  run here. The real three-topic render and sampled-frame review must happen on the GPU box.
+- Unit/integration tests and the production build do run here; Vite, tsup and Vitest are
+  working in this environment.
