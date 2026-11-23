@@ -110,7 +110,9 @@ export const config = {
     // A provider being down must never stop a video from rendering, so every
     // failure is logged and the built-in SVG glyphs take over.
     discoveryEnabled: !/^(0|false|no|off)$/i.test(process.env['ASSET_DISCOVERY'] ?? ''),
-    providers: (process.env['ASSET_PROVIDERS'] ?? 'iconify,openmoji,wikimedia')
+    // Colour-first: OpenMoji and Wikimedia return full-colour artwork, while
+    // Iconify is the fallback for concepts those sets do not cover.
+    providers: (process.env['ASSET_PROVIDERS'] ?? 'openmoji,wikimedia,iconify')
       .split(',')
       .map((provider) => provider.trim().toLowerCase())
       .filter((provider) => provider.length > 0),
@@ -123,7 +125,7 @@ export const config = {
     creditsPath: path.join(ROOT_DIR, 'resources', 'auto', 'CREDITS.txt'),
     maxQueriesPerJob: Math.max(
       1,
-      parseInt(process.env['ASSET_MAX_QUERIES'] ?? '5', 10) || 5,
+      parseInt(process.env['ASSET_MAX_QUERIES'] ?? '12', 10) || 12,
     ),
     timeoutMs: Math.max(1000, parseInt(process.env['ASSET_TIMEOUT_MS'] ?? '8000', 10) || 8000),
     // A tile is small; anything bigger only bloats the inlined props JSON.

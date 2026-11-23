@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import type { SceneInstruction } from '@edumotion/shared';
 import {
   buildAssetQueries,
+  buildSceneAssetQueries,
   sanitizeSvg,
   scoreAssetCandidate,
   slugify,
@@ -41,6 +43,47 @@ describe('buildAssetQueries', () => {
   it('respects the query budget and handles an empty script', () => {
     expect(buildAssetQueries('', 4)).toEqual([]);
     expect(buildAssetQueries('A computer processes instructions quickly.', 2).length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('buildSceneAssetQueries', () => {
+  const captionScene = {
+    id: 'scene-1',
+    component: 'AnimatedText',
+    props: {},
+    children: [
+      {
+        component: 'Subtitle',
+        props: {
+          entries: [
+            {
+              index: 0,
+              startMs: 0,
+              endMs: 1000,
+              text: 'A solar panel turns sunlight into electricity.',
+            },
+          ],
+        },
+      },
+    ],
+  } as unknown as SceneInstruction;
+
+  it('derives searches from the scene caption when the model supplied none', () => {
+    const queries = buildSceneAssetQueries(captionScene, 3);
+    expect(queries.join(' ')).toMatch(/solar|sunlight|electricity/);
+    expect(queries.length).toBeLessThanOrEqual(3);
+  });
+
+  it('keeps explicit scene queries first', () => {
+    const queries = buildSceneAssetQueries(
+      {
+        ...captionScene,
+        assetQueries: ['solar panel'],
+        keyTerms: ['renewable energy'],
+      } as SceneInstruction,
+      3,
+    );
+    expect(queries[0]).toBe('solar panel');
   });
 });
 
@@ -95,6 +138,14 @@ describe('scoreAssetCandidate', () => {
 
   it('returns zero when the query has no meaningful words', () => {
     expect(scoreAssetCandidate(base, 'the and of')).toBe(0);
+  });
+
+  it('rewards colourful artwork from a colour-first provider', () => {
+    const colorful = scoreAssetCandidate(
+      { ...base, provider: 'openmoji', id: '1F331', colorful: true },
+      'leaf',
+    );
+    expect(colorful).toBeGreaterThan(scoreAssetCandidate(base, 'leaf'));
   });
 });
 

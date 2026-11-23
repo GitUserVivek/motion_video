@@ -62,6 +62,22 @@ function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+/** Only embedded images can render without a network fetch. */
+function dataImage(value: unknown): string | null {
+  return typeof value === 'string' && /^data:image\//i.test(value) && value.length <= 2_000_000
+    ? value
+    : null;
+}
+
+/** Keep a valid inlined image and drop model-supplied URLs or file paths. */
+function sanitizeImageProp(record: Props): Props {
+  const next = { ...record };
+  const image = dataImage(record['image']);
+  if (image) next['image'] = image;
+  else delete next['image'];
+  return next;
+}
+
 function splitWords(value: unknown): NonNullable<SubtitleEntry['words']> | null {
   if (!Array.isArray(value)) return null;
 
@@ -131,12 +147,12 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
     }
 
     case 'EducationalObject':
-      return {
+      return sanitizeImageProp({
         ...raw,
         type: enumValue(raw['type'], OBJECT_TYPES, 'book'),
         size: num(raw['size'], 100, 40, 700),
         animation: enumValue(raw['animation'], OBJECT_ANIMATIONS, 'bounce'),
-      };
+      });
 
     case 'ObjectGroup': {
       const items = Array.isArray(raw['items'])
@@ -265,8 +281,8 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
       if (!leftContent && !rightContent) return null;
       return {
         ...raw,
-        left: { ...leftRecord, content: leftContent || rightContent },
-        right: { ...rightRecord, content: rightContent || leftContent },
+        left: sanitizeImageProp({ ...leftRecord, content: leftContent || rightContent }),
+        right: sanitizeImageProp({ ...rightRecord, content: rightContent || leftContent }),
         comparisonLabel: str(raw['comparisonLabel'], 'vs'),
       };
     }
@@ -278,7 +294,12 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
               if (typeof step === 'string') return { label: step.trim() };
               if (!isRecord(step)) return null;
               const label = str(step['label'] ?? step['text'] ?? step['title'], '');
-              return label ? { ...step, label } : null;
+              if (!label) return null;
+              const next = sanitizeImageProp({ ...step, label });
+              const iconName = str(step['iconName'], '');
+              if (iconName && OBJECT_TYPES.has(iconName)) next['iconName'] = iconName;
+              else delete next['iconName'];
+              return next;
             })
             .filter((step): step is Props => step !== null)
         : [];
@@ -304,12 +325,12 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
               const label = str(item['label'] ?? item['text'], '');
               if (!label) return null;
               const position = isRecord(item['position']) ? item['position'] : {};
-              return {
+              return sanitizeImageProp({
                 ...item,
                 icon: str(item['icon'], 'book') || 'book',
                 label,
                 position: { x: num(position['x'], 0), y: num(position['y'], 0) },
-              };
+              });
             })
             .filter((item): item is Props => item !== null)
         : [];
@@ -325,7 +346,9 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
               if (typeof event === 'string') return { date: '', title: event.trim() };
               if (!isRecord(event)) return null;
               const title = str(event['title'] ?? event['label'] ?? event['text'], '');
-              return title ? { ...event, date: str(event['date'], ''), title } : null;
+              return title
+                ? sanitizeImageProp({ ...event, date: str(event['date'], ''), title })
+                : null;
             })
             .filter((event): event is Props => event !== null)
         : [];
@@ -398,7 +421,7 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
     case 'SpeechBubble': {
       const value = str(raw['text'], '').trim();
       if (!value) return null;
-      return {
+      return sanitizeImageProp({
         ...raw,
         text: value.slice(0, 220),
         speaker: str(raw['speaker'], '').slice(0, 32),
@@ -411,7 +434,7 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
         width: num(raw['width'], 820, 240, 1400),
         fontSize: num(raw['fontSize'], 34, 16, 90),
         accent: hexColor(raw['accent'], '#FFD166'),
-      };
+      });
     }
 
     case 'AnnotatedCallout': {
@@ -461,12 +484,12 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
             .slice(0, 4)
         : [];
       if (bars.length === 0) return null;
-      return {
+      return sanitizeImageProp({
         ...raw,
         title: str(raw['title'], '').slice(0, 60),
         bars,
         accent: hexColor(raw['accent'], '#FFD166'),
-      };
+      });
     }
 
     case 'SummaryScene': {
@@ -474,13 +497,13 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
         .map((point) => point.slice(0, 60))
         .slice(0, 5);
       if (points.length === 0) return null;
-      return {
+      return sanitizeImageProp({
         ...raw,
         title: str(raw['title'], 'In short').slice(0, 48),
         badgeText: str(raw['badgeText'], 'Recap').slice(0, 18),
         points,
         accent: hexColor(raw['accent'], '#FFD166'),
-      };
+      });
     }
 
     default:

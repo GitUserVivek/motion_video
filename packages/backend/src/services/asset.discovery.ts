@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import type { SceneInstruction } from '@edumotion/shared';
 import { config } from '../config.js';
 
 /**
@@ -29,7 +30,7 @@ const USER_AGENT = 'EduMotion/1.0 (local educational video generator)';
 const SEARCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COLLECTION_LICENSE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Bump when cached search results gain fields, so old entries are ignored. */
-const SEARCH_CACHE_VERSION = 'v2';
+const SEARCH_CACHE_VERSION = 'v4';
 const OPENMOJI_VERSION = '15.1.0';
 const OPENMOJI_INDEX_URL =
   `https://cdn.jsdelivr.net/npm/openmoji@${OPENMOJI_VERSION}/data/openmoji.json`;
@@ -54,6 +55,8 @@ export interface AssetCandidate {
   format: AssetFormat;
   url: string;
   license: AssetLicense;
+  /** True when the provider delivers inherently colourful artwork. */
+  colorful?: boolean;
   score: number;
 }
 
@@ -130,6 +133,33 @@ const OPENMOJI_LICENSE: AssetLicense = {
   url: 'https://creativecommons.org/licenses/by-sa/4.0/',
   attribution: 'OpenMoji (HfG Schwäbisch Gmünd)',
 };
+
+/**
+ * Iconify contains both monochrome outline sets and full-colour illustration
+ * sets. Prefer the colourful ones whenever the search returns any; a white
+ * outline on a dark card reads as a placeholder, not an illustration.
+ */
+const COLORFUL_ICONIFY_PREFIXES = new Set([
+  'flat-color-icons',
+  'fluent-emoji',
+  'fluent-emoji-flat',
+  'fluent-emoji-high-contrast',
+  'twemoji',
+  'noto',
+  'noto-v1',
+  'openmoji',
+  'emojione',
+  'fxemoji',
+  'streamline-emojis',
+  'skill-icons',
+  'logos',
+]);
+
+/** Warm, readable fallback for a monochrome Iconify set. */
+const FALLBACK_ICON_COLOR = '%23FFB703';
+
+/** A provider that only matched part of a multi-word query is not conclusive. */
+const CONFIDENT_ASSET_SCORE = 0.9;
 
 /** Query words that describe grammar rather than a thing to draw. */
 const GENERIC_QUERY_WORDS = new Set([
@@ -287,6 +317,49 @@ export function buildAssetQueries(script: string, max = 5): string[] {
   return queries;
 }
 
+/**
+ * Build searches for one scene from its own words.
+ *
+ * The model's `assetQueries` are best, but split scenes (and repairs) often have
+ * only a caption. In that case derive searches from the visible caption/bubble
+ * and visual brief so the scene still gets artwork about what it is saying,
+ * rather than a generic topic icon.
+ */
+export function buildSceneAssetQueries(scene: SceneInstruction, max = 3): string[] {
+  const caption = (scene.children ?? [])
+    .flatMap((child) => {
+      const entries = child.props['entries'];
+      if (Array.isArray(entries)) {
+        return entries
+          .map((entry) => (entry as { text?: unknown }).text)
+          .filter((value): value is string => typeof value === 'string');
+      }
+      const text = child.props['text'];
+      return typeof text === 'string' ? [text] : [];
+    })
+    .join(' ')
+    .trim();
+
+  const explicit = [...(scene.assetQueries ?? []), ...(scene.keyTerms ?? [])]
+    .map((query) => query.trim())
+    .filter(Boolean);
+  const derived = buildAssetQueries(
+    `${scene.visualBrief ?? ''} ${caption}`.trim(),
+    Math.max(max, 4),
+  );
+
+  const queries: string[] = [];
+  const seen = new Set<string>();
+  for (const query of [...explicit, ...derived]) {
+    const slug = slugify(query);
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    queries.push(query);
+    if (queries.length >= Math.max(1, max)) break;
+  }
+  return queries;
+}
+
 /** Higher is better: how much of the query the candidate actually covers. */
 export function scoreAssetCandidate(
   candidate: Omit<AssetCandidate, 'score'>,
@@ -306,10 +379,14 @@ export function scoreAssetCandidate(
   }
 
   const providerWeight =
-    candidate.provider === 'iconify' ? 1 : candidate.provider === 'openmoji' ? 0.95 : 0.8;
+    candidate.provider === 'openmoji' ? 1.08 : candidate.provider === 'wikimedia' ? 1.02 : 0.95;
   const exact = candidate.name.toLowerCase().trim() === query.toLowerCase().trim() ? 0.2 : 0;
+  const colorBonus = candidate.colorful ? 0.08 : 0;
 
-  return Number((Math.min(1, matched / queryTokens.size) * providerWeight + exact).toFixed(3));
+  return Number(
+    Math.min(1.2, (Math.min(1, matched / queryTokens.size) * providerWeight) + exact + colorBonus)
+      .toFixed(3),
+  );
 }
 
 class AssetDiscoveryService {
@@ -434,10 +511,16 @@ class AssetDiscoveryService {
     return [...this.loadManifest()];
   }
 
-  /** First provider that knows the query wins; results are cached for a week. */
+  /**
+   * Colour-first providers are tried in order. Stop as soon as one has a fully
+   * covered query; otherwise keep the partial results and try the next provider
+   * so a generic colour emoji cannot beat a precise illustration.
+   */
   private async discover(query: string): Promise<AssetCandidate[]> {
     const cached = this.readSearchCache(query);
     if (cached) return cached;
+
+    const collected: AssetCandidate[] = [];
 
     for (const provider of config.assets.providers) {
       let candidates: AssetCandidate[] = [];
@@ -447,27 +530,33 @@ class AssetDiscoveryService {
       else if (provider === 'wikimedia') candidates = await this.searchWikimedia(query);
 
       if (candidates.length === 0) continue;
+      collected.push(...candidates);
 
-      const ranked = [...candidates].sort((a, b) => b.score - a.score);
-      this.writeSearchCache(query, ranked);
-      return ranked;
+      const best = Math.max(...candidates.map((candidate) => candidate.score));
+      if (best >= CONFIDENT_ASSET_SCORE) break;
     }
 
-    this.writeSearchCache(query, []);
-    return [];
+    if (collected.length === 0) {
+      this.writeSearchCache(query, []);
+      return [];
+    }
+
+    const ranked = [...collected].sort((a, b) => b.score - a.score);
+    this.writeSearchCache(query, ranked);
+    return ranked;
   }
 
   // ---- providers -------------------------------------------------------
 
   private async searchIconify(query: string): Promise<AssetCandidate[]> {
     const data = await this.fetchJson<{ icons?: unknown }>(
-      `https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=10`,
+      `https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=24`,
     );
     if (!data || !Array.isArray(data.icons)) return [];
 
     const parsedIcons: Array<{ prefix: string; name: string }> = [];
 
-    for (const icon of data.icons.slice(0, 8)) {
+    for (const icon of data.icons.slice(0, 20)) {
       if (typeof icon !== 'string') continue;
       const [prefix, name] = icon.split(':');
       if (!prefix || !name) continue;
@@ -475,22 +564,31 @@ class AssetDiscoveryService {
     }
     if (parsedIcons.length === 0) return [];
 
+    // Keep emoji/flat-colour sets when any are available; only fall back to the
+    // monochrome outline sets when the query has no colourful result at all.
+    const colorfulIcons = parsedIcons.filter((icon) => COLORFUL_ICONIFY_PREFIXES.has(icon.prefix));
+    const chosenIcons = (colorfulIcons.length > 0 ? colorfulIcons : parsedIcons).slice(0, 8);
+
     // Iconify publishes each set's real licence; resolve unknown prefixes once
     // instead of writing "See icon set" into the credits file.
     const licenses = await this.loadCollectionLicenses([
-      ...new Set(parsedIcons.map((icon) => icon.prefix)),
+      ...new Set(chosenIcons.map((icon) => icon.prefix)),
     ]);
 
-    return parsedIcons.map(({ prefix, name }) => {
+    return chosenIcons.map(({ prefix, name }) => {
+      const colorful = COLORFUL_ICONIFY_PREFIXES.has(prefix);
       const base: Omit<AssetCandidate, 'score'> = {
         provider: 'iconify',
         id: `${prefix}:${name}`,
         name: name.replace(/-/g, ' '),
         tags: [prefix, name.replace(/-/g, ' '), query],
         format: 'svg',
-        // White tint: the tiles sit on saturated backgrounds, and a raw
-        // `currentColor` icon would render black inside a data URL.
-        url: `https://api.iconify.design/${prefix}/${name}.svg?height=360&color=%23ffffff`,
+        colorful,
+        // Colour sets carry their own palette; monochrome sets get a warm tint
+        // instead of the old white tint, which disappeared into the cards.
+        url: `https://api.iconify.design/${prefix}/${name}.svg?height=360${
+          colorful ? '' : `&color=${FALLBACK_ICON_COLOR}`
+        }`,
         license: licenses[prefix] ?? ICONIFY_LICENSES[prefix] ?? {
           name: 'See icon set',
           url: `https://icon-sets.iconify.design/${prefix}/`,
@@ -597,16 +695,19 @@ class AssetDiscoveryService {
       .sort((a, b) => b.hits - a.hits)
       .slice(0, 3);
 
-    return scored.map(({ entry, tags, hits }) => ({
-      provider: 'openmoji' as const,
-      id: entry.hexcode ?? '',
-      name: entry.annotation ?? entry.hexcode ?? 'openmoji',
-      tags,
-      format: 'svg' as const,
-      url: `${OPENMOJI_SVG_BASE}/${entry.hexcode ?? ''}.svg`,
-      license: OPENMOJI_LICENSE,
-      score: Number((Math.min(1, hits / queryTokens.size) * 0.95).toFixed(3)),
-    }));
+    return scored.map(({ entry, tags }) => {
+      const base: Omit<AssetCandidate, 'score'> = {
+        provider: 'openmoji' as const,
+        id: entry.hexcode ?? '',
+        name: entry.annotation ?? entry.hexcode ?? 'openmoji',
+        tags,
+        format: 'svg' as const,
+        colorful: true,
+        url: `${OPENMOJI_SVG_BASE}/${entry.hexcode ?? ''}.svg`,
+        license: OPENMOJI_LICENSE,
+      };
+      return { ...base, score: scoreAssetCandidate(base, query) };
+    });
   }
 
   private async searchWikimedia(query: string): Promise<AssetCandidate[]> {
@@ -616,8 +717,10 @@ class AssetDiscoveryService {
       origin: '*',
       generator: 'search',
       gsrnamespace: '6',
-      gsrsearch: `${query} filetype:bitmap`,
-      gsrlimit: '6',
+      // Keep drawings/SVG diagrams as well as photos: a labelled diagram is
+      // often the best match for an educational caption.
+      gsrsearch: query,
+      gsrlimit: '8',
       prop: 'imageinfo',
       iiprop: 'url|mime|extmetadata',
       iiurlwidth: '900',
@@ -659,6 +762,7 @@ class AssetDiscoveryService {
         name: title.replace(/^File:/i, '').replace(/\.[^.]+$/, ''),
         tags: [query, title],
         format,
+        colorful: true,
         url,
         license: {
           name: licenseName || 'See Wikimedia Commons',

@@ -1,11 +1,13 @@
 import React from 'react';
-import { useCurrentFrame } from 'remotion';
+import { Img, useCurrentFrame } from 'remotion';
 import { fadeIn, slideIn, pop } from '../utils/animation.js';
 import { ICON_PATHS, type ObjectType } from '../utils/icons.js';
 
 export interface DiagramItem {
   icon: ObjectType;
   label: string;
+  /** Caption-specific artwork inlined as a data URL. */
+  image?: string;
   description?: string;
   position: { x: number; y: number };
   connections?: number[]; // Indices of items to connect to
@@ -144,9 +146,16 @@ export function AnimatedDiagram({
                   border: '2px solid rgba(255, 255, 255, 0.3)',
                 }}
               >
-                <svg width={40} height={40} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                  {ICON_PATHS[item.icon] ?? ICON_PATHS.book}
-                </svg>
+                {item.image ? (
+                  <Img
+                    src={item.image}
+                    style={{ width: 52, height: 52, objectFit: 'contain' }}
+                  />
+                ) : (
+                  <svg width={40} height={40} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    {ICON_PATHS[item.icon] ?? ICON_PATHS.book}
+                  </svg>
+                )}
               </div>
 
               {/* Label */}

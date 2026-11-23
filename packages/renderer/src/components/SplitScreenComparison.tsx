@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCurrentFrame, AbsoluteFill } from 'remotion';
+import { Img, useCurrentFrame, AbsoluteFill } from 'remotion';
 import { fadeIn } from '../utils/animation.js';
 
 export interface SplitScreenComparisonProps {
@@ -7,11 +7,15 @@ export interface SplitScreenComparisonProps {
     content: React.ReactNode | string;
     label?: string;
     color?: string;
+    /** Caption-specific artwork inlined as a data URL. */
+    image?: string;
   };
   right?: {
     content: React.ReactNode | string;
     label?: string;
     color?: string;
+    /** Caption-specific artwork inlined as a data URL. */
+    image?: string;
   };
   /** Legacy model-authored aliases; still accepted so a scene never crashes. */
   leftTitle?: string;
@@ -60,6 +64,12 @@ export function SplitScreenComparison({
             gap: 20,
           }}
         >
+          {left?.image && (
+            <Img
+              src={left.image}
+              style={{ width: 240, height: 240, objectFit: 'contain' }}
+            />
+          )}
           {typeof leftContent === 'string' ? (
             <div
               style={{
@@ -107,6 +117,12 @@ export function SplitScreenComparison({
             gap: 20,
           }}
         >
+          {right?.image && (
+            <Img
+              src={right.image}
+              style={{ width: 240, height: 240, objectFit: 'contain' }}
+            />
+          )}
           {typeof rightContent === 'string' ? (
             <div
               style={{

@@ -5,7 +5,7 @@ import { storyboardService } from '../services/storyboard.service.js';
 import { attachSceneArtwork } from '../services/storyboard.visuals.js';
 import { renderService } from '../services/render.service.js';
 import { qualityService } from '../services/quality.service.js';
-import { assetDiscovery } from '../services/asset.discovery.js';
+import { assetDiscovery, buildSceneAssetQueries } from '../services/asset.discovery.js';
 import { contentAnalysisService } from '../services/content.analysis.js';
 import { validateVideo } from '../services/content.validation.js';
 import { resetAssetCache } from '../services/asset.library.js';
@@ -150,13 +150,16 @@ async function processJob(job: JobRow): Promise<void> {
   // deliberately after planning: a whole-script keyword list used to download
   // generic icons that had nothing to do with the scene.
   updateJob(job.id, 'processing', 34, 'discovering_scene_assets');
-  const sceneQueries = planned.storyboard.scenes.flatMap((scene) => [
-    ...(scene.assetQueries ?? []),
-    ...(scene.keyTerms ?? []),
-  ]);
+  const sceneQueries = planned.storyboard.scenes.flatMap((scene) =>
+    buildSceneAssetQueries(scene, 3),
+  );
+  console.log(
+    `[Worker] Job ${job.id} asset queries (${sceneQueries.length}): ` +
+      sceneQueries.map((query) => `"${query}"`).join(', '),
+  );
   const sceneDiscovery = await assetDiscovery.ensureAssetsForQueries(
     sceneQueries,
-    Math.min(10, Math.max(4, planned.storyboard.scenes.length * 2)),
+    Math.min(24, Math.max(8, planned.storyboard.scenes.length * 3)),
   );
   if (sceneDiscovery.errors.length > 0) {
     console.warn(`[Worker] Job ${job.id} scene asset discovery had ${sceneDiscovery.errors.length} error(s)`);

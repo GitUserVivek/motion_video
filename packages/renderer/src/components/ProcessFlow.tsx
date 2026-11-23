@@ -1,9 +1,14 @@
 import React from 'react';
-import { useCurrentFrame } from 'remotion';
+import { Img, useCurrentFrame } from 'remotion';
 import { fadeIn, pop } from '../utils/animation.js';
+import { ICON_PATHS, type ObjectType } from '../utils/icons.js';
 
 export interface ProcessStep {
   label: string;
+  /** Caption-specific artwork inlined as a data URL. */
+  image?: string;
+  /** Colourful built-in glyph used when no downloaded image matched. */
+  iconName?: ObjectType;
   icon?: React.ReactNode;
   description?: string;
   color?: string;
@@ -81,7 +86,16 @@ export function ProcessFlow({
                   transition: 'box-shadow 0.3s ease',
                 }}
               >
-                {step.icon || (
+                {step.image ? (
+                  <Img
+                    src={step.image}
+                    style={{ width: 56, height: 56, objectFit: 'contain' }}
+                  />
+                ) : step.iconName ? (
+                  <svg width={50} height={50} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    {ICON_PATHS[step.iconName] ?? ICON_PATHS.book}
+                  </svg>
+                ) : step.icon || (
                   <span
                     style={{
                       fontSize: 36,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Img, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { easeOut, fadeIn } from '../utils/animation.js';
 
 /**
@@ -19,6 +19,8 @@ export interface ComparisonBar {
 
 export interface ComparisonChartProps {
   title?: string;
+  /** Caption-specific artwork inlined as a data URL. */
+  image?: string;
   bars?: ComparisonBar[];
   top?: string;
   left?: string;
@@ -39,6 +41,7 @@ function formatValue(value: number, suffix: string): string {
 
 export function ComparisonChart({
   title = '',
+  image,
   bars = [],
   top = '56%',
   left = '50%',
@@ -66,13 +69,27 @@ export function ComparisonChart({
         left,
         width: '88%',
         padding: '28px 26px 22px',
+        paddingRight: image ? 140 : 26,
         borderRadius: 30,
         background: 'rgba(8,14,30,0.42)',
         border: '2px solid rgba(255,255,255,0.16)',
         boxShadow: '0 24px 60px rgba(4,10,26,0.35)',
         transform: 'translate(-50%, -50%)',
-      }}
-    >
+      }}      >
+      {image ? (
+        <Img
+          src={image}
+          style={{
+            position: 'absolute',
+            top: 18,
+            right: 18,
+            width: 96,
+            height: 96,
+            objectFit: 'contain',
+          }}
+        />
+      ) : null}
+
       {heading ? (
         <div
           style={{

@@ -318,11 +318,11 @@ function attachDiagramImages(
   keyTerms: string[],
   record?: AssetRecorder,
   overwrite = false,
+  used: Set<string> = new Set(),
 ): SceneChild {
   const items = child.props['items'];
   if (!Array.isArray(items)) return child;
 
-  const used = new Set<string>();
   let changed = false;
 
   const next = items.map((raw) => {
@@ -360,6 +360,266 @@ function attachDiagramImages(
   });
 
   return changed ? { ...child, props: { ...child.props, items: next } } : child;
+}
+
+function hasEmbeddedImage(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('data:image/');
+}
+
+/** One verified library image for a labelled scene element. */
+function verifiedArtwork(options: {
+  label: string;
+  icon: string;
+  narration: string;
+  keyTerms: string[];
+  used: Set<string>;
+  record?: AssetRecorder;
+  fallback?: TopicObjectType;
+}): string | null {
+  const { label, icon, narration, keyTerms, used, record, fallback = 'book' } = options;
+  const match = matchAssetImage({
+    icon,
+    label,
+    narration,
+    keyTerms,
+    exclude: used,
+  });
+  if (!match) {
+    record?.({ label, icon, asset: null, source: 'builtin' });
+    return null;
+  }
+
+  const verdict = verifyAssetMatch(match, keyTerms);
+  record?.({
+    label,
+    icon,
+    asset: verdict.accepted ? match.id : null,
+    source: verdict.accepted ? assetSource(match.id) : 'builtin',
+  });
+  if (!verdict.accepted) {
+    console.warn(`[Assets] Rejected image ${match.id} for "${label}": ${verdict.reason}`);
+    return null;
+  }
+
+  used.add(match.id);
+  return match.dataUrl;
+}
+
+function attachAnimatedDiagramImages(
+  child: SceneChild,
+  narration: string,
+  keyTerms: string[],
+  used: Set<string>,
+  record?: AssetRecorder,
+  fallback: TopicObjectType = 'book',
+): SceneChild {
+  const items = child.props['items'];
+  if (!Array.isArray(items)) return child;
+
+  let changed = false;
+  const next = items.map((raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+    const item = raw as Record<string, unknown>;
+    if (hasEmbeddedImage(item['image'])) return raw;
+
+    const label = typeof item['label'] === 'string' ? item['label'] : '';
+    const icon = typeof item['icon'] === 'string' ? item['icon'] : pickTopicObject(label, fallback);
+    const image = verifiedArtwork({
+      label: label || icon,
+      icon,
+      narration,
+      keyTerms,
+      used,
+      record,
+      fallback,
+    });
+    if (!image) return raw;
+    changed = true;
+    return { ...item, image };
+  });
+
+  return changed ? { ...child, props: { ...child.props, items: next } } : child;
+}
+
+function attachProcessFlowImages(
+  child: SceneChild,
+  narration: string,
+  keyTerms: string[],
+  used: Set<string>,
+  record?: AssetRecorder,
+  fallback: TopicObjectType = 'book',
+): SceneChild {
+  const steps = child.props['steps'];
+  if (!Array.isArray(steps)) return child;
+
+  let changed = false;
+  const next = steps.map((raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+    const step = raw as Record<string, unknown>;
+    if (hasEmbeddedImage(step['image'])) return raw;
+
+    const label = typeof step['label'] === 'string'
+      ? step['label']
+      : typeof step['text'] === 'string'
+        ? step['text']
+        : '';
+    if (!label) return raw;
+
+    const icon = pickTopicObject(label, fallback);
+    const image = verifiedArtwork({
+      label,
+      icon,
+      narration,
+      keyTerms,
+      used,
+      record,
+      fallback,
+    });
+    if (image) {
+      changed = true;
+      return { ...step, iconName: icon, image };
+    }
+    if (typeof step['iconName'] === 'string') return raw;
+    changed = true;
+    return { ...step, iconName: icon };
+  });
+
+  return changed ? { ...child, props: { ...child.props, steps: next } } : child;
+}
+
+function attachSplitScreenImages(
+  child: SceneChild,
+  narration: string,
+  keyTerms: string[],
+  used: Set<string>,
+  record?: AssetRecorder,
+  fallback: TopicObjectType = 'book',
+): SceneChild {
+  let changed = false;
+  const props = { ...child.props } as Record<string, unknown>;
+
+  for (const side of ['left', 'right'] as const) {
+    const raw = props[side];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const pane = raw as Record<string, unknown>;
+    if (hasEmbeddedImage(pane['image'])) continue;
+
+    const label = typeof pane['content'] === 'string'
+      ? pane['content']
+      : typeof pane['text'] === 'string'
+        ? pane['text']
+        : '';
+    if (!label) continue;
+
+    const icon = pickTopicObject(label, fallback);
+    const image = verifiedArtwork({
+      label,
+      icon,
+      narration,
+      keyTerms,
+      used,
+      record,
+      fallback,
+    });
+    if (!image) continue;
+    props[side] = { ...pane, image };
+    changed = true;
+  }
+
+  return changed ? { ...child, props } : child;
+}
+
+function attachAnnotatedCalloutImage(
+  child: SceneChild,
+  brief: string,
+  narration: string,
+  keyTerms: string[],
+  used: Set<string>,
+  record?: AssetRecorder,
+  fallback: TopicObjectType = 'book',
+): SceneChild {
+  if (hasEmbeddedImage(child.props['image'])) return child;
+
+  const subject = typeof child.props['subject'] === 'string'
+    ? child.props['subject']
+    : fallback;
+  const label = brief.trim() || subject;
+  const image = verifiedArtwork({
+    label,
+    icon: subject,
+    narration,
+    keyTerms,
+    used,
+    record,
+    fallback,
+  });
+  return image ? { ...child, props: { ...child.props, image } } : child;
+}
+
+function attachSingleImage(
+  child: SceneChild,
+  label: string,
+  narration: string,
+  keyTerms: string[],
+  used: Set<string>,
+  record?: AssetRecorder,
+  fallback: TopicObjectType = 'book',
+): SceneChild {
+  if (hasEmbeddedImage(child.props['image'])) return child;
+  const text = label.trim();
+  if (!text) return child;
+
+  const image = verifiedArtwork({
+    label: text,
+    icon: pickTopicObject(text, fallback),
+    narration,
+    keyTerms,
+    used,
+    record,
+    fallback,
+  });
+  return image ? { ...child, props: { ...child.props, image } } : child;
+}
+
+function attachTimelineImages(
+  child: SceneChild,
+  narration: string,
+  keyTerms: string[],
+  used: Set<string>,
+  record?: AssetRecorder,
+  fallback: TopicObjectType = 'book',
+): SceneChild {
+  const events = child.props['events'];
+  if (!Array.isArray(events)) return child;
+
+  let changed = false;
+  const next = events.map((raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+    const event = raw as Record<string, unknown>;
+    if (hasEmbeddedImage(event['image'])) return raw;
+
+    const title = typeof event['title'] === 'string'
+      ? event['title']
+      : typeof event['label'] === 'string'
+        ? event['label']
+        : '';
+    if (!title) return raw;
+
+    const image = verifiedArtwork({
+      label: title,
+      icon: pickTopicObject(title, fallback),
+      narration,
+      keyTerms,
+      used,
+      record,
+      fallback,
+    });
+    if (!image) return raw;
+    changed = true;
+    return { ...event, image };
+  });
+
+  return changed ? { ...child, props: { ...child.props, events: next } } : child;
 }
 
 /**
@@ -456,7 +716,17 @@ export function buildConceptItems(
 
 function sceneKeyTerms(scene: SceneInstruction, analysis?: ContentAnalysis): string[] {
   const terms = new Set<string>(scene.keyTerms ?? []);
-  const text = `${scene.visualBrief ?? ''} ${childText(scene.children ?? [])}`.toLowerCase();
+  const caption = childText(scene.children ?? []);
+  const text = `${scene.visualBrief ?? ''} ${caption}`.toLowerCase();
+
+  // The scene's own searches and caption words are the vocabulary that the
+  // downloaded files will carry in their names. Without them, a perfectly good
+  // caption-specific download could be rejected as "unrelated".
+  for (const query of scene.assetQueries ?? []) {
+    for (const word of contentWords(query)) terms.add(word);
+  }
+  for (const word of contentWords(caption)) terms.add(word);
+
   for (const term of analysis?.keyTerms ?? []) {
     if ([term.term, ...term.synonyms].some((word) => text.includes(word.toLowerCase()))) {
       terms.add(term.term);
@@ -539,47 +809,136 @@ export function attachSceneArtwork(
   analysis?: ContentAnalysis,
 ): { storyboard: StoryboardPlan; assetUses: SceneAssetUse[] } {
   const assetUses: SceneAssetUse[] = [];
+  const fallback = analysisFallbackObject(analysis);
 
   const scenes = storyboard.scenes.map((scene, index) => {
     const children = scene.children ?? [];
     const picks: AssetPick[] = [];
     const record: AssetRecorder = (pick) => picks.push(pick);
+    // One file may explain several labels in a scene, but the same asset should
+    // not be repeated side by side. Keep this set scene-wide.
+    const used = new Set<string>();
     const narration = childText(children);
     const brief = scene.visualBrief ?? scene.keyTerms?.join(', ') ?? '';
+    const displayText = `${brief} ${narration}`;
     const keyTerms = sceneKeyTerms(scene, analysis);
 
     const nextChildren = children.map((child) => {
       if (child.component === 'ConceptDiagram') {
-        return attachDiagramImages(
-          child,
-          `${brief} ${narration}`,
+        return attachDiagramImages(child, displayText, keyTerms, record, true, used);
+      }
+
+      if (child.component === 'EducationalObject') {
+        if (hasEmbeddedImage(child.props['image'])) return child;
+        const type = typeof child.props['type'] === 'string' ? child.props['type'] : fallback;
+        const image = verifiedArtwork({
+          label: type,
+          icon: type,
+          narration: displayText,
           keyTerms,
+          used,
           record,
-          true,
+          fallback,
+        });
+        return image ? { ...child, props: { ...child.props, image } } : child;
+      }
+
+      if (child.component === 'AnimatedDiagram') {
+        return attachAnimatedDiagramImages(
+          child,
+          displayText,
+          keyTerms,
+          used,
+          record,
+          fallback,
         );
       }
-      if (child.component !== 'EducationalObject') return child;
 
-      const type = typeof child.props['type'] === 'string' ? child.props['type'] : 'book';
-      const match = matchAssetImage({
-        icon: type,
-        label: type,
-        narration: `${brief} ${narration}`,
-        keyTerms,
-      });
-      if (!match) return child;
-      const verdict = verifyAssetMatch(match, keyTerms);
-      record?.({
-        label: type,
-        icon: type,
-        asset: verdict.accepted ? match.id : null,
-        source: verdict.accepted ? assetSource(match.id) : 'builtin',
-      });
-      if (!verdict.accepted) {
-        console.warn(`[Assets] Rejected object image ${match.id}: ${verdict.reason}`);
-        return child;
+      if (child.component === 'ProcessFlow') {
+        return attachProcessFlowImages(
+          child,
+          displayText,
+          keyTerms,
+          used,
+          record,
+          fallback,
+        );
       }
-      return { ...child, props: { ...child.props, image: match.dataUrl } };
+
+      if (child.component === 'SplitScreenComparison') {
+        return attachSplitScreenImages(
+          child,
+          displayText,
+          keyTerms,
+          used,
+          record,
+          fallback,
+        );
+      }
+
+      if (child.component === 'AnnotatedCallout') {
+        return attachAnnotatedCalloutImage(
+          child,
+          brief,
+          displayText,
+          keyTerms,
+          used,
+          record,
+          fallback,
+        );
+      }
+
+      if (child.component === 'Timeline') {
+        return attachTimelineImages(
+          child,
+          displayText,
+          keyTerms,
+          used,
+          record,
+          fallback,
+        );
+      }
+
+      if (child.component === 'SummaryScene') {
+        const title = typeof child.props['title'] === 'string' ? child.props['title'] : brief;
+        return attachSingleImage(
+          child,
+          title,
+          displayText,
+          keyTerms,
+          used,
+          record,
+          fallback,
+        );
+      }
+
+      if (child.component === 'ComparisonChart') {
+        const title = typeof child.props['title'] === 'string' ? child.props['title'] : brief;
+        return attachSingleImage(
+          child,
+          title,
+          displayText,
+          keyTerms,
+          used,
+          record,
+          fallback,
+        );
+      }
+
+      if (child.component === 'SpeechBubble') {
+        const text = typeof child.props['text'] === 'string' ? child.props['text'] : brief;
+        return attachSingleImage(
+          child,
+          text,
+          displayText,
+          keyTerms,
+          used,
+          record,
+          fallback,
+        );
+      }
+
+      return child;
     });
 
     assetUses.push(...picks.map((pick) => ({ sceneIndex: index, ...pick })));

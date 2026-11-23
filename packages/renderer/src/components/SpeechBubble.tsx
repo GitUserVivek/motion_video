@@ -1,5 +1,5 @@
 import React from 'react';
-import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Img, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { easeOut, fadeIn } from '../utils/animation.js';
 
 /**
@@ -13,6 +13,8 @@ import { easeOut, fadeIn } from '../utils/animation.js';
 
 export interface SpeechBubbleProps {
   text: string;
+  /** Caption-specific artwork inlined as a data URL. */
+  image?: string;
   /** Small pill above the bubble, e.g. "Narrator" or a character name. */
   speaker?: string;
   tail?: 'left' | 'right' | 'none';
@@ -32,6 +34,7 @@ function safeInk(accent: string): string {
 
 export function SpeechBubble({
   text,
+  image,
   speaker,
   tail = 'left',
   variant = 'statement',
@@ -149,6 +152,19 @@ export function SpeechBubble({
           >
             {speaker}
           </div>
+        ) : null}
+
+        {image ? (
+          <Img
+            src={image}
+            style={{
+              display: 'block',
+              width: 96,
+              height: 96,
+              objectFit: 'contain',
+              margin: '0 auto 14px',
+            }}
+          />
         ) : null}
 
         <div

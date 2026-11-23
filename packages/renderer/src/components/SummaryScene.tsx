@@ -1,6 +1,6 @@
 import React from 'react';
 import { fadeIn, slideIn } from '../utils/animation.js';
-import { useCurrentFrame } from 'remotion';
+import { Img, useCurrentFrame } from 'remotion';
 
 /**
  * A recap card list: the scene where the video collects the points it just made.
@@ -12,6 +12,8 @@ import { useCurrentFrame } from 'remotion';
 
 export interface SummarySceneProps {
   title?: string;
+  /** Caption-specific artwork inlined as a data URL. */
+  image?: string;
   points?: string[];
   badgeText?: string;
   accent?: string;
@@ -28,6 +30,7 @@ function safeInk(accent: string): string {
 
 export function SummaryScene({
   title = 'In short',
+  image,
   points = [],
   badgeText = 'Recap',
   accent = '#FFD166',
@@ -77,6 +80,19 @@ export function SummaryScene({
       >
         {badgeText}
       </div>
+
+      {image ? (
+        <Img
+          src={image}
+          style={{
+            alignSelf: 'center',
+            width: 150,
+            height: 110,
+            objectFit: 'contain',
+            opacity: headingAppear,
+          }}
+        />
+      ) : null}
 
       <div
         style={{

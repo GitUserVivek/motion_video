@@ -1,11 +1,13 @@
 import React from 'react';
-import { useCurrentFrame } from 'remotion';
+import { Img, useCurrentFrame } from 'remotion';
 import { fadeIn, slideIn } from '../utils/animation.js';
 
 export interface TimelineEvent {
   date: string;
   title: string;
   description?: string;
+  /** Caption-specific artwork inlined as a data URL. */
+  image?: string;
   icon?: React.ReactNode;
   color?: string;
 }
@@ -90,6 +92,19 @@ export function Timeline({
                 boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
               }}
             >
+              {event.image ? (
+                <Img
+                  src={event.image}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    height: 110,
+                    objectFit: 'contain',
+                    marginBottom: 10,
+                  }}
+                />
+              ) : null}
+
               {/* Date */}
               <div
                 style={{
