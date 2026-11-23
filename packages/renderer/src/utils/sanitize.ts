@@ -1,4 +1,9 @@
-import { PALETTE_IDS, type ComponentName, type SubtitleEntry } from '@edumotion/shared';
+import {
+  INSTRUCTOR_IDS,
+  PALETTE_IDS,
+  type ComponentName,
+  type SubtitleEntry,
+} from '@edumotion/shared';
 
 /**
  * A storyboard comes from a 7B model, so any prop can be the wrong type: a
@@ -22,6 +27,7 @@ const OBJECT_TYPES = new Set<string>([
 ]);
 const OBJECT_ANIMATIONS = new Set(['fadeIn', 'bounce', 'none']);
 const CHARACTER_STATES = new Set(['idle', 'wave', 'point', 'thinking']);
+const INSTRUCTOR_ID_SET = new Set<string>(INSTRUCTOR_IDS);
 const THEMES = new Set(['educational', 'modern', 'playful', 'minimal']);
 const PATTERNS = new Set(['none', 'dots', 'grid', 'waves']);
 const PALETTES = new Set<string>(PALETTE_IDS);
@@ -402,13 +408,27 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
       };
 
     case 'Character':
-    case 'Teacher':
       return {
         ...raw,
         state: enumValue(raw['state'], CHARACTER_STATES, 'idle'),
         size: num(raw['size'], 200, 60, 700),
         flipX: bool(raw['flipX'], false),
       };
+
+    case 'Teacher': {
+      const next: Props = {
+        ...raw,
+        state: enumValue(raw['state'], CHARACTER_STATES, 'idle'),
+        size: num(raw['size'], 105, 60, 400),
+        flipX: bool(raw['flipX'], false),
+      };
+      // A presenter must come from the saved profile library; a model-invented
+      // string would otherwise fall back to a different instructor per render.
+      if (typeof raw['appearance'] !== 'string' || !INSTRUCTOR_ID_SET.has(raw['appearance'])) {
+        delete next['appearance'];
+      }
+      return next;
+    }
 
     case 'BackgroundScene': {
       const next: Props = {

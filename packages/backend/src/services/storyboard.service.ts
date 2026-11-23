@@ -375,7 +375,11 @@ class StoryboardService {
     if (chosenAttempt) {
       // Visual direction is deterministic and runs after the model: palettes,
       // patterns, camera moves, short headings and the closing end screen.
-      const { storyboard: directed, changes } = directStoryboard(chosenAttempt, script);
+      const { storyboard: directed, changes } = directStoryboard(
+        chosenAttempt,
+        script,
+        config.voice,
+      );
       if (changes.length > 0) {
         console.log(
           `[Storyboard] Job ${jobId}: directed ${changes.length} change(s) — ${changes.slice(0, 4).join('; ')}`,
@@ -429,7 +433,7 @@ class StoryboardService {
       content,
     );
     const directedFallback = repairStoryboardProps(
-      directStoryboard(fallback, script).storyboard,
+      directStoryboard(fallback, script, config.voice).storyboard,
     ).storyboard;
     const { storyboard: timedFallback, report: fallbackTiming } =
       normalizeStoryboardTiming(directedFallback);

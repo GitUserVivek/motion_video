@@ -2,7 +2,13 @@ import React, { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useProjectStore } from '../store/projectStore.js';
-import { DURATION_OPTIONS, ANIMATION_THEMES, VOICES, ASPECT_RATIOS } from '@edumotion/shared';
+import {
+  DURATION_OPTIONS,
+  ANIMATION_THEMES,
+  VOICES,
+  ASPECT_RATIOS,
+  resolveInstructor,
+} from '@edumotion/shared';
 import type { AspectRatio, AnimationTheme } from '@edumotion/shared';
 import { ErrorNotice, errorMessage } from '../components/Feedback.js';
 
@@ -15,6 +21,7 @@ export function VideoConfig(): React.ReactElement {
   if (!script) return <Navigate to="/create" replace />;
 
   const dimensions = ASPECT_RATIOS[videoConfig.aspectRatio];
+  const instructor = resolveInstructor(videoConfig.voice);
 
   async function handleGenerate(): Promise<void> {
     setError(null);
@@ -109,6 +116,9 @@ export function VideoConfig(): React.ReactElement {
             <option key={id} value={id}>{v.label}</option>
           ))}
         </select>
+        <p style={{ fontSize: 12, color: '#8f8faa', marginTop: -12, marginBottom: 20 }}>
+          Instructor: <strong style={{ color: '#c9c9e0' }}>{instructor.name}</strong> — the presenter changes with the selected voice.
+        </p>
 
         <div style={{ display: 'flex', gap: 24, marginBottom: 20, flexWrap: 'wrap' }}>
           {([['subtitles', 'Subtitles'], ['backgroundMusic', 'Background Music']] as const).map(([key, label]) => (

@@ -211,6 +211,20 @@ describe('storyboard pipeline integration fixture', () => {
     expect(firstCaptionText?.map((cue) => cue.text).join(' ')).toBeTruthy();
     expect(secondCaptionText?.map((cue) => cue.text).join(' ')).toBeTruthy();
 
+    // The selected voice saves one instructor profile across the teaching
+    // scenes, and the ending stays a clean EndScreen.
+    const teachers = result.storyboard.scenes.flatMap((scene) =>
+      (scene.children ?? []).filter((child) => child.component === 'Teacher'),
+    );
+    expect(teachers.length).toBeGreaterThan(0);
+    expect(teachers.length).toBeLessThanOrEqual(3);
+    for (const teacher of teachers) {
+      expect(teacher.props['appearance']).toBe('emma');
+      expect(teacher.props['voice']).toBe('en-US-female-1');
+    }
+    const lastScene = result.storyboard.scenes[result.storyboard.scenes.length - 1];
+    expect(lastScene?.children?.some((child) => child.component === 'Teacher')).toBe(false);
+
     expect(validateLayout(result.storyboard, config.width, config.height).filter(
       (issue) => issue.severity === 'blocking',
     )).toEqual([]);

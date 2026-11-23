@@ -37,6 +37,77 @@ export function resolveTtsVoice(value: string | undefined): { voice: string; eng
   return { voice: trimmed || 'en-US-AriaNeural', engine: 'edge-tts' };
 }
 
+export const INSTRUCTOR_IDS = ['emma', 'james', 'sophie', 'alex'] as const;
+export type InstructorId = (typeof INSTRUCTOR_IDS)[number];
+
+export interface InstructorProfile {
+  id: InstructorId;
+  name: string;
+  skin: string;
+  skinShade: string;
+  hair: string;
+  hairStyle: 'bob' | 'short' | 'long' | 'curly';
+  blazer: string;
+  blazerShade: string;
+  shirt: string;
+  trousers: string;
+  shoes: string;
+  accent: string;
+  glasses: boolean;
+}
+
+/**
+ * The presenter library. These are renderer assets, not generated artwork: the
+ * same profile is reused for every video that selects the matching voice.
+ */
+export const INSTRUCTOR_PROFILES: Record<InstructorId, InstructorProfile> = {
+  emma: {
+    id: 'emma', name: 'Emma', skin: '#F2C6A0', skinShade: '#D9A67E',
+    hair: '#5A3522', hairStyle: 'bob', blazer: '#1F6F5B', blazerShade: '#165445',
+    shirt: '#F7FAFC', trousers: '#26324A', shoes: '#1B1B24', accent: '#FFD166', glasses: false,
+  },
+  james: {
+    id: 'james', name: 'James', skin: '#8D5524', skinShade: '#6F3F18',
+    hair: '#1A1A1A', hairStyle: 'short', blazer: '#244A8F', blazerShade: '#1B396F',
+    shirt: '#EAF2FF', trousers: '#1E2538', shoes: '#111827', accent: '#FFB703', glasses: false,
+  },
+  sophie: {
+    id: 'sophie', name: 'Sophie', skin: '#F5D0B5', skinShade: '#E0B090',
+    hair: '#3B2416', hairStyle: 'long', blazer: '#7A2E5C', blazerShade: '#5E2147',
+    shirt: '#FFF7FB', trousers: '#2B2233', shoes: '#17121C', accent: '#FFD166', glasses: true,
+  },
+  alex: {
+    id: 'alex', name: 'Alex', skin: '#C68642', skinShade: '#A66B2F',
+    hair: '#2B2B2B', hairStyle: 'curly', blazer: '#3B3B58', blazerShade: '#2B2B43',
+    shirt: '#F2F2F7', trousers: '#242432', shoes: '#141420', accent: '#8F7BE0', glasses: true,
+  },
+};
+
+const VOICE_INSTRUCTOR: Record<string, InstructorId> = {
+  'en-US-female-1': 'emma',
+  'en-US-male-1': 'james',
+  'en-GB-female-1': 'sophie',
+  'espeak-en': 'alex',
+  'en-US-AriaNeural': 'emma',
+  'en-US-GuyNeural': 'james',
+  'en-GB-SoniaNeural': 'sophie',
+};
+
+/** Stable voice → presenter mapping, so every video with that voice gets the
+ * same saved instructor instead of a new random character. */
+export function resolveInstructor(value?: string): InstructorProfile {
+  const key = value?.trim() ?? '';
+  const direct = VOICE_INSTRUCTOR[key];
+  if (direct) return INSTRUCTOR_PROFILES[direct];
+
+  const preset = VOICES[key];
+  const spoken = (preset?.voice ?? key).toLowerCase();
+  if (/(guy|ryan|george|male|james)/.test(spoken)) return INSTRUCTOR_PROFILES.james;
+  if (/(sonia|libby|sophie)/.test(spoken)) return INSTRUCTOR_PROFILES.sophie;
+  if (/(aria|emma|jenny|female)/.test(spoken)) return INSTRUCTOR_PROFILES.emma;
+  return INSTRUCTOR_PROFILES.alex;
+}
+
 export const LOCAL_LLM_MODEL_NAME = 'qwen3-8b-instruct-q4';
 export const LOCAL_LLM_HF_REPO = 'Qwen/Qwen3-8B-GGUF';
 export const LOCAL_LLM_HF_FILE = 'qwen3-8b-instruct-q4_k_m.gguf';

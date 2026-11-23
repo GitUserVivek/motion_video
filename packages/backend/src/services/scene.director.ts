@@ -1,5 +1,6 @@
 import {
   pickScenePalette,
+  resolveInstructor,
   type ComponentName,
   type PaletteId,
   type SceneChild,
@@ -543,6 +544,37 @@ function sceneNarration(scene: SceneInstruction): string {
   return typeof text === 'string' ? text : '';
 }
 
+type InstructorState = 'idle' | 'wave' | 'point' | 'thinking';
+
+/**
+ * Which teaching scenes earn a presenter, and what gesture fits the beat.
+ * Presenters support the lesson; they never replace the topic visual.
+ */
+function instructorStateFor(
+  scene: SceneInstruction,
+  index: number,
+  totalScenes: number,
+): InstructorState | null {
+  if (totalScenes < 2 || index >= totalScenes - 1) return null;
+  if (index === 0) return 'wave';
+
+  const purpose = (scene.purpose ?? '').toLowerCase();
+  if (purpose === 'hook' || purpose === 'recap' || purpose === 'summary') return 'wave';
+  if (purpose === 'define' || purpose === 'definition' || purpose === 'example' || purpose === 'process') {
+    return 'point';
+  }
+  if (purpose === 'compare' || purpose === 'data') return 'thinking';
+
+  const narration = sceneNarration(scene);
+  if (/\b(is called|are called|known as|means|refers to|for example|imagine|think of)\b/i.test(narration)) {
+    return 'point';
+  }
+  if (/\b(compared|versus|unlike|percent|million|billion|thousand)\b/i.test(narration)) {
+    return 'thinking';
+  }
+  return null;
+}
+
 function topicTitle(script: string): string {
   const match = TOPIC_TITLES.find(([pattern]) => pattern.test(script));
   if (match) return match[1];
@@ -555,9 +587,15 @@ function topicTitle(script: string): string {
   return shorten(firstSentence ?? '', MAX_HEADING_CHARS) || 'Thanks for watching!';
 }
 
-export function directStoryboard(plan: StoryboardPlan, script: string): DirectedStoryboard {
+export function directStoryboard(
+  plan: StoryboardPlan,
+  script: string,
+  voice?: string,
+): DirectedStoryboard {
   const changes: string[] = [];
   const totalScenes = plan.scenes.length;
+  const instructor = resolveInstructor(voice);
+  let instructorScenes = 0;
   let previousPalette: PaletteId | undefined;
 
   const scenes: SceneInstruction[] = plan.scenes.map((scene, index) => {
@@ -681,7 +719,51 @@ export function directStoryboard(plan: StoryboardPlan, script: string): Directed
       }
     }
 
-    // 5. Ending: every video closes on a designed end screen. The end card owns
+    // 5. Presenter: pick a stable instructor for the selected voice and add it
+    //    to the teaching beats that benefit from a human guide. A maximum of
+    //    three appearances keeps it from becoming a talking-head video.
+    const teacherIndex = directedChildren.findIndex(
+      (child) => child.component === 'Teacher',
+    );
+    if (teacherIndex >= 0) {
+      const existing = directedChildren[teacherIndex];
+      if (existing) {
+        directedChildren[teacherIndex] = {
+          ...existing,
+          props: {
+            ...existing.props,
+            appearance: instructor.id,
+            voice,
+            startFrame: existing.props['startFrame'] ?? 12,
+          },
+        };
+        instructorScenes++;
+        changes.push(`scene ${index + 1}: kept ${instructor.name} as the instructor`);
+      }
+    } else {
+      const state = instructorStateFor(scene, index, totalScenes);
+      if (state && instructorScenes < 3) {
+        directedChildren.push({
+          component: 'Teacher',
+          props: {
+            appearance: instructor.id,
+            voice,
+            state,
+            size: 105,
+            top: '78%',
+            left: index % 2 === 0 ? '8%' : '92%',
+            flipX: index % 2 === 1,
+            startFrame: 12,
+          },
+        });
+        instructorScenes++;
+        changes.push(
+          `scene ${index + 1}: added ${instructor.name} presenting (${state})`,
+        );
+      }
+    }
+
+    // 6. Ending: every video closes on a designed end screen. The end card owns
     //    the frame; leaving a diagram or title underneath it made the closing
     //    scene look like two slides stacked on top of each other.
     if (isLast) {

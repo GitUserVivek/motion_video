@@ -6,6 +6,8 @@ import {
   OwnScriptRequestSchema,
   VideoConfigSchema,
   GenerateVideoRequestSchema,
+  INSTRUCTOR_PROFILES,
+  resolveInstructor,
 } from '../index.js';
 
 describe('SceneInstructionSchema', () => {
@@ -60,6 +62,29 @@ describe('StoryboardPlanSchema', () => {
         jobId: 'j', totalFrames: 100, fps: 30, audioDurationMs: 3000, scenes: [],
       }),
     ).toThrow();
+  });
+});
+
+describe('resolveInstructor', () => {
+  it('maps each voice preset to its saved presenter', () => {
+    expect(resolveInstructor('en-US-female-1').id).toBe('emma');
+    expect(resolveInstructor('en-US-male-1').id).toBe('james');
+    expect(resolveInstructor('en-GB-female-1').id).toBe('sophie');
+    expect(resolveInstructor('espeak-en').id).toBe('alex');
+  });
+
+  it('recognises raw edge-tts voice names and falls back safely', () => {
+    expect(resolveInstructor('en-US-GuyNeural').id).toBe('james');
+    expect(resolveInstructor('en-GB-SoniaNeural').id).toBe('sophie');
+    expect(resolveInstructor(undefined).id).toBe('alex');
+  });
+
+  it('returns a complete reusable profile', () => {
+    for (const profile of Object.values(INSTRUCTOR_PROFILES)) {
+      expect(profile.name.length).toBeGreaterThan(0);
+      expect(profile.skin).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(profile.blazer).toMatch(/^#[0-9a-f]{6}$/i);
+    }
   });
 });
 

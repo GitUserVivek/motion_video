@@ -67,6 +67,7 @@ SCENE RULES:
 10. Avoid overcrowding: one visual focus plus one short title is enough. No wall of text.
 11. The final scene MUST contain EndScreen with a short recap. It should cover only the closing sentence, not the remaining lesson.
 12. No scene may exceed 240 frames (8 seconds) unless one caption cue is itself longer. Distribute sentences across scenes; never make the first scenes short and dump the rest into the final scene.
+13. Use the Teacher presenter in at most three teaching scenes (hook, definition, example, process or comparison). Do not put a presenter in the ending scene. The backend selects the instructor matching the chosen voice.
 
 FRAME TIMING (MANDATORY):
 - Scene "startFrame" and "endFrame" are absolute video frames.
@@ -84,6 +85,7 @@ COMPONENT PROP CONTRACTS (use exactly these shapes):
 - EndScreen: { "title": "...", "subtitle": "..." }
 - ConceptDiagram: { "items": [{ "icon": "leaf", "label": "..." }] }
 - AnimatedText: { "text": "...", "animation": "words" }
+- Teacher: { "state": "wave" | "point" | "thinking" | "idle", "top": "78%", "left": "8%", "size": 105 }
 
 EducationalObject types (only when the narration names one):
 book, apple, globe, atom, lightbulb, calculator, pencil, star, leaf, plant, sun, water, cloud, rocket, heart, cell, microscope, brain, bone, skeleton, dna, neuron, circuit, server, network, equation, chart, timeline

@@ -286,6 +286,7 @@ export class StoryboardValidator {
 
     const narration = new Set(tokenize(this.sceneNarration(scene) || script));
     let total = 0;
+    let scored = 0;
 
     for (const visual of visuals) {
       // An EndScreen is a designed closing card, not a claim about the scene's
@@ -293,6 +294,14 @@ export class StoryboardValidator {
       // irrelevant to the final sentence.
       if (visual.component === 'EndScreen') {
         total += 1;
+        scored++;
+        continue;
+      }
+
+      // The presenter supports the lesson but does not illustrate its topic.
+      // Counting a presenter with no topic words would penalise every scene
+      // that now has a teacher.
+      if (visual.component === 'Teacher' || visual.component === 'Character') {
         continue;
       }
 
@@ -300,14 +309,16 @@ export class StoryboardValidator {
       if (words.length === 0) {
         // Structural visual (e.g. a bare timeline): nothing to compare against.
         total += 0.5;
+        scored++;
         continue;
       }
 
       const named = words.filter((word) => this.isNamedBy(word, narration)).length;
       total += 0.35 + 0.65 * (named / words.length);
+      scored++;
     }
 
-    return Math.min(1, total / visuals.length);
+    return scored === 0 ? 0.5 : Math.min(1, total / scored);
   }
 
   private validateStoryboardStructure(storyboard: StoryboardPlan): string[] {
