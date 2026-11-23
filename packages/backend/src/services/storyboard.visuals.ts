@@ -161,7 +161,7 @@ function attachUserImage(
     asset: asset.assetPath,
     source: 'user',
   });
-  return { image: asset.dataUrl, imageAlt: asset.caption, imageSource: 'user' };
+  return { image: asset.dataUrl, imageAlt: asset.caption || asset.fileName, imageSource: 'user' };
 }
 
 function attachUserArtwork(child: SceneChild, context: UserImageContext): SceneChild {
@@ -483,7 +483,7 @@ function attachDiagramImages(
 
   const next = items.map((raw) => {
     if (!raw || typeof raw !== 'object') return raw;
-    const item = raw as { icon?: unknown; label?: unknown; image?: unknown };
+    const item = raw as { icon?: unknown; label?: unknown; image?: unknown; imageSource?: unknown };
     if (typeof item.icon !== 'string') return raw;
     if (typeof item.image === 'string' && item.image.startsWith('data:image/')) {
       // Never replace a file the user explicitly uploaded. Ordinary downloaded

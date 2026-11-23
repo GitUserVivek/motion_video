@@ -106,12 +106,12 @@ export function scoreUserAsset(
   return score;
 }
 
-export function pickUserAsset(
-  assets: UserAssetMatchInfo[],
+export function pickUserAsset<T extends UserAssetMatchInfo>(
+  assets: T[],
   context: UserAssetMatchContext,
   used: Set<string>,
-): UserAssetMatchInfo | null {
-  let best: UserAssetMatchInfo | null = null;
+): T | null {
+  let best: T | null = null;
   let bestScore = 0;
   for (const asset of assets) {
     if (used.has(asset.id)) continue;

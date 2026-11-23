@@ -117,7 +117,7 @@ export function ScriptEditor(): React.ReactElement {
     try {
       const uploads: ScriptAssetUpload[] = [];
       for (const file of files) uploads.push(await prepareImage(file));
-      const next = await api.uploadScriptAssets(script.scriptId, uploads);
+      const next = await api.uploadScriptAssets(script!.scriptId, uploads);
       setAssets(next);
     } catch (e) {
       setAssetError(errorMessage(e, 'Image upload failed.'));
@@ -130,7 +130,7 @@ export function ScriptEditor(): React.ReactElement {
     setAssetBusy(true);
     setAssetError(null);
     try {
-      await api.deleteScriptAsset(script.scriptId, assetId);
+      await api.deleteScriptAsset(script!.scriptId, assetId);
       setAssets((current) => current.filter((asset) => asset.id !== assetId));
     } catch (e) {
       setAssetError(errorMessage(e, 'Could not remove that image.'));
