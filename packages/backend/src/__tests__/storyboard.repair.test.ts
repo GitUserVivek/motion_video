@@ -113,4 +113,36 @@ describe('splitOversizedScenes', () => {
       expect(storyboard.scenes[i]?.startFrame).toBe(storyboard.scenes[i - 1]?.endFrame);
     }
   });
+
+  it('prefers a spoken sentence boundary over a phrase boundary', () => {
+    const sentenceCues: SubtitleEntry[] = [
+      { index: 0, startMs: 0, endMs: 3000, text: 'Today we learn about shapes.' },
+      { index: 1, startMs: 3000, endMs: 6500, text: 'A face is the flat side,' },
+      { index: 2, startMs: 6500, endMs: 9000, text: 'and an edge is where two faces meet.' },
+      { index: 3, startMs: 9000, endMs: 12000, text: 'Every vertex is a corner.' },
+      { index: 4, startMs: 12000, endMs: 15000, text: 'Three edges meet at each one.' },
+    ];
+
+    const { storyboard, splitScenes } = splitOversizedScenes(
+      plan([scene('scene-1', 0, 450)]),
+      sentenceCues,
+    );
+
+    expect(splitScenes).toBe(1);
+    expect(storyboard.scenes.length).toBe(3);
+
+    // Every boundary is the end of a spoken sentence (3000 ms = frame 90,
+    // 9000 ms = frame 270), not the 8000 ms budget cutting through one.
+    const boundaries = storyboard.scenes.slice(0, -1).map((item) => item.endFrame);
+    expect(boundaries).toEqual([90, 270]);
+    for (const boundary of boundaries) {
+      const cueAtBoundary = sentenceCues.find((cue) => Math.round((cue.endMs / 1000) * 30) === boundary);
+      expect(cueAtBoundary?.text.trim()).toMatch(/[.!?]$/);
+    }
+    for (const next of storyboard.scenes.slice(1)) {
+      expect((next.visualBrief ?? '').trim()).not.toMatch(
+        /^(and|but|so|because|which|while|that)\b/i,
+      );
+    }
+  });
 });

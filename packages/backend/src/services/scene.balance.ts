@@ -27,6 +27,35 @@ interface CueGroup {
   cues: SubtitleEntry[];
 }
 
+/** True when a cue ends a spoken sentence, so it is a clean scene boundary. */
+function endsSentence(cue: SubtitleEntry): boolean {
+  return /[.!?]["')\]]?\s*$/.test(cue.text.trim());
+}
+
+/**
+ * Split at a sentence boundary rather than an arbitrary caption phrase. A
+ * grouped word cue can end after three words of a sentence; cutting there makes
+ * the next scene start mid-thought ("and each…"). When the current group is
+ * over budget, the latest sentence end inside it wins, as long as both parts
+ * keep their minimum duration.
+ */
+function sentenceSplitIndex(
+  groupCues: SubtitleEntry[],
+  groupStartMs: number,
+  endMs: number,
+  minMs: number,
+): number | null {
+  for (let index = groupCues.length - 1; index >= 0; index--) {
+    const cue = groupCues[index];
+    const next = groupCues[index + 1];
+    if (!cue || !next || !endsSentence(cue)) continue;
+    if (next.startMs - groupStartMs < minMs) continue;
+    if (endMs - next.startMs < minMs) continue;
+    return index;
+  }
+  return null;
+}
+
 function groupCues(
   scene: SceneInstruction,
   cues: SubtitleEntry[],
@@ -42,6 +71,12 @@ function groupCues(
   let groupStartMs = startMs;
   let groupCues: SubtitleEntry[] = [];
 
+  const splitAt = (boundaryMs: number, keptCues: SubtitleEntry[]): void => {
+    groups.push({ startMs: groupStartMs, endMs: boundaryMs, cues: keptCues });
+    groupStartMs = boundaryMs;
+    groupCues = groupCues.slice(keptCues.length);
+  };
+
   for (const cue of cues) {
     const cueStart = Math.max(startMs, Math.min(cue.startMs, endMs));
     const cueEnd = Math.max(cueStart, Math.min(cue.endMs, endMs));
@@ -52,9 +87,26 @@ function groupCues(
       && cueStart - groupStartMs >= minMs
       && endMs - cueStart >= minMs
     ) {
-      groups.push({ startMs: groupStartMs, endMs: cueStart, cues: groupCues });
-      groupStartMs = cueStart;
-      groupCues = [];
+      // Finish the sentence we are in when it is close to the budget, instead
+      // of cutting before the cue and leaving the next scene mid-sentence.
+      if (endsSentence(cue) && cueEnd - groupStartMs <= maxMs) {
+        groupCues.push(cue);
+        groups.push({ startMs: groupStartMs, endMs: cueEnd, cues: groupCues });
+        groupStartMs = cueEnd;
+        groupCues = [];
+        continue;
+      }
+
+      const boundary = sentenceSplitIndex(groupCues, groupStartMs, endMs, minMs);
+      if (boundary !== null) {
+        const kept = groupCues.slice(0, boundary + 1);
+        const next = groupCues[boundary + 1] ?? cue;
+        splitAt(next.startMs, kept);
+      } else {
+        groups.push({ startMs: groupStartMs, endMs: cueStart, cues: groupCues });
+        groupStartMs = cueStart;
+        groupCues = [];
+      }
     }
     groupCues.push(cue);
   }

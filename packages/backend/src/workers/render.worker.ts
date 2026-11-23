@@ -376,6 +376,8 @@ async function processJob(job: JobRow): Promise<void> {
     sceneTimesSec: storyboard.scenes.map(
       (scene) => ((scene.startFrame + scene.endFrame) / 2) / videoConfig.fps,
     ),
+    storyboard,
+    assetUses,
     expectedDurationSec: result.durationSec,
     expectedWidth: dimensions.width,
     expectedHeight: dimensions.height,
@@ -390,6 +392,19 @@ async function processJob(job: JobRow): Promise<void> {
   );
   for (const warning of report.warnings) {
     console.warn(`[Worker] Job ${job.id} quality warning: ${warning}`);
+  }
+
+  console.log(
+    `[Worker] Job ${job.id} editorial: ${report.editorial.passed ? 'passed' : 'BLOCKED'} ` +
+      `(${report.editorial.blocking.length} blocking, ${report.editorial.warnings.length} warning(s), ` +
+      `${report.editorial.assets.downloaded} downloaded / ${report.editorial.assets.user} user / ` +
+      `${report.editorial.assets.builtin} built-in)`,
+  );
+  for (const warning of report.editorial.warnings.slice(0, 8)) {
+    console.warn(`[Editorial] ${warning}`);
+  }
+  for (const message of report.editorial.blocking.slice(0, 8)) {
+    console.warn(`[Editorial] BLOCKING ${message}`);
   }
 
   if (!report.passed) {

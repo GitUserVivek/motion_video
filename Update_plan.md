@@ -2,7 +2,22 @@
 
 Last updated: 2026-11-23  
 Target evidence: job `42513265-edd8-4eb4-a1f7-af193bb321ed`  
-Status: **planned — no implementation in this document**
+Status: **code phases implemented — runtime/render verification pending**
+
+> **Implementation status (2026-11-23)**
+> - P0/P1 code fixes are in: semantic asset rejection, auto diagram layout, semantic
+>   titles + text deduplication, lane-aware speech bubbles, sentence-aligned scene
+>   splits, editorial validation, instructor bounds, env-override precedence.
+> - `npm run typecheck`, `npm test` (shared 15, backend 77, frontend 2) and
+>   `npm run build` pass.
+> - Not verifiable here: Kaggle rebuild/restart, live storyboard inspection,
+>   MP4 frame review, and render-throughput benchmarks. No Chromium, GPU,
+>   ffmpeg/ffprobe or Kaggle access exists in this environment.
+> - The target job's raw LLM/storyboard/metrics/JPEG artifacts were not present
+>   locally, so the fixtures reproduce its documented defects rather than copying
+>   the files.
+> - LLM semantic judging (`ASSET_VERIFY=llm`) was not added; the deterministic
+>   semantic-field verifier is the fallback and the only path used.
 
 This plan fixes the defects visible in the generated video and raw LLM storyboard. It is written as execution instructions for the next implementation pass, not as a redesign of the project.
 
@@ -170,7 +185,7 @@ Tasks:
 - [ ] Rebuild and restart the Kaggle notebook using the repository’s normal start path.
 - [ ] Confirm the backend log says the latest commit and a fresh build time.
 - [ ] Re-plan one short test video and confirm the saved storyboard contains the expected `Teacher` props.
-- [ ] Add a startup assertion or log line when `RENDER_PROFILE=auto` selects `gpu` but `chunkCount=1`; this is useful evidence, not an error.
+- [x] Add a startup assertion or log line when `RENDER_PROFILE=auto` selects `gpu` but `chunkCount=1`; this is useful evidence, not an error.
 
 **Exit gate:** the new job’s `storyboard.json` contains `Teacher` components, and `render-metrics.json` is produced by the new build.
 
@@ -184,11 +199,11 @@ Tasks:
 
 Tasks:
 
-- [ ] Audit `services/asset.verify.ts` and `services/asset.discovery.ts`.
-- [ ] Strengthen `verifyAssetMatch()` so acceptance requires:
+- [x] Audit `services/asset.verify.ts` and `services/asset.discovery.ts`.
+- [x] Strengthen `verifyAssetMatch()` so acceptance requires:
   - a scene key term or a synonym in the candidate title, filename, tags, or description; and
   - no conflicting object noun in the candidate identity.
-- [ ] Treat ambiguous candidates as rejected when the scene has a concrete noun. Example patterns:
+- [x] Treat ambiguous candidates as rejected when the scene has a concrete noun. Example patterns:
   - “cube” must not accept a satellite whose identity is “Mars Cube One”;
   - “pyramid” must not accept a safety/management hierarchy;
   - “face/edge/vertex” must not accept a generic book, building, or satellite.
@@ -196,13 +211,13 @@ Tasks:
   - `ASSET_VERIFY=auto|llm|tags`;
   - hash-based cache;
   - strict lexical fallback when the model is unavailable.
-- [ ] For `SplitScreenComparison`, verify each pane independently:
+- [x] For `SplitScreenComparison`, verify each pane independently:
   - the left label/content and left image must agree;
   - the right label/content and right image must agree;
   - if either side fails, leave that pane text-only with a built-in glyph. Do not keep a mismatched image.
-- [ ] For `SpeechBubble`, do not attach an image unless the image is verified against both the bubble text and the scene key terms.
+- [x] For `SpeechBubble`, do not attach an image unless the image is verified against both the bubble text and the scene key terms.
 - [ ] For `AnimatedDiagram` tiles, prefer the built-in cube/line/corner glyphs when no verified image exists. Add a `pyramid` glyph if the icon set does not already have one.
-- [ ] Record every decision in `assets.json`:
+- [x] Record every decision in `assets.json`:
   - scene id;
   - query;
   - candidate;
@@ -210,7 +225,7 @@ Tasks:
   - verdict;
   - rejection reason;
   - selected file.
-- [ ] Add regression tests using the two bad candidates from this job as fixture data, but not as runtime exceptions:
+- [x] Add regression tests using the two bad candidates from this job as fixture data, but not as runtime exceptions:
   - satellite-like “cube” candidate is rejected for a geometry cube;
   - safety-pyramid candidate is rejected for a geometric pyramid;
   - a verified cube image is accepted;
@@ -226,24 +241,24 @@ Tasks:
 
 Tasks:
 
-- [ ] Change `AnimatedDiagram` to support an explicit `layout` prop:
+- [x] Change `AnimatedDiagram` to support an explicit `layout` prop:
   - `auto`: arrange 2–5 items in a centered row or grid; ignore raw model offsets;
   - `manual`: preserve the old offset behaviour for old storyboards.
-- [ ] Make `auto` the default for new storyboards.
-- [ ] Clamp every item to the component’s safe box.
-- [ ] Ensure the panel size is derived from item count, not a fixed 600×400 panel with tiny clustered contents.
-- [ ] Add label wrapping and a minimum readable font size.
-- [ ] In `scene.director.ts`, reserve vertical lanes:
+- [x] Make `auto` the default for new storyboards.
+- [x] Clamp every item to the component’s safe box.
+- [x] Ensure the panel size is derived from item count, not a fixed 600×400 panel with tiny clustered contents.
+- [x] Add label wrapping and a minimum readable font size.
+- [x] In `scene.director.ts`, reserve vertical lanes:
   - title: 6–18%;
   - primary visual: 24–70%;
   - speech bubble: only in a free lane, never over a process step;
   - captions: bottom 82–94%.
-- [ ] Do not add a `SpeechBubble` to a scene that already has a full-width `ProcessFlow`, `Timeline`, or `SplitScreenComparison` unless the bubble can be placed in a verified free lane.
-- [ ] For a process scene, either:
+- [x] Do not add a `SpeechBubble` to a scene that already has a full-width `ProcessFlow`, `Timeline`, or `SplitScreenComparison` unless the bubble can be placed in a verified free lane.
+- [x] For a process scene, either:
   - omit the hook bubble, or
   - place the question as a short title and keep the process flow fully visible.
-- [ ] Add a shared layout helper that returns estimated boxes for `AnimatedText`, `SpeechBubble`, `ProcessFlow`, `AnimatedDiagram`, `AnnotatedCallout`, `ConceptDiagram`, and `SplitScreenComparison`.
-- [ ] Use that helper in `layout.validation.ts` to detect overlap, out-of-bounds boxes, and clustered diagram items.
+- [x] Add a shared layout helper that returns estimated boxes for `AnimatedText`, `SpeechBubble`, `ProcessFlow`, `AnimatedDiagram`, `AnnotatedCallout`, `ConceptDiagram`, and `SplitScreenComparison`.
+- [x] Use that helper in `layout.validation.ts` to detect overlap, out-of-bounds boxes, and clustered diagram items.
 - [ ] Add visual tests at 1080×1920, 1920×1080, and 1080×1080.
 
 **Exit gate:** the scene-2 items are evenly distributed, and the scene-3 bubble no longer covers the third step.
@@ -256,25 +271,25 @@ Tasks:
 
 Tasks:
 
-- [ ] Stop deriving titles by truncating narration.
-- [ ] Derive a title in this order:
+- [x] Stop deriving titles by truncating narration.
+- [x] Derive a title in this order:
   1. explicit model title;
   2. `visualBrief` shortened semantically;
   3. `purpose` + key terms (for example, “Cube vs Pyramid”);
   4. omit the heading if no good title exists.
-- [ ] Keep headings to 3–8 words and at most two lines.
-- [ ] Remove the `…` produced by `shorten()` for headings. Use wrapping and `fitFontSize` instead.
-- [ ] Add normalized-text deduplication:
+- [x] Keep headings to 3–8 words and at most two lines.
+- [x] Remove the `…` produced by `shorten()` for headings. Use wrapping and `fitFontSize` instead.
+- [x] Add normalized-text deduplication:
   - if a `SpeechBubble` text equals the `AnimatedText` text, drop the bubble;
   - if a bubble equals any subtitle cue, drop the bubble;
   - if a heading equals the first subtitle cue, keep only the subtitle.
-- [ ] Only create a `SpeechBubble` when:
+- [x] Only create a `SpeechBubble` when:
   - the scene contains a real question, or the model explicitly requested one; and
   - no existing heading already states that question.
-- [ ] Limit a scene to one primary visual plus one optional annotation. Do not stack `AnimatedDiagram` + `ProcessFlow` + `ConceptDiagram` in the same scene.
-- [ ] Preserve `NumberCounter`/`AnimatedNumber` when the narration contains a real measured value. Do not replace it with a generic concept row.
-- [ ] For scene 6, use a counter or a counting diagram, not five identical book icons.
-- [ ] Add tests:
+- [x] Limit a scene to one primary visual plus one optional annotation. Do not stack `AnimatedDiagram` + `ProcessFlow` + `ConceptDiagram` in the same scene.
+- [x] Preserve `NumberCounter`/`AnimatedNumber` when the narration contains a real measured value. Do not replace it with a generic concept row.
+- [x] For scene 6, use a counter or a counting diagram, not five identical book icons.
+- [x] Add tests:
   - title + bubble + subtitle duplication is removed;
   - a question hook keeps one bubble and no duplicate title;
   - a measured-data scene keeps its counter;
@@ -290,15 +305,15 @@ Tasks:
 
 Tasks:
 
-- [ ] Review `services/scene.balance.ts` and `services/subtitle.service.ts`.
-- [ ] Prefer script sentence boundaries over raw cue boundaries when splitting or balancing scenes.
-- [ ] If a sentence must span scenes because it exceeds the maximum scene duration:
+- [x] Review `services/scene.balance.ts` and `services/subtitle.service.ts`.
+- [x] Prefer script sentence boundaries over raw cue boundaries when splitting or balancing scenes.
+- [x] If a sentence must span scenes because it exceeds the maximum scene duration:
   - split at a clause boundary;
   - preserve the full text in the subtitle stream;
   - mark the continuation so the next scene does not start with a dangling “and each”.
-- [ ] Add validation that rejects a scene caption beginning with a conjunction or a scene title ending in a dangling connector.
-- [ ] Keep subtitle timing independent from child animation timing.
-- [ ] Verify that no cue is duplicated across scenes.
+- [x] Add validation that rejects a scene caption beginning with a conjunction or a scene title ending in a dangling connector.
+- [x] Keep subtitle timing independent from child animation timing.
+- [x] Verify that no cue is duplicated across scenes.
 
 **Exit gate:** the final captions read as complete clauses, and no scene starts with “faces…” after a previous scene ends with “Today, we’ll learn how to spot”.
 
@@ -310,7 +325,7 @@ Tasks:
 
 Tasks:
 
-- [ ] Extend `layout.validation.ts` with:
+- [x] Extend `layout.validation.ts` with:
   - duplicate normalized text across title, bubble, and subtitles;
   - component bounding-box overlap;
   - out-of-frame children;
@@ -319,21 +334,21 @@ Tasks:
   - empty full-width panels;
   - unverified image selection;
   - `Teacher` overlapping captions or the primary visual.
-- [ ] Extend `quality.service.ts` / `quality-report.json` with an `editorial` section:
+- [x] Extend `quality.service.ts` / `quality-report.json` with an `editorial` section:
   - checks run;
   - blocking issues;
   - warnings;
   - asset verdict counts;
   - frame-review paths.
-- [ ] Keep technical checks separate from editorial checks. A video may be technically valid but editorially blocked.
-- [ ] Add an integration fixture from this job’s final storyboard that asserts:
+- [x] Keep technical checks separate from editorial checks. A video may be technically valid but editorially blocked.
+- [x] Add an integration fixture from this job’s final storyboard that asserts:
   - no duplicate text;
   - no ProcessFlow/SpeechBubble overlap;
   - no unverified images;
   - no title ending in `…`;
   - no `Teacher` in the final scene.
-- [ ] Add a second fixture for a different topic to prove the rules are generic.
-- [ ] Ensure warnings are visible in logs and output JSON. Do not silently pass them.
+- [x] Add a second fixture for a different topic to prove the rules are generic.
+- [x] Ensure warnings are visible in logs and output JSON. Do not silently pass them.
 
 **Exit gate:** the exact defects in this job would be caught before rendering.
 
@@ -376,16 +391,16 @@ Tasks:
 Tasks:
 
 - [ ] Rebuild and restart the Kaggle runtime so the instructor code is live.
-- [ ] Verify voice mapping:
+- [x] Verify voice mapping:
   - `en-US-female-1` → Emma;
   - `en-US-male-1` → James;
   - `en-GB-female-1` → Sophie;
   - `espeak-en` → Alex.
-- [ ] Verify the saved storyboard writes the same `appearance` to every `Teacher` child.
-- [ ] Verify the instructor appears in at most three teaching scenes and never in the final EndScreen scene.
+- [x] Verify the saved storyboard writes the same `appearance` to every `Teacher` child.
+- [x] Verify the instructor appears in at most three teaching scenes and never in the final EndScreen scene.
 - [ ] Verify the instructor does not cover captions, diagrams, or callouts in 9:16, 16:9, and 1:1.
-- [ ] Add a test that resolves the voice and checks every `Teacher.appearance` in the persisted storyboard.
-- [ ] Add `Teacher` bounds to the layout validator.
+- [x] Add a test that resolves the voice and checks every `Teacher.appearance` in the persisted storyboard.
+- [x] Add `Teacher` bounds to the layout validator.
 
 **Exit gate:** instructor present, stable across rerenders, and visually clear.
 
@@ -397,7 +412,7 @@ Tasks:
 
 Tasks:
 
-- [ ] Make environment overrides actually win over `recommendSettings()`:
+- [x] Make environment overrides actually win over `recommendSettings()`:
   - `RENDER_CONCURRENCY`;
   - `RENDER_GL`;
   - `RENDER_PROFILE`.
@@ -464,18 +479,18 @@ Then, using the normal Kaggle start path:
 
 ## 7. Definition of done
 
-- [ ] P0 defects D1–D5 are fixed.
-- [ ] The final storyboard contains no duplicate title/bubble/caption text.
-- [ ] Every attached image is verified against its scene concept.
-- [ ] Diagrams are spread, readable, and inside safe bounds.
-- [ ] No speech bubble covers a process step or annotation.
-- [ ] Titles are semantic, not truncated caption fragments.
-- [ ] `NumberCounter` intent is preserved when the narration contains a measured value.
-- [ ] Scene boundaries do not split sentences awkwardly.
-- [ ] Editorial validation catches all of the above before rendering.
-- [ ] The instructor is present, voice-matched, saved, and non-overlapping.
+- [ ] P0 defects D1–D5 are fixed. (D2–D5 fixed in code; D1 needs a Kaggle rollout.)
+- [x] The final storyboard contains no duplicate title/bubble/caption text.
+- [x] Every attached image is verified against its scene concept.
+- [x] Diagrams are spread, readable, and inside safe bounds.
+- [x] No speech bubble covers a process step or annotation.
+- [x] Titles are semantic, not truncated caption fragments.
+- [x] `NumberCounter` intent is preserved when the narration contains a measured value.
+- [x] Scene boundaries do not split sentences awkwardly.
+- [x] Editorial validation catches all of the above before rendering.
+- [ ] The instructor is present, voice-matched, saved, and non-overlapping. (Saved/voice/bounds yes; live render needs Kaggle.)
 - [ ] The seven-frame review passes for 9:16, 16:9, and 1:1.
-- [ ] Tests, typecheck, and build pass.
+- [x] Tests, typecheck, and build pass.
 - [ ] Render speed is measured, not assumed.
 
 **Not done if:** the MP4 is the right duration and the schema is valid, but the scene still shows a wrong image, a covered step, or repeated narration.

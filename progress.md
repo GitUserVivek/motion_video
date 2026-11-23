@@ -210,3 +210,36 @@ ls output/<jobId>/          # video, audio, subtitles, storyboard, LLM log, QC r
 ```
 
 If a job now ends `quality_failed`, the report names the exact reason — that is the intended behaviour, not a regression.
+
+## Editorial quality pass (2026-11-23)
+
+Implemented from `Update_plan.md`:
+
+- Asset verification rejects candidates whose identity belongs to a different
+  semantic field (a spacecraft called “Mars Cube One” cannot illustrate a shape;
+  a workplace “hierarchy of control” chart cannot illustrate a solid). Rejected
+  candidates now appear in `assets.json` with the candidate id and reason.
+- `AnimatedDiagram` defaults to `layout: "auto"`: a centered grid derived from
+  item count, clamped to the safe box, with wrapped labels and a readable minimum
+  font. `layout: "manual"` keeps old storyboards unchanged.
+- The director derives semantic headings (model title → visual brief → purpose +
+  key terms → omit), never a truncated narration, and removes title/bubble/caption
+  duplicates.
+- A speech bubble is only created for a real question and is dropped when the
+  scene already owns the middle lane with a full-width visual. Measured values
+  keep their counter.
+- Oversized scenes split at spoken sentence ends, not arbitrary caption phrases.
+- `layout.validation.ts` now checks duplicate text, box overlap, out-of-frame
+  children, clustered manual diagrams, truncated/dangling titles, empty panels,
+  unverified artwork and the instructor, and the same editorial report is written
+  into `quality-report.json`.
+- `RENDER_CONCURRENCY` and `RENDER_GL` now beat hardware detection; a `gpu`
+  profile with multiple GPUs logs that `chunkCount=1` leaves the second GPU idle.
+
+Verification in this sandbox: `npm run build:shared`, `npm run typecheck`,
+`npm test` (shared 15, backend 77, frontend 2) and `npm run build` all pass.
+
+Not verified here: Kaggle rebuild/restart, live `storyboard.json` inspection,
+MP4 frame review, and throughput benchmarks. The render baseline remains the
+recorded 2.83 fps / 490.8 s from the target job; no faster profile is claimed
+without a measurement on the GPU box.

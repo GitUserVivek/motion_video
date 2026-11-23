@@ -1,7 +1,10 @@
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import type { StoryboardPlan } from '@edumotion/shared';
 import { jobFiles } from './job.files.js';
+import { validateLayout } from './layout.validation.js';
+import type { SceneAssetUse } from './storyboard.visuals.js';
 
 /**
  * Post-render quality control.
@@ -18,6 +21,24 @@ export interface QualityExpectation {
   expectedHeight: number;
   expectedFps: number;
   expectAudio: boolean;
+}
+
+export interface EditorialAssetCounts {
+  downloaded: number;
+  library: number;
+  builtin: number;
+  user: number;
+}
+
+export interface EditorialReport {
+  /** Named checks this run performed, so a passing report is auditable. */
+  checks: string[];
+  passed: boolean;
+  blocking: string[];
+  warnings: string[];
+  assets: EditorialAssetCounts;
+  /** One representative frame per scene, for the manual review. */
+  frameReviewPaths: string[];
 }
 
 export interface QualityReport {
@@ -40,6 +61,8 @@ export interface QualityReport {
   sampledFrames: string[];
   failures: string[];
   warnings: string[];
+  /** Editorial review, kept separate from the technical media checks. */
+  editorial: EditorialReport;
   reportPath: string;
 }
 
@@ -92,6 +115,9 @@ class QualityService {
     jobId: string;
     videoPath: string;
     sceneTimesSec?: number[];
+    /** The exact plan rendered; enables editorial checks on the real props. */
+    storyboard?: StoryboardPlan;
+    assetUses?: SceneAssetUse[];
   } & QualityExpectation): Promise<QualityReport> {
     const failures: string[] = [];
     const warnings: string[] = [];
@@ -262,6 +288,40 @@ class QualityService {
       }
     }
 
+    // Editorial review: duplicates, overlaps, clustered diagrams, truncation
+    // and asset provenance. Technical validity never implies editorial quality.
+    const layoutIssues = options.storyboard
+      ? validateLayout(options.storyboard, expected.expectedWidth, expected.expectedHeight)
+      : [];
+    const assets: EditorialAssetCounts = { downloaded: 0, library: 0, builtin: 0, user: 0 };
+    for (const use of options.assetUses ?? []) {
+      if (use.source === 'downloaded') assets.downloaded++;
+      else if (use.source === 'library') assets.library++;
+      else if (use.source === 'user') assets.user++;
+      else assets.builtin++;
+    }
+    const editorial: EditorialReport = {
+      checks: [
+        'duplicate title/bubble/caption text',
+        'component bounding-box overlap',
+        'diagram item spread and label length',
+        'title truncation and dangling connectors',
+        'empty full-width panels',
+        'unverified artwork without imageAlt',
+        'instructor bounds and final-scene exclusion',
+        'caption sentence-boundary fragments',
+      ],
+      passed: !layoutIssues.some((issue) => issue.severity === 'blocking'),
+      blocking: layoutIssues
+        .filter((issue) => issue.severity === 'blocking')
+        .map((issue) => `${issue.sceneId}: ${issue.message}`),
+      warnings: layoutIssues
+        .filter((issue) => issue.severity === 'warning')
+        .map((issue) => `${issue.sceneId}: ${issue.message}`),
+      assets,
+      frameReviewPaths: [],
+    };
+
     // The report belongs to the job's own folder, next to the video it describes.
     const reportPath = jobFiles.qualityReport(options.jobId);
     const report: QualityReport = {
@@ -283,6 +343,7 @@ class QualityService {
       sampledFrames,
       failures,
       warnings,
+      editorial: { ...editorial, frameReviewPaths: sampledFrames },
       reportPath,
     };
 

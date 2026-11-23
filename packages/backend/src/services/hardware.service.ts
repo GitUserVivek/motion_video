@@ -1,6 +1,6 @@
 import os from 'os';
 import { execSync } from 'child_process';
-import { config } from '../config.js';
+import { config, type RenderGl } from '../config.js';
 
 export interface GpuInfo {
   index: number;
@@ -20,7 +20,7 @@ export type RenderProfile = 'cpu' | 'gpu' | 'dual-gpu';
 
 export interface RenderSettings {
   profile: RenderProfile;
-  gl: 'angle-egl' | 'egl' | 'swiftshader' | null;
+  gl: RenderGl | null;
   concurrency: number;
   useNvenc: boolean;
   gpuIndices: number[];
@@ -123,8 +123,13 @@ export function recommendSettings(
   const profile = selectProfile(hw, requestedProfile, envDual);
 
   const cpu = Math.max(1, hw.cpuCores);
-  // Keep one core free for the OS/worker and avoid oversubscribing Chrome.
-  const baseConcurrency = Math.max(1, Math.min(cpu, profile === 'dual-gpu' ? Math.floor(cpu / 2) : cpu));
+  // Environment overrides win: an operator who measured a box knows it better
+  // than the generic core-count heuristic.
+  const envConcurrency = Number.parseInt(process.env['RENDER_CONCURRENCY'] ?? '', 10);
+  const baseConcurrency = Number.isFinite(envConcurrency) && envConcurrency > 0
+    ? Math.max(1, envConcurrency)
+    // Keep one core free for the OS/worker and avoid oversubscribing Chrome.
+    : Math.max(1, Math.min(cpu, profile === 'dual-gpu' ? Math.floor(cpu / 2) : cpu));
 
   const chunkCount = profile === 'dual-gpu' && hw.gpus.length >= 2 ? 2 : 1;
   const gpuIndices = profile === 'dual-gpu' && hw.gpus.length >= 2
@@ -139,9 +144,20 @@ export function recommendSettings(
       ? hw.nvencAvailable && profile !== 'cpu'
       : /^(1|true|yes)$/i.test(nvencOverride);
 
+  // RENDER_GL is validated in config; when set it must beat hardware detection.
+  const gl = config.render.gl ?? chooseGlBackend(hw, profile);
+
+  if (profile === 'gpu' && hw.gpus.length >= 2) {
+    // Evidence, not an error: the second GPU is idle while chunking is off.
+    console.log(
+      `[Render] ${hw.gpus.length} GPU(s) detected but profile=gpu uses chunkCount=1 ` +
+        `— the second GPU stays idle. Set RENDER_PROFILE=dual-gpu to chunk.`,
+    );
+  }
+
   return {
     profile,
-    gl: chooseGlBackend(hw, profile),
+    gl,
     concurrency: baseConcurrency,
     useNvenc: useNvenc && detectNvenc(),
     gpuIndices,

@@ -117,6 +117,10 @@ export interface SceneAssetUse {
   /** Library-relative file, e.g. `auto/heart-1a2b3c4d.svg`; null = built-in glyph. */
   asset: string | null;
   source: 'downloaded' | 'library' | 'builtin' | 'user';
+  /** Candidate that was considered, even when it was rejected. */
+  candidate?: string;
+  /** Why a candidate was rejected, written to assets.json for the audit. */
+  reason?: string;
 }
 
 export type AssetPick = Omit<SceneAssetUse, 'sceneIndex'>;
@@ -456,7 +460,11 @@ function attachImages<T extends { icon: string; label: string; image?: string }>
       const verdict = verifyAssetMatch(match, keyTerms);
       if (!verdict.accepted) {
         console.warn(`[Assets] Rejected ${match.id}: ${verdict.reason}`);
-        record?.(describePick(tile, null));
+        record?.({
+          ...describePick(tile, null),
+          candidate: match.id,
+          reason: verdict.reason,
+        });
         continue;
       }
       tile.image = match.dataUrl;
@@ -498,9 +506,12 @@ function attachDiagramImages(
       keyTerms,
       exclude: used,
     });
-    const accepted = match ? verifyAssetMatch(match, keyTerms).accepted : false;
-    if (match && !accepted) {
-      console.warn(`[Assets] Rejected diagram image ${match.id} for "${String(item.label)}"`);
+    const verdict = match ? verifyAssetMatch(match, keyTerms) : null;
+    const accepted = verdict?.accepted ?? false;
+    if (match && verdict && !verdict.accepted) {
+      console.warn(
+        `[Assets] Rejected diagram image ${match.id} for "${String(item.label)}": ${verdict.reason}`,
+      );
     }
 
     record?.({
@@ -508,6 +519,9 @@ function attachDiagramImages(
       icon: item.icon,
       asset: accepted ? match?.id ?? null : null,
       source: accepted && match ? assetSource(match.id) : 'builtin',
+      ...(match && verdict && !verdict.accepted
+        ? { candidate: match.id, reason: verdict.reason }
+        : {}),
     });
 
     if (!match || !accepted) return raw;
@@ -562,6 +576,7 @@ function verifiedArtwork(options: {
     icon,
     asset: verdict.accepted ? match.id : null,
     source: verdict.accepted ? assetSource(match.id) : 'builtin',
+    ...(verdict.accepted ? {} : { candidate: match.id, reason: verdict.reason }),
   });
   if (!verdict.accepted) {
     console.warn(`[Assets] Rejected image ${match.id} for "${label}": ${verdict.reason}`);
@@ -1199,6 +1214,7 @@ export function ensureSceneVisuals(
         icon: type,
         asset: verdict.accepted ? match.id : null,
         source: verdict.accepted ? assetSource(match.id) : 'builtin',
+        ...(verdict.accepted ? {} : { candidate: match.id, reason: verdict.reason }),
       });
       if (!verdict.accepted) {
         console.warn(`[Assets] Rejected object image ${match.id}: ${verdict.reason}`);

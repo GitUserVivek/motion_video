@@ -4,6 +4,7 @@
 export * from './types/index.js';
 export * from './constants.js';
 export * from './utils/text-metrics.js';
+export * from './utils/layout-boxes.js';
 
 // Re-export schemas (these already include the types)
 export * from './schemas/job.schema.js';

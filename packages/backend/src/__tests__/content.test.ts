@@ -93,6 +93,54 @@ describe('verifyAssetMatch', () => {
     );
     expect(unrelated.accepted).toBe(false);
   });
+
+  it('rejects a candidate from a different subject area even when one word matches', () => {
+    // A spacecraft called "Mars Cube One" is not a geometric cube.
+    const spacecraft = verifyAssetMatch(
+      {
+        id: 'auto/mars-cube-one-1234.jpg',
+        dataUrl: 'data:image/jpeg;base64,x',
+        tokens: ['mars', 'cube', 'one'],
+      },
+      ['cube', 'shape', 'square', 'face'],
+    );
+    expect(spacecraft.accepted).toBe(false);
+    expect(spacecraft.conflicts).toContain('space');
+    expect(spacecraft.matchedTerms).toContain('cube');
+
+    // A workplace "hierarchy of control" chart is not a geometric solid.
+    const safetyChart = verifyAssetMatch(
+      {
+        id: 'auto/hierarchy-of-control-pyramid-1234.png',
+        dataUrl: 'data:image/png;base64,x',
+        tokens: ['hierarchy', 'control', 'pyramid'],
+      },
+      ['pyramid', 'shape', 'base', 'triangle'],
+    );
+    expect(safetyChart.accepted).toBe(false);
+    expect(safetyChart.conflicts).toContain('safety');
+  });
+
+  it('accepts a plain illustration that names the scene concept', () => {
+    const verdict = verifyAssetMatch(
+      { id: 'auto/cube-1234.svg', dataUrl: 'data:image/svg+xml;base64,x', tokens: ['cube'] },
+      ['cube', 'shape', 'face'],
+    );
+    expect(verdict.accepted).toBe(true);
+    expect(verdict.conflicts).toEqual([]);
+  });
+
+  it('keeps a field asset when the scene itself discusses that field', () => {
+    const verdict = verifyAssetMatch(
+      {
+        id: 'auto/satellite-1234.jpg',
+        dataUrl: 'data:image/jpeg;base64,x',
+        tokens: ['satellite', 'orbit'],
+      },
+      ['satellite', 'orbit', 'earth'],
+    );
+    expect(verdict.accepted).toBe(true);
+  });
 });
 
 describe('validateMath', () => {

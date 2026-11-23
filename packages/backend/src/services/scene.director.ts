@@ -31,9 +31,6 @@ import { pickTopicObject } from './storyboard.visuals.js';
 const PATTERN_CYCLE = ['none', 'dots', 'grid', 'waves'] as const;
 const CAMERA_CYCLE = ['zoomIn', 'panRight', 'zoomOut', 'panLeft'] as const;
 
-/** Headings longer than this stop reading as titles. */
-const MAX_HEADING_CHARS = 56;
-
 /** Closing titles keyed by topic; the first match wins. */
 const TOPIC_TITLES: ReadonlyArray<[RegExp, string]> = [
   [/\b(photosynthes\w*|chlorophyll|leaves?|plants?)\b/i, 'Now You Know How Plants Make Food'],
@@ -101,12 +98,39 @@ const INTENT_CUES: ReadonlyArray<{ intent: CompositionIntent; pattern: RegExp }>
   },
 ];
 
-/** Everything a summary card replaces; a recap should own the frame. */
-const RECAP_REPLACE: ReadonlySet<ComponentName> = new Set<ComponentName>([
+/** Every component that owns the visual area of a scene. */
+const PRIMARY_VISUALS: ReadonlyArray<ComponentName> = [
   'ConceptDiagram', 'ObjectGroup', 'EducationalObject', 'ImageScene',
-  'SplitScreenComparison', 'ComparisonChart', 'SpeechBubble', 'AnnotatedCallout',
-  'ProcessFlow', 'Timeline', 'SummaryScene',
+  'SplitScreenComparison', 'ComparisonChart', 'AnnotatedCallout',
+  'ProcessFlow', 'Timeline', 'SummaryScene', 'AnimatedDiagram',
+  'AnimatedNumber', 'NumberCounter', 'MultiplicationTable', 'HighlightedRegion',
+  'ObjectZoom', 'Callout', 'QuestionCard', 'KineticTypography',
+];
+
+/** Visuals that already use the whole middle lane of the frame. */
+const FULL_WIDTH_VISUALS: ReadonlySet<ComponentName> = new Set<ComponentName>([
+  'ProcessFlow', 'Timeline', 'SplitScreenComparison', 'AnnotatedCallout',
+  'ComparisonChart', 'SummaryScene', 'AnimatedDiagram', 'ConceptDiagram',
+  'ImageScene', 'MultiplicationTable', 'HighlightedRegion',
 ]);
+
+/** Every primary visual is replaced when a better composition owns the scene. */
+function replacePrimaryVisuals(): Set<ComponentName> {
+  return new Set(PRIMARY_VISUALS);
+}
+
+/** Labels that describe a scene's role, not a title a viewer should read. */
+const GENERIC_PURPOSES = new Set([
+  'hook', 'recap', 'summary', 'ending', 'conclusion', 'intro', 'introduction',
+  'process', 'data', 'example', 'define', 'definition', 'compare',
+  'comparison', 'teaching', 'content', 'body',
+]);
+
+/** A title must not start with a conjunction or a relative pronoun. */
+const BAD_TITLE_START =
+  /^(and|but|so|because|which|that|these|those|they|them|it|its|this|where|when|while|who|whom|whose|as|if|then|than)\b/i;
+const DANGLING_END =
+  /(?:[,;:\-–—]|\b(?:and|but|so|because|which|while|that|by|in|at|to|of|the|a|an|with|for|from|as))$/i;
 
 const DIRECTOR_STOPWORDS = new Set<string>([
   'the', 'a', 'an', 'and', 'or', 'but', 'so', 'because', 'if', 'then', 'than', 'that', 'this',
@@ -352,7 +376,7 @@ function buildComposition(
       if (points.length < 2) return null;
       return {
         intent,
-        replace: RECAP_REPLACE,
+        replace: replacePrimaryVisuals(),
         child: {
           component: 'SummaryScene',
           props: {
@@ -374,7 +398,7 @@ function buildComposition(
       if (bars.length >= 2) {
         return {
           intent,
-          replace: new Set<ComponentName>(['ConceptDiagram', 'SplitScreenComparison', 'ComparisonChart']),
+          replace: replacePrimaryVisuals(),
           child: {
             component: 'ComparisonChart',
             props: {
@@ -394,7 +418,7 @@ function buildComposition(
         if (!sides) return null;
         return {
           intent,
-          replace: new Set<ComponentName>(['ConceptDiagram', 'ComparisonChart']),
+          replace: replacePrimaryVisuals(),
           child: {
             component: 'SplitScreenComparison',
             props: {
@@ -414,7 +438,7 @@ function buildComposition(
       if (events.length < 2) return null;
       return {
         intent,
-        replace: new Set<ComponentName>(['ConceptDiagram', 'Timeline']),
+        replace: replacePrimaryVisuals(),
         child: {
           component: 'Timeline',
           props: { events, top: '58%', left: '50%', width: 880, startFrame },
@@ -427,7 +451,7 @@ function buildComposition(
       if (steps.length < 2) return null;
       return {
         intent,
-        replace: new Set<ComponentName>(['ConceptDiagram', 'ProcessFlow', 'AnimatedDiagram']),
+        replace: replacePrimaryVisuals(),
         child: {
           component: 'ProcessFlow',
           props: {
@@ -459,9 +483,7 @@ function buildComposition(
 
       return {
         intent,
-        replace: new Set<ComponentName>([
-          'ConceptDiagram', 'ObjectGroup', 'EducationalObject', 'ImageScene',
-        ]),
+        replace: replacePrimaryVisuals(),
         child: {
           component: 'AnnotatedCallout',
           props: {
@@ -476,21 +498,26 @@ function buildComposition(
     }
 
     case 'hook': {
+      // A bubble is only justified by a real question. "Imagine…" used to make
+      // a bubble that repeated the caption word for word.
       const question = narration
         .split(/(?<=[.!?])\s+/)
         .find((part) => part.includes('?'));
-      const text = shorten(question ?? narration, 110);
+      if (!question) return null;
+      const text = shorten(question, 110);
       if (!text) return null;
       return {
         intent,
-        replace: new Set<ComponentName>(['ConceptDiagram', 'ObjectGroup']),
+        // An annotation never replaces the scene's primary visual; it is
+        // dropped later if the scene already owns the middle lane.
+        replace: new Set<ComponentName>(),
         child: {
           component: 'SpeechBubble',
           props: {
             text,
-            variant: question ? 'question' : 'statement',
+            variant: 'question',
             tail: 'left',
-            top: '62%',
+            top: '66%',
             left: '50%',
             width: 820,
             fontSize: 36,
@@ -520,6 +547,165 @@ function shorten(text: string, maxChars: number): string {
   const lastSpace = cut.lastIndexOf(' ');
   const head = lastSpace > 12 ? cut.slice(0, lastSpace) : cut;
   return `${head.replace(/[,;:.\-–—]+$/, '').trim()}…`;
+}
+
+/** Comparison key for "is this the same sentence?" checks. */
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9%]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * True when two strings say the same thing, including the case where the title
+ * is a truncated prefix of the sentence (the old `shorten()` output).
+ */
+function isDuplicateText(a: string, b: string): boolean {
+  const left = normalizeText(a);
+  const right = normalizeText(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+  return shorter.length >= 18 && longer.startsWith(shorter);
+}
+
+/** Caption text shown in this scene, used for duplicate-speech checks. */
+function subtitleCueTexts(children: SceneChild[]): string[] {
+  return children
+    .filter((child) => child.component === 'Subtitle')
+    .flatMap((child) => {
+      const entries = child.props['entries'];
+      if (!Array.isArray(entries)) return [];
+      return entries
+        .map((entry) =>
+          typeof entry === 'object' && entry !== null
+            ? (entry as { text?: unknown }).text
+            : undefined,
+        )
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+    });
+}
+
+/**
+ * A title cut at a clause/word boundary, never with an ellipsis. A heading is
+ * allowed to be shorter than the sentence; it is not allowed to look cut off.
+ */
+function semanticTitle(text: string, maxWords = 8): string {
+  const clean = text.replace(/\s+/g, ' ').replace(/^[^A-Za-z0-9]+/, '').trim();
+  if (!clean) return '';
+
+  const clause = clean.split(/[.!?;:]/)[0] ?? clean;
+  const words = clause.split(/\s+/).filter(Boolean);
+  if (words.length < 2) return '';
+
+  const cut = words.length > maxWords ? words.slice(0, maxWords) : [...words];
+  while (cut.length > 2 && DANGLING_END.test(cut[cut.length - 1] ?? '')) cut.pop();
+  return cut.join(' ').replace(/[,;:\-–—]+$/, '').trim();
+}
+
+/** Whether a model-written line reads as a title rather than a caption cut-off. */
+function isGoodTitle(text: string): boolean {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (!clean || clean.endsWith('…')) return false;
+  if (clean.length > 64) return false;
+  if (BAD_TITLE_START.test(clean)) return false;
+  if (DANGLING_END.test(clean)) return false;
+  const words = clean.split(/\s+/).filter(Boolean);
+  return words.length >= 2 && words.length <= 9;
+}
+
+/**
+ * Semantic heading, in the plan's order: explicit model title, visual brief,
+ * purpose + key terms, otherwise nothing. Narration is deliberately not
+ * truncated into a heading any more.
+ */
+function sceneHeading(scene: SceneInstruction, existingTitle?: string): string | null {
+  if (existingTitle && isGoodTitle(existingTitle)) {
+    return existingTitle.replace(/\s+/g, ' ').trim();
+  }
+
+  const fromBrief = semanticTitle(scene.visualBrief ?? '', 8);
+  if (fromBrief) return titleCase(fromBrief);
+
+  const fromModel = existingTitle ? semanticTitle(existingTitle, 8) : '';
+  if (fromModel) return titleCase(fromModel);
+
+  const purpose = (scene.purpose ?? '').trim();
+  const terms = (scene.keyTerms ?? [])
+    .map((term) => term.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  const lower = purpose.toLowerCase();
+
+  if ((lower === 'compare' || lower === 'comparison') && terms.length >= 2) {
+    const phrase = `${titleCase(terms[0] ?? '')} vs ${titleCase(terms[1] ?? '')}`;
+    if (isGoodTitle(phrase)) return phrase;
+  }
+  if ((lower === 'define' || lower === 'definition') && terms.length >= 1) {
+    const phrase = `${titleCase(terms[0] ?? '')} Explained`;
+    if (isGoodTitle(phrase)) return phrase;
+  }
+  if (purpose && !GENERIC_PURPOSES.has(lower)) {
+    const phrase = terms.length > 0
+      ? `${titleCase(purpose)}: ${terms.map((term) => titleCase(term)).join(', ')}`
+      : titleCase(purpose);
+    if (isGoodTitle(phrase)) return phrase;
+  }
+
+  return null;
+}
+
+/**
+ * Remove text that says the same thing twice. A hook question keeps a single
+ * bubble only when it is not already the caption; a title that the model cut
+ * off is dropped rather than shown with an ellipsis.
+ */
+function dedupeNarration(
+  children: SceneChild[],
+  changes: string[],
+  sceneIndex: number,
+): SceneChild[] {
+  const cues = subtitleCueTexts(children);
+  const titleIndex = children.findIndex((child) => child.component === 'AnimatedText');
+  const titleText = titleIndex >= 0 && typeof children[titleIndex]?.props['text'] === 'string'
+    ? (children[titleIndex]!.props['text'] as string)
+    : '';
+
+  let removeTitle = false;
+  const remove = new Set<number>();
+
+  children.forEach((child, index) => {
+    if (child.component !== 'SpeechBubble') return;
+    const text = typeof child.props['text'] === 'string' ? child.props['text'] : '';
+    if (!text.trim()) return;
+
+    const duplicatesCue = cues.some((cue) => isDuplicateText(text, cue));
+    const duplicatesTitle = titleText ? isDuplicateText(text, titleText) : false;
+    const isQuestion = text.trim().endsWith('?');
+
+    if (duplicatesTitle && isQuestion && !titleText.trim().endsWith('?')) {
+      removeTitle = true;
+      return;
+    }
+    if (duplicatesCue || duplicatesTitle) remove.add(index);
+  });
+
+  if (titleText && cues.length > 0) {
+    const firstCue = cues[0] ?? '';
+    if (isDuplicateText(titleText, firstCue)) removeTitle = true;
+  }
+
+  remove.forEach((index) => {
+    const child = children[index];
+    if (child) changes.push(`scene ${sceneIndex + 1}: removed duplicate ${child.component} text`);
+  });
+  if (removeTitle && titleIndex >= 0) {
+    changes.push(`scene ${sceneIndex + 1}: removed a title that repeated the caption`);
+  }
+
+  return children.filter((_, index) => !remove.has(index) && !(removeTitle && index === titleIndex));
 }
 
 /** Narration the scene is actually speaking, read from its own caption cue. */
@@ -584,7 +770,8 @@ function topicTitle(script: string): string {
     .map((part) => part.trim())
     .find((part) => part.length > 0);
 
-  return shorten(firstSentence ?? '', MAX_HEADING_CHARS) || 'Thanks for watching!';
+  const semantic = semanticTitle(firstSentence ?? '', 8);
+  return semantic ? titleCase(semantic) : 'Thanks for watching!';
 }
 
 export function directStoryboard(
@@ -642,31 +829,43 @@ export function directStoryboard(
       }
     }
 
-    // 2. Typography: a scene needs a short title, not the spoken paragraph.
+    // 2. Typography: a heading names the idea. It is never narration truncated
+    //    mid-sentence, and a cut-off fragment is removed rather than displayed.
     const titleIndex = children.findIndex((child) => child.component === 'AnimatedText');
-    if (titleIndex >= 0) {
-      const title = children[titleIndex];
-      const text = title?.props['text'];
-      if (title && typeof text === 'string' && text.trim().length > MAX_HEADING_CHARS) {
-        children[titleIndex] = {
-          ...title,
-          props: { ...title.props, text: shorten(text, MAX_HEADING_CHARS) },
-        };
-        changes.push(`scene ${index + 1}: shortened heading`);
+    const modelTitle = titleIndex >= 0 ? children[titleIndex]?.props['text'] : undefined;
+    const heading = isLast
+      ? null
+      : sceneHeading(scene, typeof modelTitle === 'string' ? modelTitle : undefined);
+
+    if (!isLast) {
+      if (titleIndex >= 0) {
+        const title = children[titleIndex];
+        if (!heading) {
+          children.splice(titleIndex, 1);
+          changes.push(`scene ${index + 1}: removed a heading that was a caption fragment`);
+        } else if (title) {
+          children[titleIndex] = {
+            ...title,
+            props: { ...title.props, text: heading, top: '10%' },
+          };
+          if (heading !== modelTitle) {
+            changes.push(`scene ${index + 1}: replaced heading with a semantic title`);
+          }
+        }
+      } else if (heading) {
+        children.unshift({
+          component: 'AnimatedText',
+          props: {
+            text: heading,
+            animation: 'words',
+            fontSize: 58,
+            fontWeight: 800,
+            top: '10%',
+            startFrame: 6,
+          },
+        });
+        changes.push(`scene ${index + 1}: added a semantic heading`);
       }
-    } else if (!isLast && narration) {
-      children.unshift({
-        component: 'AnimatedText',
-        props: {
-          text: shorten(narration, MAX_HEADING_CHARS),
-          animation: 'words',
-          fontSize: 62,
-          fontWeight: 800,
-          top: '12%',
-          startFrame: 6,
-        },
-      });
-      changes.push(`scene ${index + 1}: added heading`);
     }
 
     // 3. Visual relevance is planned by the storyboard from the narration and
@@ -685,16 +884,34 @@ export function directStoryboard(
       const alreadyPresent = directedChildren.some(
         (child) => child.component === composition.child.component,
       );
+      const isBubble = composition.child.component === 'SpeechBubble';
+      // A bubble is an annotation, so it cannot share the middle lane with a
+      // full-width process, comparison or diagram.
+      const hasFullWidthVisual = directedChildren.some((child) =>
+        FULL_WIDTH_VISUALS.has(child.component),
+      );
+      // A measured value stays a counter; a second chart would replace the very
+      // number the narration is about.
+      const keepsCounter = composition.intent !== 'summary'
+        && directedChildren.some((child) =>
+          child.component === 'NumberCounter' || child.component === 'AnimatedNumber',
+        );
 
       if (alreadyPresent) {
         changes.push(`scene ${index + 1}: kept the model's ${composition.child.component}`);
+      } else if (isBubble && hasFullWidthVisual) {
+        changes.push(
+          `scene ${index + 1}: skipped the speech bubble so it cannot cover the primary visual`,
+        );
+      } else if (keepsCounter) {
+        changes.push(`scene ${index + 1}: kept the measured-value counter`);
       } else {
         directedChildren = directedChildren.filter(
           (child) => !composition.replace.has(child.component),
         );
 
         // A hook bubble lives low in the frame; lift the object it talks about.
-        if (composition.child.component === 'SpeechBubble') {
+        if (isBubble) {
           directedChildren = directedChildren.map((child) =>
             child.component === 'EducationalObject'
               ? { ...child, props: { ...child.props, top: '44%' } }
@@ -718,6 +935,10 @@ export function directStoryboard(
         );
       }
     }
+
+    // 4b. One idea, one sentence. Remove any title, bubble or caption that
+    //     repeats another layer word for word before the presenter is added.
+    directedChildren = dedupeNarration(directedChildren, changes, index);
 
     // 5. Presenter: pick a stable instructor for the selected voice and add it
     //    to the teaching beats that benefit from a human guide. A maximum of
@@ -791,7 +1012,7 @@ export function directStoryboard(
         subtitle: existingSubtitle && existingSubtitle !== 'Subscribe for more educational videos'
           ? existingSubtitle
           : narration
-            ? `In short: ${shorten(narration, 60)}`
+            ? `In short: ${semanticTitle(narration, 9) || narration.slice(0, 60)}`
             : 'Keep exploring with EduMotion',
         showConfetti: existing?.props['showConfetti'] ?? true,
         startFrame: existing?.props['startFrame'] ?? 10,

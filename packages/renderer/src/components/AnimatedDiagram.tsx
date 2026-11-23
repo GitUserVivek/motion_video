@@ -1,6 +1,6 @@
 import React from 'react';
 import { Img, useCurrentFrame } from 'remotion';
-import { fadeIn, slideIn, pop } from '../utils/animation.js';
+import { fadeIn, pop } from '../utils/animation.js';
 import { ICON_PATHS, type ObjectType } from '../utils/icons.js';
 
 export interface DiagramItem {
@@ -23,6 +23,52 @@ export interface AnimatedDiagramProps {
   startFrame?: number;
   width?: number;
   height?: number;
+  /**
+   * `auto` arranges the items in a centered row/grid and ignores raw model
+   * offsets (which were often page coordinates, not offsets). `manual` keeps the
+   * old offset behaviour for storyboards that deliberately placed their items.
+   */
+  layout?: 'auto' | 'manual';
+}
+
+interface PlacedItem {
+  x: number;
+  y: number;
+  cellWidth: number;
+  tile: number;
+  labelFont: number;
+}
+
+/**
+ * Grid geometry for the auto layout. The panel grows with the number of items,
+ * so three tiles are not squeezed into the corner of a fixed 600×400 box.
+ */
+function autoLayout(
+  count: number,
+  panelWidth: number,
+): { placements: PlacedItem[]; height: number; tile: number } {
+  const columns = count <= 3 ? Math.max(1, count) : count === 4 ? 2 : 3;
+  const rows = Math.max(1, Math.ceil(count / columns));
+  const padding = 26;
+  const cellWidth = (panelWidth - padding * 2) / columns;
+  const cellHeight = Math.max(126, Math.min(cellWidth + 42, 196));
+  const tile = Math.max(44, Math.min(104, Math.floor(Math.min(cellWidth - 14, 104))));
+  const labelFont = Math.max(15, Math.min(22, Math.round(tile * 0.2)));
+
+  const placements: PlacedItem[] = Array.from({ length: count }, (_, index) => {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    const itemsInRow = Math.min(columns, count - row * columns);
+    const offset = (columns - itemsInRow) / 2;
+    const x = Math.min(
+      panelWidth - tile / 2 - 10,
+      Math.max(tile / 2 + 10, padding + cellWidth * (offset + column + 0.5)),
+    );
+    const y = padding + cellHeight * (row + 0.5);
+    return { x, y, cellWidth, tile, labelFont };
+  });
+
+  return { placements, height: Math.max(200, rows * cellHeight + padding * 2), tile };
 }
 
 export function AnimatedDiagram({
@@ -34,12 +80,29 @@ export function AnimatedDiagram({
   startFrame = 0,
   width = 600,
   height = 400,
+  layout = 'auto',
 }: AnimatedDiagramProps): React.ReactElement {
   const frame = useCurrentFrame();
 
-  const centerX = width / 2;
-  const centerY = height / 2;
   const formula = equation?.trim();
+  const isManual = layout === 'manual';
+  const panelWidth = Math.max(300, Math.min(width, 900));
+  const auto = autoLayout(items.length, panelWidth);
+  const panelHeight = isManual ? height : auto.height;
+
+  const centerX = panelWidth / 2;
+  const centerY = panelHeight / 2;
+
+  const positionOf = (index: number): { x: number; y: number } => {
+    const item = items[index];
+    if (isManual) {
+      return {
+        x: centerX + (item?.position?.x ?? 0),
+        y: centerY + (item?.position?.y ?? 0),
+      };
+    }
+    return auto.placements[index] ?? { x: centerX, y: centerY };
+  };
 
   return (
     <div
@@ -48,8 +111,8 @@ export function AnimatedDiagram({
         top,
         left,
         transform: 'translate(-50%, -50%)',
-        width,
-        height,
+        width: panelWidth,
+        height: panelHeight,
       }}
     >
       {/* Background */}
@@ -74,7 +137,7 @@ export function AnimatedDiagram({
             justifyContent: 'center',
             padding: 36,
             textAlign: 'center',
-            fontSize: 46,
+            fontSize: Math.max(30, Math.min(46, Math.round(panelWidth * 0.06))),
             fontWeight: 800,
             lineHeight: 1.35,
             letterSpacing: 1,
@@ -95,6 +158,8 @@ export function AnimatedDiagram({
             top: -40,
             left: '50%',
             transform: 'translateX(-50%)',
+            width: '100%',
+            textAlign: 'center',
             fontSize: 28,
             fontWeight: 800,
             color: '#ffffff',
@@ -112,8 +177,12 @@ export function AnimatedDiagram({
         const opacity = fadeIn(frame, appearFrame, 20);
         const scale = pop(frame, appearFrame);
 
-        const posX = centerX + (item.position?.x ?? 0);
-        const posY = centerY + (item.position?.y ?? 0);
+        const position = positionOf(index);
+        const posX = position.x;
+        const posY = position.y;
+        const tile = isManual ? 60 : (auto.placements[index]?.tile ?? 60);
+        const labelFont = isManual ? 18 : (auto.placements[index]?.labelFont ?? 18);
+        const labelWidth = isManual ? 150 : Math.max(70, (auto.placements[index]?.cellWidth ?? 150) - 14);
 
         return (
           <React.Fragment key={`item-${index}`}>
@@ -129,29 +198,40 @@ export function AnimatedDiagram({
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: 8,
+                width: labelWidth,
                 willChange: 'transform, opacity',
               }}
             >
               {/* Icon */}
               <div
                 style={{
-                  width: 60,
-                  height: 60,
+                  width: tile,
+                  height: tile,
                   background: 'rgba(255, 255, 255, 0.15)',
                   borderRadius: 12,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   border: '2px solid rgba(255, 255, 255, 0.3)',
+                  flexShrink: 0,
                 }}
               >
                 {item.image ? (
                   <Img
                     src={item.image}
-                    style={{ width: 52, height: 52, objectFit: 'contain' }}
+                    style={{
+                      width: tile * 0.86,
+                      height: tile * 0.86,
+                      objectFit: 'contain',
+                    }}
                   />
                 ) : (
-                  <svg width={40} height={40} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                  <svg
+                    width={tile * 0.66}
+                    height={tile * 0.66}
+                    viewBox="0 0 100 100"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
                     {ICON_PATHS[item.icon] ?? ICON_PATHS.book}
                   </svg>
                 )}
@@ -160,10 +240,17 @@ export function AnimatedDiagram({
               {/* Label */}
               <div
                 style={{
-                  fontSize: 18,
+                  // A minimum readable size and a hard width keep long labels
+                  // from colliding with the neighbouring tile.
+                  fontSize: labelFont,
                   fontWeight: 700,
                   color: '#eef2ff',
                   textAlign: 'center',
+                  lineHeight: 1.15,
+                  width: labelWidth,
+                  maxHeight: labelFont * 2.6,
+                  overflow: 'hidden',
+                  overflowWrap: 'anywhere',
                   textShadow: '0 2px 8px rgba(0, 0, 0, 0.6)',
                 }}
               >
@@ -174,10 +261,12 @@ export function AnimatedDiagram({
               {item.description && (
                 <div
                   style={{
-                    fontSize: 14,
+                    fontSize: Math.max(12, labelFont - 4),
                     color: 'rgba(255, 255, 255, 0.6)',
                     textAlign: 'center',
-                    maxWidth: 150,
+                    width: labelWidth,
+                    overflow: 'hidden',
+                    overflowWrap: 'anywhere',
                   }}
                 >
                   {item.description}
@@ -188,10 +277,7 @@ export function AnimatedDiagram({
             {/* Connections */}
             {item.connections?.map((connIndex) => {
               if (connIndex >= items.length) return null;
-              const connItem = items[connIndex];
-              if (!connItem) return null;
-              const connX = centerX + (connItem.position?.x ?? 0);
-              const connY = centerY + (connItem.position?.y ?? 0);
+              const connPosition = positionOf(connIndex);
 
               const connectionOpacity = fadeIn(frame, appearFrame + 15, 20);
 
@@ -227,8 +313,8 @@ export function AnimatedDiagram({
                   <line
                     x1={posX}
                     y1={posY}
-                    x2={connX}
-                    y2={connY}
+                    x2={connPosition.x}
+                    y2={connPosition.y}
                     stroke="#8f7be0"
                     strokeWidth="3"
                     strokeDasharray="8,4"
