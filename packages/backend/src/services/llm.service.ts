@@ -14,6 +14,21 @@ export interface LlmChatOptions {
   num_predict?: number;
 }
 
+/**
+ * Detect a reply that carries no actual language.
+ *
+ * A GPU kernel that does not match the card, or a broken detokenizer, makes the
+ * model emit runs of `?`/U+FFFD. That text is long enough to pass every size
+ * check and then becomes a one-word "script" full of `????`, so it has to be
+ * rejected on content rather than length.
+ */
+export function looksUndecodable(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  const lettersOrDigits = (trimmed.match(/[\p{L}\p{N}]/gu) ?? []).length;
+  return lettersOrDigits < Math.max(1, Math.ceil(trimmed.length * 0.15));
+}
+
 class LlmService {
   private llama: Llama | null = null;
   private model: LlamaModel | null = null;
@@ -93,16 +108,31 @@ class LlmService {
   }
 
   async chat(messages: LlmMessage[], options?: LlmChatOptions): Promise<string> {
-    const run = this.chatQueue.then(
-      () => this.runChat(messages, options),
-      () => this.runChat(messages, options),
-    );
+    const run = async (): Promise<string> => {
+      const reply = await this.runChat(messages, options);
+      if (!looksUndecodable(reply)) return reply;
+
+      console.warn(
+        `[LLM] Reply had no letters or digits (${reply.length} chars, ` +
+          `start ${JSON.stringify(reply.slice(0, 40))}); retrying once at low temperature`,
+      );
+      const retry = await this.runChat(messages, { ...options, temperature: 0.05 });
+      if (!looksUndecodable(retry)) return retry;
+
+      throw new Error(
+        'LLM produced undecodable text twice (no letters or digits in the reply). ' +
+          'When the backend is CUDA this usually means the kernels do not support ' +
+          'this GPU — set LLM_GPU_LAYERS=0 to test the CPU path.',
+      );
+    };
+
+    const chained = this.chatQueue.then(run, run);
     // Keep the chain alive whether the run succeeds or fails.
-    this.chatQueue = run.then(
+    this.chatQueue = chained.then(
       () => undefined,
       () => undefined,
     );
-    return run;
+    return chained;
   }
 
   private async runChat(messages: LlmMessage[], options?: LlmChatOptions): Promise<string> {

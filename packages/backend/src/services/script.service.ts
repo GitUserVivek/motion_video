@@ -46,7 +46,12 @@ class ScriptService {
     });
 
     const cleaned = this.cleanScriptOutput(content);
-    if (cleaned.replace(/\s+/g, ' ').trim().length < 20) {
+    // A reply made of `?`/U+FFFD is long but is not narration, and it would
+    // otherwise be stored as a one-word script.
+    if (
+      cleaned.replace(/\s+/g, ' ').trim().length < 20 ||
+      !/[\p{L}\p{N}]/u.test(cleaned)
+    ) {
       throw new AppError('GENERATION_FAILED', 'Generated script is too short or empty', 500);
     }
 
