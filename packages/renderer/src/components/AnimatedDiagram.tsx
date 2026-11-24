@@ -1,7 +1,20 @@
 import React from 'react';
-import { Img, useCurrentFrame } from 'remotion';
-import { fadeIn, pop } from '../utils/animation.js';
+import { Img, useCurrentFrame, useVideoConfig } from 'remotion';
+import { fitFontSize } from '@edumotion/shared';
+import {
+  accentAt,
+  BORDER,
+  BORDER_THIN,
+  CARD_SHADOW,
+  CARD_SHADOW_SM,
+  FONTS,
+  INK,
+  PAPER,
+  springIn,
+  STICKER_SHADOW,
+} from '../utils/design.js';
 import { ICON_PATHS, type ObjectType } from '../utils/icons.js';
+import { CodePanel, Sticker } from './motion/Primitives.js';
 
 export interface DiagramItem {
   icon: ObjectType;
@@ -10,7 +23,7 @@ export interface DiagramItem {
   image?: string;
   description?: string;
   position: { x: number; y: number };
-  connections?: number[]; // Indices of items to connect to
+  connections?: number[];
 }
 
 export interface AnimatedDiagramProps {
@@ -23,6 +36,8 @@ export interface AnimatedDiagramProps {
   startFrame?: number;
   width?: number;
   height?: number;
+  /** Optional override for the icon square inside each card. */
+  iconSize?: number;
   /**
    * `auto` arranges the items in a centered row/grid and ignores raw model
    * offsets (which were often page coordinates, not offsets). `manual` keeps the
@@ -31,78 +46,93 @@ export interface AnimatedDiagramProps {
   layout?: 'auto' | 'manual';
 }
 
-interface PlacedItem {
+interface Placement {
   x: number;
   y: number;
-  cellWidth: number;
-  tile: number;
-  labelFont: number;
+  cardWidth: number;
+  cardHeight: number;
+  icon: number;
 }
 
-/**
- * Grid geometry for the auto layout. The panel grows with the number of items,
- * so three tiles are not squeezed into the corner of a fixed 600×400 box.
- */
 function autoLayout(
   count: number,
   panelWidth: number,
-): { placements: PlacedItem[]; height: number; tile: number } {
-  const columns = count <= 3 ? Math.max(1, count) : count === 4 ? 2 : 3;
-  const rows = Math.max(1, Math.ceil(count / columns));
-  const padding = 26;
-  const cellWidth = (panelWidth - padding * 2) / columns;
-  const cellHeight = Math.max(126, Math.min(cellWidth + 42, 196));
-  const tile = Math.max(44, Math.min(104, Math.floor(Math.min(cellWidth - 14, 104))));
-  const labelFont = Math.max(15, Math.min(22, Math.round(tile * 0.2)));
+  requestedIcon?: number,
+): { placements: Placement[]; height: number } {
+  const safeCount = Math.max(1, count);
+  const columns = safeCount <= 1 ? 1 : safeCount <= 3 ? safeCount : 2;
+  const rows = Math.max(1, Math.ceil(safeCount / columns));
+  const padding = 18;
+  const gap = 18;
+  const cardWidth = (panelWidth - padding * 2 - gap * (columns - 1)) / columns;
+  const iconBase = requestedIcon
+    ?? (safeCount === 1
+      ? Math.min(286, cardWidth * 0.58)
+      : Math.min(176, cardWidth * 0.52));
+  const icon = Math.max(76, Math.floor(iconBase));
+  const cardHeight = icon + (safeCount === 1 ? 152 : 112);
 
-  const placements: PlacedItem[] = Array.from({ length: count }, (_, index) => {
+  const placements: Placement[] = Array.from({ length: safeCount }, (_, index) => {
     const row = Math.floor(index / columns);
     const column = index % columns;
-    const itemsInRow = Math.min(columns, count - row * columns);
+    const itemsInRow = Math.min(columns, safeCount - row * columns);
     const offset = (columns - itemsInRow) / 2;
-    const x = Math.min(
-      panelWidth - tile / 2 - 10,
-      Math.max(tile / 2 + 10, padding + cellWidth * (offset + column + 0.5)),
-    );
-    const y = padding + cellHeight * (row + 0.5);
-    return { x, y, cellWidth, tile, labelFont };
+    return {
+      x: padding + (offset + column) * (cardWidth + gap) + cardWidth / 2,
+      y: padding + row * (cardHeight + gap) + cardHeight / 2,
+      cardWidth,
+      cardHeight,
+      icon,
+    };
   });
 
-  return { placements, height: Math.max(200, rows * cellHeight + padding * 2), tile };
+  return {
+    placements,
+    height: rows * cardHeight + (rows - 1) * gap + padding * 2,
+  };
 }
 
 export function AnimatedDiagram({
   items = [],
   equation,
   title,
-  top = '50%',
+  top = '56%',
   left = '50%',
   startFrame = 0,
-  width = 600,
-  height = 400,
+  width = 760,
+  height = 420,
+  iconSize,
   layout = 'auto',
 }: AnimatedDiagramProps): React.ReactElement {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
 
   const formula = equation?.trim();
   const isManual = layout === 'manual';
-  const panelWidth = Math.max(300, Math.min(width, 900));
-  const auto = autoLayout(items.length, panelWidth);
+  const panelWidth = Math.max(320, Math.min(width, 940));
+  const auto = autoLayout(items.length, panelWidth, iconSize);
   const panelHeight = isManual ? height : auto.height;
 
-  const centerX = panelWidth / 2;
-  const centerY = panelHeight / 2;
-
-  const positionOf = (index: number): { x: number; y: number } => {
-    const item = items[index];
+  const positions: Placement[] = items.map((item, index) => {
     if (isManual) {
       return {
-        x: centerX + (item?.position?.x ?? 0),
-        y: centerY + (item?.position?.y ?? 0),
+        x: panelWidth / 2 + (item.position?.x ?? 0),
+        y: panelHeight / 2 + (item.position?.y ?? 0),
+        cardWidth: 160,
+        cardHeight: 190,
+        icon: 90,
       };
     }
-    return auto.placements[index] ?? { x: centerX, y: centerY };
-  };
+    return auto.placements[index] ?? {
+      x: panelWidth / 2,
+      y: panelHeight / 2,
+      cardWidth: 200,
+      cardHeight: 220,
+      icon: 100,
+    };
+  });
+
+  if (!formula && items.length === 0) return <></> as React.ReactElement;
 
   return (
     <div
@@ -115,18 +145,22 @@ export function AnimatedDiagram({
         height: panelHeight,
       }}
     >
-      {/* Background */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background: 'rgba(255, 255, 255, 0.05)',
-          borderRadius: 20,
-          border: '2px solid rgba(255, 255, 255, 0.1)',
-        }}
-      />
+      {title ? (
+        <div
+          style={{
+            position: 'absolute',
+            top: -28,
+            left: '50%',
+            transform: 'translateX(-50%) rotate(-2deg)',
+            zIndex: 4,
+          }}
+        >
+          <Sticker color={accentAt(1)} rotate={0} fontSize={22} padding="8px 18px">
+            {title}
+          </Sticker>
+        </div>
+      ) : null}
 
-      {/* Formula: a supported shape for equation-first model output. */}
       {formula ? (
         <div
           style={{
@@ -135,195 +169,198 @@ export function AnimatedDiagram({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: 36,
-            textAlign: 'center',
-            fontSize: Math.max(30, Math.min(46, Math.round(panelWidth * 0.06))),
-            fontWeight: 800,
-            lineHeight: 1.35,
-            letterSpacing: 1,
-            color: '#ffffff',
-            textShadow: '0 3px 18px rgba(0,0,0,0.65)',
-            opacity: fadeIn(frame, startFrame, 20),
+            padding: 26,
           }}
         >
-          {formula}
+          <CodePanel
+            lines={[formula]}
+            title="THE SHAPE EQUATION"
+            accent={accentAt(2)}
+            style={{
+              width: panelWidth - 40,
+              fontSize: Math.max(24, Math.min(34, Math.round(panelWidth * 0.045))),
+            }}
+          />
         </div>
       ) : null}
 
-      {/* Title */}
-      {title && (
-        <div
-          style={{
-            position: 'absolute',
-            top: -40,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: '100%',
-            textAlign: 'center',
-            fontSize: 28,
-            fontWeight: 800,
-            color: '#ffffff',
-            textShadow: '0 2px 10px rgba(0, 0, 0, 0.6)',
-            opacity: fadeIn(frame, startFrame, 20),
-          }}
-        >
-          {title}
-        </div>
-      )}
-
-      {/* Items */}
+      {/* Connections sit behind the cards but above the paper. */}
       {items.map((item, index) => {
-        const appearFrame = startFrame + index * 10;
-        const opacity = fadeIn(frame, appearFrame, 20);
-        const scale = pop(frame, appearFrame);
-
-        const position = positionOf(index);
-        const posX = position.x;
-        const posY = position.y;
-        const tile = isManual ? 60 : (auto.placements[index]?.tile ?? 60);
-        const labelFont = isManual ? 18 : (auto.placements[index]?.labelFont ?? 18);
-        const labelWidth = isManual ? 150 : Math.max(70, (auto.placements[index]?.cellWidth ?? 150) - 14);
-
+        const from = positions[index];
+        if (!item.connections || !from) return null;
         return (
-          <React.Fragment key={`item-${index}`}>
-            {/* Item container */}
-            <div
-              style={{
-                position: 'absolute',
-                left: posX,
-                top: posY,
-                transform: `translate(-50%, -50%) scale(${scale})`,
-                opacity,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 8,
-                width: labelWidth,
-                willChange: 'transform, opacity',
-              }}
-            >
-              {/* Icon */}
-              <div
-                style={{
-                  width: tile,
-                  height: tile,
-                  background: 'rgba(255, 255, 255, 0.15)',
-                  borderRadius: 12,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: '2px solid rgba(255, 255, 255, 0.3)',
-                  flexShrink: 0,
-                }}
-              >
-                {item.image ? (
-                  <Img
-                    src={item.image}
-                    style={{
-                      width: tile * 0.86,
-                      height: tile * 0.86,
-                      objectFit: 'contain',
-                    }}
-                  />
-                ) : (
-                  <svg
-                    width={tile * 0.66}
-                    height={tile * 0.66}
-                    viewBox="0 0 100 100"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    {ICON_PATHS[item.icon] ?? ICON_PATHS.book}
-                  </svg>
-                )}
-              </div>
-
-              {/* Label */}
-              <div
-                style={{
-                  // A minimum readable size and a hard width keep long labels
-                  // from colliding with the neighbouring tile.
-                  fontSize: labelFont,
-                  fontWeight: 700,
-                  color: '#eef2ff',
-                  textAlign: 'center',
-                  lineHeight: 1.15,
-                  width: labelWidth,
-                  maxHeight: labelFont * 2.6,
-                  overflow: 'hidden',
-                  overflowWrap: 'anywhere',
-                  textShadow: '0 2px 8px rgba(0, 0, 0, 0.6)',
-                }}
-              >
-                {item.label}
-              </div>
-
-              {/* Description */}
-              {item.description && (
-                <div
-                  style={{
-                    fontSize: Math.max(12, labelFont - 4),
-                    color: 'rgba(255, 255, 255, 0.6)',
-                    textAlign: 'center',
-                    width: labelWidth,
-                    overflow: 'hidden',
-                    overflowWrap: 'anywhere',
-                  }}
-                >
-                  {item.description}
-                </div>
-              )}
-            </div>
-
-            {/* Connections */}
-            {item.connections?.map((connIndex) => {
-              if (connIndex >= items.length) return null;
-              const connPosition = positionOf(connIndex);
-
-              const connectionOpacity = fadeIn(frame, appearFrame + 15, 20);
-
+          <React.Fragment key={`connections-${index}`}>
+            {item.connections.map((connectionIndex) => {
+              const to = positions[connectionIndex];
+              if (!to) return null;
+              const marker = `diagram-arrow-${index}-${connectionIndex}`;
               return (
                 <svg
-                  key={`conn-${index}-${connIndex}`}
+                  key={`conn-${index}-${connectionIndex}`}
                   style={{
                     position: 'absolute',
-                    top: 0,
-                    left: 0,
+                    inset: 0,
                     width: '100%',
                     height: '100%',
                     pointerEvents: 'none',
-                    opacity: connectionOpacity,
+                    overflow: 'visible',
                   }}
                 >
                   <defs>
                     <marker
-                      id={`arrow-${index}-${connIndex}`}
+                      id={marker}
                       viewBox="0 0 10 10"
-                      refX="10"
+                      refX="9"
                       refY="5"
-                      markerWidth="6"
-                      markerHeight="6"
+                      markerWidth="7"
+                      markerHeight="7"
                       orient="auto-start-reverse"
                     >
-                      <path
-                        d="M0 0 L10 5 L0 10 Z"
-                        fill="#8f7be0"
-                      />
+                      <path d="M0 0 L10 5 L0 10 Z" fill={INK} />
                     </marker>
                   </defs>
                   <line
-                    x1={posX}
-                    y1={posY}
-                    x2={connPosition.x}
-                    y2={connPosition.y}
-                    stroke="#8f7be0"
-                    strokeWidth="3"
-                    strokeDasharray="8,4"
-                    markerEnd={`url(#arrow-${index}-${connIndex})`}
+                    x1={from.x}
+                    y1={from.y}
+                    x2={to.x}
+                    y2={to.y}
+                    stroke={INK}
+                    strokeWidth={4}
+                    strokeDasharray="9 5"
+                    markerEnd={`url(#${marker})`}
                   />
                 </svg>
               );
             })}
           </React.Fragment>
+        );
+      })}
+
+      {items.map((item, index) => {
+        const placement = positions[index];
+        if (!placement) return null;
+        const appear = springIn(frame, fps, startFrame + index * 7, {
+          damping: 16,
+          stiffness: 130,
+        });
+        const single = items.length === 1;
+        const labelFont = single ? 46 : 25;
+        const descriptionFont = single ? 23 : 17;
+        const color = accentAt(index);
+
+        return (
+          <div
+            key={`item-${index}`}
+            style={{
+              position: 'absolute',
+              left: placement.x,
+              top: placement.y,
+              width: placement.cardWidth,
+              height: placement.cardHeight,
+              transform: `translate(-50%, -50%) translateY(${(1 - appear) * 34}px) rotate(${(index % 2 === 0 ? -1 : 1) * 1.2}deg)`,
+              opacity: Math.min(1, Math.max(0, appear)),
+              background: color,
+              border: BORDER,
+              borderRadius: 20,
+              boxShadow: CARD_SHADOW,
+              padding: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              willChange: 'transform, opacity',
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                top: 12,
+                left: 14,
+                background: PAPER,
+                border: BORDER_THIN,
+                borderRadius: 8,
+                boxShadow: CARD_SHADOW_SM,
+                color: INK,
+                fontFamily: FONTS.mono,
+                fontSize: 15,
+                fontWeight: 700,
+                lineHeight: 1,
+                padding: '4px 7px',
+              }}
+            >
+              {String(index + 1).padStart(2, '0')}
+            </div>
+
+            <div
+              style={{
+                width: placement.icon,
+                height: placement.icon,
+                background: PAPER,
+                border: BORDER,
+                borderRadius: 16,
+                boxShadow: CARD_SHADOW_SM,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                marginTop: 10,
+                marginBottom: single ? 16 : 10,
+              }}
+            >
+              {item.image ? (
+                <Img
+                  src={item.image}
+                  style={{
+                    width: placement.icon * 0.86,
+                    height: placement.icon * 0.86,
+                    objectFit: 'contain',
+                  }}
+                />
+              ) : (
+                <svg
+                  width={placement.icon * 0.78}
+                  height={placement.icon * 0.78}
+                  viewBox="0 0 100 100"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  {ICON_PATHS[item.icon] ?? ICON_PATHS.book}
+                </svg>
+              )}
+            </div>
+
+            <div
+              style={{
+                width: '100%',
+                color: INK,
+                fontFamily: FONTS.display,
+                fontSize: fitFontSize(item.label, placement.cardWidth - 34, labelFont, labelFont, 18),
+                fontWeight: 900,
+                letterSpacing: -1,
+                lineHeight: 0.94,
+                textAlign: 'center',
+                textTransform: 'uppercase',
+              }}
+            >
+              {item.label}
+            </div>
+
+            {item.description ? (
+              <div
+                style={{
+                  width: '100%',
+                  marginTop: 7,
+                  color: 'rgba(17,17,17,0.72)',
+                  fontFamily: FONTS.body,
+                  fontSize: descriptionFont,
+                  fontWeight: 700,
+                  lineHeight: 1.2,
+                  textAlign: 'center',
+                }}
+              >
+                {item.description}
+              </div>
+            ) : null}
+          </div>
         );
       })}
     </div>

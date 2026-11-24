@@ -1,14 +1,22 @@
 import React from 'react';
 import { Img, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
-import { easeOut, fadeIn } from '../utils/animation.js';
+import { easeOut } from '../utils/animation.js';
+import {
+  accentAt,
+  BORDER,
+  BORDER_THIN,
+  CARD_SHADOW,
+  FONTS,
+  INK,
+  PAPER,
+  springIn,
+  STICKER_SHADOW,
+} from '../utils/design.js';
 
 /**
- * A small bar chart that compares two to four measured values.
- *
- * Scenes about numbers used to show one big digit, which says nothing about how
- * the values relate. This draws the comparison itself: each bar grows on its own
- * beat, the value is printed above it and the label comes from the narration, so
- * the chart is readable without the caption.
+ * A comparison chart drawn like a printed infographic: one paper card, heavy
+ * outlines, each bar a coloured sticker with a hard shadow. Values and labels
+ * stay black on paper so the chart is readable without the caption.
  */
 
 export interface ComparisonBar {
@@ -30,10 +38,6 @@ export interface ComparisonChartProps {
 
 const MAX_BARS = 4;
 
-function safeInk(accent: string): string {
-  return /^#[0-9a-f]{6}$/i.test(accent) ? accent : '#FFD166';
-}
-
 function formatValue(value: number, suffix: string): string {
   const rounded = Number.isInteger(value) ? String(value) : value.toFixed(1);
   return `${rounded}${suffix}`;
@@ -45,21 +49,20 @@ export function ComparisonChart({
   bars = [],
   top = '56%',
   left = '50%',
-  accent = '#FFD166',
   startFrame = 0,
 }: ComparisonChartProps): React.ReactElement {
   const frame = useCurrentFrame();
-  const { height } = useVideoConfig();
+  const { fps, height } = useVideoConfig();
 
   const list = bars
     .filter((bar) => bar && Number.isFinite(bar.value) && bar.value >= 0)
     .slice(0, MAX_BARS);
   if (list.length === 0) return <></> as React.ReactElement;
 
-  const ink = safeInk(accent);
-  const chartHeight = Math.round(Math.max(240, Math.min(height * 0.32, 520)));
+  const chartHeight = Math.round(Math.max(260, Math.min(height * 0.3, 500)));
   const maxValue = Math.max(...list.map((bar) => bar.value), 1);
   const heading = title.trim();
+  const panelAppear = springIn(frame, fps, startFrame, { damping: 18, stiffness: 120 });
 
   return (
     <div
@@ -67,38 +70,56 @@ export function ComparisonChart({
         position: 'absolute',
         top,
         left,
-        width: '88%',
-        padding: '28px 26px 22px',
-        paddingRight: image ? 140 : 26,
-        borderRadius: 30,
-        background: 'rgba(8,14,30,0.42)',
-        border: '2px solid rgba(255,255,255,0.16)',
-        boxShadow: '0 24px 60px rgba(4,10,26,0.35)',
-        transform: 'translate(-50%, -50%)',
-      }}      >
+        width: '90%',
+        padding: '30px 28px 24px',
+        paddingRight: image ? 150 : 28,
+        borderRadius: 24,
+        background: PAPER,
+        border: BORDER,
+        boxShadow: CARD_SHADOW,
+        transform: `translate(-50%, -50%) translateY(${(1 - panelAppear) * 28}px)`,
+        opacity: Math.min(1, Math.max(0, panelAppear)),
+      }}
+    >
       {image ? (
-        <Img
-          src={image}
+        <div
           style={{
             position: 'absolute',
-            top: 18,
-            right: 18,
-            width: 96,
-            height: 96,
-            objectFit: 'contain',
+            top: 20,
+            right: 20,
+            width: 116,
+            height: 116,
+            background: PAPER,
+            border: BORDER_THIN,
+            borderRadius: 14,
+            boxShadow: '5px 5px 0 #111111',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
-        />
+        >
+          <Img src={image} style={{ width: 96, height: 96, objectFit: 'contain' }} />
+        </div>
       ) : null}
 
       {heading ? (
         <div
           style={{
-            marginBottom: 22,
-            fontSize: 34,
-            fontWeight: 800,
-            color: '#ffffff',
-            textAlign: 'center',
-            textShadow: '0 3px 14px rgba(0,0,0,0.5)',
+            display: 'inline-flex',
+            marginBottom: 24,
+            background: accentAt(1),
+            border: BORDER,
+            borderRadius: 9,
+            boxShadow: STICKER_SHADOW,
+            color: INK,
+            fontFamily: FONTS.display,
+            fontSize: 25,
+            fontWeight: 900,
+            letterSpacing: 0.6,
+            lineHeight: 1,
+            padding: '10px 18px',
+            textTransform: 'uppercase',
+            transform: 'rotate(-1.5deg)',
           }}
         >
           {heading}
@@ -110,20 +131,22 @@ export function ComparisonChart({
           display: 'flex',
           alignItems: 'flex-end',
           justifyContent: 'space-around',
-          gap: 20,
+          gap: 18,
           height: chartHeight,
+          borderBottom: BORDER,
+          paddingBottom: 0,
         }}
       >
         {list.map((bar, index) => {
-          const appearAt = startFrame + index * 8;
-          const targetHeight = (bar.value / maxValue) * (chartHeight - 46);
+          const appearAt = startFrame + 8 + index * 8;
+          const targetHeight = (bar.value / maxValue) * (chartHeight - 56);
           const grown = interpolate(
             frame,
             [appearAt, appearAt + 26],
             [0, Math.max(10, targetHeight)],
             { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: easeOut },
           );
-          const appear = fadeIn(frame, appearAt, 14);
+          const appear = springIn(frame, fps, appearAt, { damping: 16, stiffness: 130 });
           const suffix = bar.suffix ?? '';
 
           return (
@@ -131,34 +154,36 @@ export function ComparisonChart({
               key={`bar-${index}`}
               style={{
                 flex: 1,
-                maxWidth: 200,
+                maxWidth: 190,
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'flex-end',
-                opacity: appear,
+                opacity: Math.min(1, Math.max(0, appear)),
               }}
             >
               <div
                 style={{
                   marginBottom: 10,
+                  color: INK,
+                  fontFamily: FONTS.display,
                   fontSize: 30,
-                  fontWeight: 800,
-                  color: ink,
-                  textShadow: '0 2px 10px rgba(0,0,0,0.45)',
+                  fontWeight: 900,
+                  letterSpacing: -0.8,
+                  lineHeight: 1,
                 }}
               >
                 {formatValue(bar.value, suffix)}
               </div>
               <div
                 style={{
-                  width: '72%',
+                  width: '78%',
                   height: grown,
-                  borderRadius: '12px 12px 6px 6px',
-                  background: `linear-gradient(180deg, ${ink} 0%, ${ink}66 100%)`,
-                  border: `2px solid ${ink}AA`,
-                  boxShadow: `0 10px 28px ${ink}33`,
+                  background: accentAt(index),
+                  border: BORDER,
+                  borderRadius: '12px 12px 0 0',
+                  boxShadow: '5px -5px 0 #111111',
                   willChange: 'height',
                 }}
               />
@@ -167,20 +192,22 @@ export function ComparisonChart({
         })}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-around', gap: 20, marginTop: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-around', gap: 18, marginTop: 14 }}>
         {list.map((bar, index) => (
           <div
             key={`label-${index}`}
             style={{
               flex: 1,
-              maxWidth: 200,
-              fontSize: 21,
-              fontWeight: 700,
-              lineHeight: 1.25,
-              color: '#eef2ff',
+              maxWidth: 190,
+              color: INK,
+              fontFamily: FONTS.body,
+              fontSize: 19,
+              fontWeight: 800,
+              lineHeight: 1.15,
               textAlign: 'center',
               overflowWrap: 'anywhere',
-              opacity: fadeIn(frame, startFrame + index * 8 + 12, 14),
+              textTransform: 'uppercase',
+              opacity: Math.min(1, Math.max(0, springIn(frame, fps, startFrame + 12 + index * 8, { damping: 18, stiffness: 140 }))),
             }}
           >
             {bar.label}

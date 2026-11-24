@@ -16,3 +16,4 @@ assets/sounds/
 Thumbs.db
 logs/
 *lock.json
+*.mp4

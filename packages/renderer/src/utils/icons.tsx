@@ -8,7 +8,8 @@ import React from 'react';
  */
 export type ObjectType =
   | 'book' | 'apple' | 'globe' | 'atom' | 'lightbulb' | 'calculator' | 'pencil' | 'star'
-  | 'leaf' | 'plant' | 'sun' | 'water' | 'cloud' | 'rocket' | 'heart' | 'cell' | 'microscope';
+  | 'leaf' | 'plant' | 'sun' | 'water' | 'cloud' | 'rocket' | 'heart' | 'cell' | 'microscope'
+  | 'cube' | 'pyramid' | 'square' | 'edge' | 'vertex';
 
 export const ICON_PATHS: Record<ObjectType, React.ReactElement> = {
   book: (
@@ -162,6 +163,44 @@ export const ICON_PATHS: Record<ObjectType, React.ReactElement> = {
       <path d="M26 62 Q26 44 44 44 Q62 44 62 62 Z" fill="#95A5A6" />
       <rect x="18" y="74" width="64" height="10" rx="4" fill="#5D6D7E" />
       <rect x="64" y="52" width="14" height="18" rx="3" fill="#BDC3C7" />
+    </g>
+  ),
+  cube: (
+    <g stroke="#111111" strokeWidth="5" strokeLinejoin="round">
+      <polygon points="18,34 50,16 82,34 82,68 50,86 18,68" fill="#FFD43B" />
+      <polygon points="18,34 50,52 50,86 18,68" fill="#2F6BFF" />
+      <polygon points="82,34 50,52 50,86 82,68" fill="#FF5A1F" />
+      <polygon points="18,34 50,16 82,34 50,52" fill="#FFFDF6" />
+    </g>
+  ),
+  pyramid: (
+    <g stroke="#111111" strokeWidth="5" strokeLinejoin="round">
+      <polygon points="50,12 84,72 50,88 16,72" fill="#FFD43B" />
+      <polygon points="50,12 50,88 16,72" fill="#2F6BFF" />
+      <polygon points="50,12 84,72 50,88" fill="#FF5A1F" />
+      <line x1="50" y1="12" x2="50" y2="88" />
+    </g>
+  ),
+  square: (
+    <g stroke="#111111" strokeWidth="6">
+      <rect x="18" y="18" width="64" height="64" rx="4" fill="#2F6BFF" />
+      <line x1="18" y1="18" x2="82" y2="82" stroke="#FFD43B" strokeWidth="4" opacity="0.8" />
+    </g>
+  ),
+  edge: (
+    <g stroke="#111111" strokeWidth="6" strokeLinecap="round">
+      <line x1="18" y1="82" x2="82" y2="18" strokeWidth="16" />
+      <line x1="18" y1="82" x2="82" y2="18" stroke="#FF5A1F" strokeWidth="9" />
+      <circle cx="18" cy="82" r="8" fill="#FFD43B" />
+      <circle cx="82" cy="18" r="8" fill="#FFD43B" />
+    </g>
+  ),
+  vertex: (
+    <g stroke="#111111" strokeWidth="6" strokeLinecap="round">
+      <line x1="50" y1="50" x2="16" y2="18" />
+      <line x1="50" y1="50" x2="86" y2="22" />
+      <line x1="50" y1="50" x2="50" y2="90" />
+      <circle cx="50" cy="50" r="15" fill="#FFD43B" />
     </g>
   ),
 };

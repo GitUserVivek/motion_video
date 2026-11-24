@@ -1,6 +1,7 @@
 import React from 'react';
 import { Composition, registerRoot } from 'remotion';
 import { EduVideo } from './compositions/EduVideo.js';
+import { CURRENT_VIDEO_STORYBOARD } from './data/currentVideo.js';
 import type { StoryboardPlan } from '@edumotion/shared';
 
 // Default storyboard for Remotion Studio preview
@@ -124,6 +125,16 @@ const PREVIEW_STORYBOARD: StoryboardPlan = {
 
 function RemotionRoot(): React.ReactElement {
   return (
+    <>
+    <Composition
+      id="CurrentVideo"
+      component={EduVideo}
+      durationInFrames={CURRENT_VIDEO_STORYBOARD.totalFrames}
+      fps={CURRENT_VIDEO_STORYBOARD.fps}
+      width={1080}
+      height={1920}
+      defaultProps={{ storyboard: CURRENT_VIDEO_STORYBOARD }}
+    />
     <Composition
       id="EduVideo"
       component={EduVideo}
@@ -142,6 +153,7 @@ function RemotionRoot(): React.ReactElement {
         };
       }}
     />
+    </>
   );
 }
 

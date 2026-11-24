@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { StoryboardPlan, SceneInstruction, SceneChild, ComponentName } from '@edumotion/shared';
 
 import { AnimatedText } from '../components/AnimatedText.js';
@@ -30,8 +30,9 @@ import { SpeechBubble } from '../components/SpeechBubble.js';
 import { AnnotatedCallout } from '../components/AnnotatedCallout.js';
 import { ComparisonChart } from '../components/ComparisonChart.js';
 import { SummaryScene } from '../components/SummaryScene.js';
-import { ParticleField } from '../components/ParticleField.js';
-import { fadeIn, fadeOut } from '../utils/animation.js';
+import { FrameMeter, SceneWipe } from '../components/motion/Primitives.js';
+import { isPaletteId, PALETTES } from '../utils/palette.js';
+import { accentAt, FONTS, INK, PAPER } from '../utils/design.js';
 import { sanitizeProps } from '../utils/sanitize.js';
 
 const COMPONENT_MAP: Record<ComponentName, React.ComponentType<Record<string, unknown>>> = {
@@ -66,46 +67,7 @@ const COMPONENT_MAP: Record<ComponentName, React.ComponentType<Record<string, un
   SummaryScene:        SummaryScene as unknown as React.ComponentType<Record<string, unknown>>,
 };
 
-/** Frames of cross-fade overlap between consecutive scenes. */
-const TRANSITION_FRAMES = 12;
 
-type CameraMode = 'zoomIn' | 'zoomOut' | 'panLeft' | 'panRight';
-
-const CAMERA_CYCLE: CameraMode[] = [
-  'zoomIn', 'panRight', 'zoomOut', 'panLeft', 'zoomIn', 'panLeft', 'zoomOut', 'panRight',
-];
-
-function cameraFor(scene: SceneInstruction, index: number): CameraMode {
-  const declared = scene.props['camera'];
-  if (declared === 'zoomIn' || declared === 'zoomOut' || declared === 'panLeft' || declared === 'panRight') {
-    return declared;
-  }
-  return CAMERA_CYCLE[index % CAMERA_CYCLE.length] ?? 'zoomIn';
-}
-
-/**
- * Deterministic camera move over the scene's own lifetime. Backgrounds get a
- * stronger move than foreground elements, which reads as mild parallax.
- */
-function cameraStyle(mode: CameraMode, progress: number, strength: number): React.CSSProperties {
-  const zoom = 1 + 0.13 * strength;
-  const pan = 4 * strength;
-  switch (mode) {
-    case 'zoomOut':
-      return { transform: `scale(${interpolate(progress, [0, 1], [zoom + 0.03, 1.02])})` };
-    case 'panLeft':
-      return {
-        transform: `scale(${zoom}) translateX(${interpolate(progress, [0, 1], [pan, -pan])}%)`,
-      };
-    case 'panRight':
-      return {
-        transform: `scale(${zoom}) translateX(${interpolate(progress, [0, 1], [-pan, pan])}%)`,
-      };
-    case 'zoomIn':
-    default:
-      return { transform: `scale(${interpolate(progress, [0, 1], [1.02, zoom + 0.03])})` };
-  }
-}
 
 function renderComponent(
   name: ComponentName,
@@ -147,7 +109,7 @@ class SceneBoundary extends React.Component<
 
   override render(): React.ReactNode {
     if (this.state.failed) {
-      return <AbsoluteFill style={{ backgroundColor: '#0f0f1e' }} />;
+      return <AbsoluteFill style={{ backgroundColor: PAPER }} />;
     }
     return this.props.children;
   }
@@ -232,60 +194,48 @@ function normalizeProps(
 function SceneRenderer({
   scene,
   index,
-  totalScenes,
 }: {
   scene: SceneInstruction;
   index: number;
-  totalScenes: number;
 }): React.ReactElement {
   const frame = useCurrentFrame();
 
   const start = scene.startFrame;
   const end = scene.endFrame;
-  if (frame < start - TRANSITION_FRAMES || frame >= end + TRANSITION_FRAMES) {
-    return <></> as React.ReactElement;
-  }
-
-  const isFirst = index === 0;
-  const isLast = index === totalScenes - 1;
-  const enter = fadeIn(frame, isFirst ? 0 : start - TRANSITION_FRAMES, TRANSITION_FRAMES);
-  const exit = isLast ? 1 : fadeOut(frame, end - TRANSITION_FRAMES, TRANSITION_FRAMES);
-  const opacity = Math.max(0, Math.min(enter, exit));
-
-  const span = Math.max(1, end - start);
-  const progress = Math.max(0, Math.min(1, (frame - start) / span));
-  const camera = cameraFor(scene, index);
+  // Scenes own a hard window. The designed wipe covers the cut; no two scenes
+  // ever render over each other, so captions and cards cannot stack.
+  if (frame < start || frame >= end) return <></> as React.ReactElement;
 
   const children = scene.children ?? [];
   const captions = children.filter((child) => child.component === 'Subtitle');
   const visuals = children.filter((child) => child.component !== 'Subtitle');
+  const palette = isPaletteId(scene.props['palette']) ? scene.props['palette'] : 'sky';
+  const wipeColor = PALETTES[palette].accent;
 
   return (
-    <AbsoluteFill style={{ opacity, overflow: 'hidden' }}>
-      {/* Background layer moves more than the foreground for parallax depth. */}
-      <AbsoluteFill style={cameraStyle(camera, progress, 1)}>
+    <AbsoluteFill style={{ overflow: 'hidden' }}>
+      <AbsoluteFill>
         {renderComponent(scene.component, { ...scene.props, _sceneStartFrame: start }, `${scene.id}-root`)
-          ?? renderComponent('BackgroundScene', { theme: 'educational' }, `${scene.id}-fallback`)}
+          ?? renderComponent('BackgroundScene', { palette, pattern: 'grid' }, `${scene.id}-fallback`)}
       </AbsoluteFill>
 
-      <ParticleField seed={index + 1} opacity={0.45} />
-
-      <AbsoluteFill style={cameraStyle(camera, progress, 0.5)}>
+      <AbsoluteFill>
         {visuals.map((child, i) =>
           renderComponent(child.component, normalizeProps(scene, child), `${scene.id}-v-${i}`),
         )}
       </AbsoluteFill>
 
-      {/* Captions stay outside the camera so they remain crisp and readable.
-          They only render inside their own scene window so the cross-fade cannot
-          stack two cues on screen at a boundary. */}
-      {frame >= start && frame < end && captions.map((child, i) =>
+      {/* Captions are outside the visual layer so no camera or diagram transform
+          can blur them. */}
+      {captions.map((child, i) =>
         renderComponent(
           child.component,
           { ...child.props, _sceneStartFrame: start },
           `${scene.id}-c-${i}`,
         ),
       )}
+
+      <SceneWipe startFrame={start} color={wipeColor} accent={accentAt(index)} />
     </AbsoluteFill>
   );
 }
@@ -297,23 +247,30 @@ export interface EduVideoProps {
 
 export function EduVideo({ storyboard }: EduVideoProps): React.ReactElement {
   const scenes = storyboard?.scenes ?? [];
+  const { durationInFrames } = useVideoConfig();
+  const meterScenes = scenes.map((scene, index) => {
+    const palette = isPaletteId(scene.props['palette']) ? scene.props['palette'] : 'sky';
+    return {
+      accent: index % 2 === 0 ? PALETTES[palette].accent : accentAt(index),
+      frames: Math.max(1, scene.endFrame - scene.startFrame),
+    };
+  });
+
   return (
     <AbsoluteFill
       style={{
-        backgroundColor: '#000',
-        fontFamily: '\'Segoe UI\', system-ui, sans-serif',
+        backgroundColor: PAPER,
+        color: INK,
+        fontFamily: FONTS.body,
         overflow: 'hidden',
       }}
     >
       {scenes.map((scene, index) => (
         <SceneBoundary key={scene.id}>
-          <SceneRenderer
-            scene={scene}
-            index={index}
-            totalScenes={scenes.length}
-          />
+          <SceneRenderer scene={scene} index={index} />
         </SceneBoundary>
       ))}
+      <FrameMeter scenes={meterScenes} totalFrames={durationInFrames} />
     </AbsoluteFill>
   );
 }

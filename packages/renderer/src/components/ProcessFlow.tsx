@@ -1,6 +1,16 @@
 import React from 'react';
-import { Img, useCurrentFrame } from 'remotion';
-import { fadeIn, pop } from '../utils/animation.js';
+import { Img, useCurrentFrame, useVideoConfig } from 'remotion';
+import {
+  accentAt,
+  BORDER,
+  BORDER_THIN,
+  CARD_SHADOW,
+  CARD_SHADOW_SM,
+  FONTS,
+  INK,
+  PAPER,
+  springIn,
+} from '../utils/design.js';
 import { ICON_PATHS, type ObjectType } from '../utils/icons.js';
 
 export interface ProcessStep {
@@ -23,84 +33,172 @@ export interface ProcessFlowProps {
   stepSpacing?: number;
 }
 
+function FlowArrow({
+  direction,
+  appearAt,
+}: {
+  direction: 'horizontal' | 'vertical';
+  appearAt: number;
+}): React.ReactElement {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const draw = springIn(frame, fps, appearAt, { damping: 18, stiffness: 150 });
+
+  if (direction === 'horizontal') {
+    return (
+      <svg
+        width={42}
+        height={42}
+        viewBox="0 0 42 42"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ flexShrink: 0, opacity: draw }}
+      >
+        <path
+          d="M4 21 H36"
+          stroke={INK}
+          strokeWidth="5"
+          strokeLinecap="round"
+          strokeDasharray="32"
+          strokeDashoffset={32 * (1 - draw)}
+        />
+        <path d="M27 10 L38 21 L27 32" stroke={INK} strokeWidth="5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      width={34}
+      height={34}
+      viewBox="0 0 34 34"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ flexShrink: 0, opacity: draw }}
+    >
+      <path
+        d="M17 2 V27"
+        stroke={INK}
+        strokeWidth="5"
+        strokeLinecap="round"
+        strokeDasharray="25"
+        strokeDashoffset={25 * (1 - draw)}
+      />
+      <path d="M7 20 L17 30 L27 20" stroke={INK} strokeWidth="5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/**
+ * A sequence of steps as physical paper cards. Number badges do the work that
+ * the old glowing circles tried to do, and the arrows are drawn, not faked with
+ * a divider line.
+ */
 export function ProcessFlow({
   steps,
   direction = steps.length > 2 ? 'vertical' : 'horizontal',
-  top = '50%',
+  top = '58%',
   left = '50%',
   startFrame = 0,
-  stepSpacing = 96,
 }: ProcessFlowProps): React.ReactElement {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const vertical = direction === 'vertical';
+  const safeSteps = steps.length > 0 ? steps : [];
+  const activeIndex = Math.floor(Math.max(0, frame - startFrame) / 34) % Math.max(1, safeSteps.length);
 
   const containerStyle: React.CSSProperties = {
     position: 'absolute',
     top,
     left,
     transform: 'translate(-50%, -50%)',
-    width: '92%',
+    width: vertical ? '88%' : '94%',
+    maxWidth: vertical ? 900 : undefined,
     display: 'flex',
-    flexDirection: direction === 'horizontal' ? 'row' : 'column',
-    flexWrap: direction === 'horizontal' ? 'wrap' : 'nowrap',
+    flexDirection: vertical ? 'column' : 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: stepSpacing,
+    gap: vertical ? 8 : 12,
   };
 
   return (
     <div style={containerStyle}>
-      {steps.map((step, index) => {
-        const appearFrame = startFrame + index * 15;
-        const opacity = fadeIn(frame, appearFrame, 20);
-        const scale = pop(frame, appearFrame);
-
-        const isActive = frame >= appearFrame && frame < appearFrame + 60;
+      {safeSteps.map((step, index) => {
+        const appear = springIn(frame, fps, startFrame + index * 9, {
+          damping: 16,
+          stiffness: 125,
+        });
+        const color = step.color ?? accentAt(index);
+        const active = index === activeIndex;
+        const iconBox = vertical ? 92 : 82;
 
         return (
           <React.Fragment key={`step-${index}`}>
-            {/* Step container */}
+            {index > 0 ? (
+              <FlowArrow direction={vertical ? 'vertical' : 'horizontal'} appearAt={startFrame + index * 9 - 4} />
+            ) : null}
+
             <div
               style={{
+                width: vertical ? '100%' : '100%',
+                maxWidth: vertical ? 880 : 430,
+                minHeight: vertical ? 132 : 176,
+                background: active ? '#FFF3C4' : PAPER,
+                border: BORDER,
+                borderRadius: 18,
+                boxShadow: active ? CARD_SHADOW : CARD_SHADOW_SM,
+                padding: vertical ? '20px 26px' : '22px 24px',
                 display: 'flex',
-                flexDirection: 'column',
+                flexDirection: vertical ? 'row' : 'column',
                 alignItems: 'center',
-                gap: 12,
-                opacity,
-                transform: `scale(${scale})`,
-                willChange: 'opacity, transform',
+                textAlign: vertical ? 'left' : 'center',
+                gap: vertical ? 22 : 10,
+                opacity: Math.min(1, Math.max(0, appear)),
+                transform: `translateY(${(1 - appear) * 28}px) translateX(${active ? 5 : 0}px) rotate(${index % 2 === 0 ? -0.5 : 0.5}deg)`,
+                willChange: 'transform, opacity',
               }}
             >
-              {/* Step circle */}
               <div
                 style={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: '50%',
-                  background: step.color || '#4A90D9',
+                  width: iconBox,
+                  height: iconBox,
+                  flexShrink: 0,
+                  background: color,
+                  border: BORDER,
+                  borderRadius: 14,
+                  boxShadow: CARD_SHADOW_SM,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  boxShadow: isActive
-                    ? '0 0 30px rgba(255,255,255,0.8)'
-                    : '0 0 15px rgba(0,0,0,0.3)',
-                  transition: 'box-shadow 0.3s ease',
+                  transform: 'rotate(-3deg)',
                 }}
               >
                 {step.image ? (
                   <Img
                     src={step.image}
-                    style={{ width: 56, height: 56, objectFit: 'contain' }}
+                    style={{
+                      width: iconBox * 0.78,
+                      height: iconBox * 0.78,
+                      objectFit: 'contain',
+                    }}
                   />
                 ) : step.iconName ? (
-                  <svg width={50} height={50} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                  <svg
+                    width={iconBox * 0.7}
+                    height={iconBox * 0.7}
+                    viewBox="0 0 100 100"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
                     {ICON_PATHS[step.iconName] ?? ICON_PATHS.book}
                   </svg>
-                ) : step.icon || (
+                ) : step.icon ? (
+                  step.icon
+                ) : (
                   <span
                     style={{
-                      fontSize: 36,
-                      fontWeight: 'bold',
-                      color: '#ffffff',
+                      color: INK,
+                      fontFamily: FONTS.display,
+                      fontSize: iconBox * 0.46,
+                      fontWeight: 900,
+                      lineHeight: 1,
                     }}
                   >
                     {index + 1}
@@ -108,59 +206,56 @@ export function ProcessFlow({
                 )}
               </div>
 
-              {/* Step label */}
-              <div
-                style={{
-                  fontSize: 24,
-                  fontWeight: 700,
-                  color: '#eef2ff',
-                  textAlign: 'center',
-                  textShadow: '0 2px 8px rgba(0,0,0,0.6)',
-                }}
-              >
-                {step.label}
-              </div>
-
-              {/* Step description */}
-              {step.description && (
+              <div style={{ flex: 1, minWidth: 0, width: vertical ? undefined : '100%' }}>
                 <div
                   style={{
-                    fontSize: 16,
-                    color: 'rgba(255,255,255,0.7)',
-                    textAlign: 'center',
-                    maxWidth: 200,
+                    color: INK,
+                    fontFamily: FONTS.display,
+                    fontSize: vertical ? 30 : 25,
+                    fontWeight: 900,
+                    letterSpacing: -0.7,
+                    lineHeight: 1.02,
+                    textTransform: 'uppercase',
+                    overflowWrap: 'anywhere',
                   }}
                 >
-                  {step.description}
+                  {step.label}
                 </div>
-              )}
+                {step.description ? (
+                  <div
+                    style={{
+                      marginTop: 7,
+                      color: 'rgba(17,17,17,0.68)',
+                      fontFamily: FONTS.body,
+                      fontSize: vertical ? 20 : 17,
+                      fontWeight: 700,
+                      lineHeight: 1.25,
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {step.description}
+                  </div>
+                ) : null}
+              </div>
+
+              <div
+                style={{
+                  alignSelf: vertical ? 'center' : 'flex-start',
+                  background: PAPER,
+                  border: BORDER_THIN,
+                  borderRadius: 8,
+                  boxShadow: '3px 3px 0 #111111',
+                  color: INK,
+                  fontFamily: FONTS.mono,
+                  fontSize: 15,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  padding: '4px 7px',
+                }}
+              >
+                {String(index + 1).padStart(2, '0')}
+              </div>
             </div>
-
-            {/* Connector line (not for last step) */}
-            {index < steps.length - 1 && direction === 'horizontal' && (
-              <div
-                style={{
-                  width: stepSpacing - 40,
-                  height: 4,
-                  background: 'linear-gradient(to right, rgba(255,255,255,0.4), rgba(255,255,255,0.1))',
-                  borderRadius: 2,
-                  marginBottom: 40,
-                  opacity: fadeIn(frame, appearFrame + 10, 15),
-                }}
-              />
-            )}
-
-            {index < steps.length - 1 && direction === 'vertical' && (
-              <div
-                style={{
-                  width: 4,
-                  height: stepSpacing - 40,
-                  background: 'linear-gradient(to bottom, rgba(255,255,255,0.4), rgba(255,255,255,0.1))',
-                  borderRadius: 2,
-                  opacity: fadeIn(frame, appearFrame + 10, 15),
-                }}
-              />
-            )}
           </React.Fragment>
         );
       })}
