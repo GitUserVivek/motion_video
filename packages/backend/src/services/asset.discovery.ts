@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import type { SceneInstruction } from '@edumotion/shared';
 import { config } from '../config.js';
+import { logInfo, logStep, logSuccess, logWarn } from '../logger.js';
 
 /**
  * Automatic artwork discovery.
@@ -548,13 +549,13 @@ class AssetDiscoveryService {
     };
 
     if (!summary.enabled) {
-      console.log('[Assets] Automatic discovery disabled — using built-in artwork');
+      logInfo('Assets', 'Automatic discovery disabled — using built-in artwork');
       return summary;
     }
 
     summary.queries = buildAssetQueries(script, config.assets.maxQueriesPerJob);
     if (summary.queries.length === 0) {
-      console.log('[Assets] No topic-specific search terms found in the script');
+      logInfo('Assets', 'No topic-specific search terms found in the script');
       return summary;
     }
 
@@ -579,12 +580,13 @@ class AssetDiscoveryService {
 
     this.writeCredits();
 
-    console.log(
-      `[Assets] ${summary.downloaded} downloaded, ${summary.reused} reused, ` +
-        `${summary.skipped} skipped (${summary.queries.length} search term(s), ` +
-        `${Date.now() - startedAt}ms)`,
-    );
-    for (const error of summary.errors) console.warn(`[Assets] ${error}`);
+    const assetSummary =
+      `${summary.downloaded} downloaded, ${summary.reused} reused, ` +
+      `${summary.skipped} skipped (${summary.queries.length} search term(s), ` +
+      `${Date.now() - startedAt}ms)`;
+    if (summary.errors.length > 0) logWarn('Assets', assetSummary);
+    else logSuccess('Assets', assetSummary);
+    for (const error of summary.errors) logWarn('Assets', error);
 
     return summary;
   }
@@ -629,11 +631,12 @@ class AssetDiscoveryService {
     }
 
     this.writeCredits();
-    console.log(
-      `[Assets] scene queries: ${summary.downloaded} downloaded, ${summary.reused} reused, ` +
-        `${summary.skipped} skipped`,
-    );
-    for (const error of summary.errors) console.warn(`[Assets] ${error}`);
+    const sceneSummary =
+      `Scene queries: ${summary.downloaded} downloaded, ${summary.reused} reused, ` +
+      `${summary.skipped} skipped`;
+    if (summary.errors.length > 0) logWarn('Assets', sceneSummary);
+    else logSuccess('Assets', sceneSummary);
+    for (const error of summary.errors) logWarn('Assets', error);
     return summary;
   }
 
@@ -649,9 +652,13 @@ class AssetDiscoveryService {
    */
   private async discover(query: string): Promise<AssetCandidate[]> {
     const cached = this.readSearchCache(query);
-    if (cached) return cached;
+    if (cached) {
+      logInfo('Assets', `Search "${query}": ${cached.length} cached candidate(s)`);
+      return cached;
+    }
 
     this.failedHosts.clear();
+    logStep('Assets', `Searching "${query}"`, '🔎');
     const collected: AssetCandidate[] = [];
 
     for (const provider of config.assets.providers) {
@@ -674,15 +681,17 @@ class AssetDiscoveryService {
       // expired search result over overwriting the cache with an empty list.
       const stale = this.readSearchCache(query, true);
       if (stale) {
-        console.warn(`[Assets] Providers unavailable; using cached results for "${query}"`);
+        logWarn('Assets', `Providers unavailable; using cached results for "${query}"`);
         return stale;
       }
       if (this.failedHosts.size === 0) this.writeSearchCache(query, []);
+      logInfo('Assets', `Search "${query}": no confident match`);
       return [];
     }
 
     const ranked = [...collected].sort((a, b) => b.score - a.score);
     this.writeSearchCache(query, ranked);
+    logSuccess('Assets', `Search "${query}": ${ranked.length} candidate(s)`);
     return ranked;
   }
 
@@ -952,7 +961,7 @@ class AssetDiscoveryService {
       fs.writeFileSync(cachePath, raw);
       return this.openMojiIndex;
     } catch (err) {
-      console.warn(`[Assets] OpenMoji index unreadable: ${message(err)}`);
+      logWarn('Assets', `OpenMoji index unreadable: ${message(err)}`);
       return null;
     }
   }
@@ -997,7 +1006,7 @@ class AssetDiscoveryService {
     if (isSvg) {
       const cleaned = sanitizeSvg(raw.toString('utf-8'));
       if (!cleaned) {
-        console.warn(`[Assets] Rejected unsafe SVG from ${candidate.provider}: ${candidate.id}`);
+        logWarn('Assets', `Rejected unsafe SVG from ${candidate.provider}: ${candidate.id}`);
         return 'skipped';
       }
       body = Buffer.from(cleaned, 'utf-8');
@@ -1032,8 +1041,9 @@ class AssetDiscoveryService {
     });
     this.saveManifest(manifest);
 
-    console.log(
-      `[Assets] ${candidate.provider} "${query}" -> ${fileName} ` +
+    logSuccess(
+      'Assets',
+      `${candidate.provider} "${query}" -> ${fileName} ` +
         `(${candidate.license.name}${candidate.license.attribution ? `, ${candidate.license.attribution}` : ''})`,
     );
 
@@ -1064,7 +1074,7 @@ class AssetDiscoveryService {
       fs.mkdirSync(config.assets.cacheDir, { recursive: true });
       fs.writeFileSync(config.assets.manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
     } catch (err) {
-      console.warn(`[Assets] Could not write the asset manifest: ${message(err)}`);
+      logWarn('Assets', `Could not write the asset manifest: ${message(err)}`);
     }
   }
 
@@ -1096,7 +1106,7 @@ class AssetDiscoveryService {
       fs.mkdirSync(config.assets.autoAssetsDir, { recursive: true });
       fs.writeFileSync(config.assets.creditsPath, lines.join('\n'), 'utf-8');
     } catch (err) {
-      console.warn(`[Assets] Could not write credits file: ${message(err)}`);
+      logWarn('Assets', `Could not write credits file: ${message(err)}`);
     }
   }
 
@@ -1146,7 +1156,7 @@ class AssetDiscoveryService {
     try {
       return JSON.parse(raw.toString('utf-8')) as T;
     } catch (err) {
-      console.warn(`[Assets] Invalid JSON from ${url}: ${message(err)}`);
+      logWarn('Assets', `Invalid JSON from ${url}: ${message(err)}`);
       return null;
     }
   }
@@ -1227,8 +1237,9 @@ class AssetDiscoveryService {
               );
               this.hostBlockedUntil.set(host, Date.now() + cooldown);
               this.failedHosts.add(host);
-              console.warn(
-                `[Assets] ${host} rate-limited (HTTP 429); cooling down for ` +
+              logWarn(
+                'Assets',
+                `${host} rate-limited (HTTP 429); cooling down for ` +
                   `${Math.round(cooldown / 1000)}s and using cached or alternative artwork`,
               );
             }
@@ -1245,7 +1256,7 @@ class AssetDiscoveryService {
 
         const declared = Number(response.headers.get('content-length') ?? '0');
         if (Number.isFinite(declared) && declared > maxBytes) {
-          console.warn(`[Assets] Skipping oversized response (${declared} bytes): ${url}`);
+          logWarn('Assets', `Skipping oversized response (${declared} bytes): ${url}`);
           return null;
         }
 
@@ -1256,7 +1267,7 @@ class AssetDiscoveryService {
         const timedOut = controller.signal.aborted;
         if (attempt === MAX_FETCH_ATTEMPTS || !retryable || timedOut) {
           if (host) this.failedHosts.add(host);
-          console.warn(`[Assets] Download failed: ${url} — ${message(err)}`);
+          logWarn('Assets', `Download failed: ${url} — ${message(err)}`);
           return null;
         }
         await delay(retryDelayMs(attempt, null));

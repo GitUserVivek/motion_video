@@ -25,6 +25,7 @@ import path from 'path';
 // Aliased: planStoryboard takes the video config as a parameter named `config`.
 import { config as appConfig } from '../config.js';
 import { jobFiles } from './job.files.js';
+import { logInfo, logStep, logSuccess, logWarn } from '../logger.js';
 
 /** Mirrors ComponentNameSchema; typed so a typo cannot drift from the union. */
 const VALID_COMPONENTS: ReadonlySet<ComponentName> = new Set<ComponentName>([
@@ -105,8 +106,9 @@ function writeJobJson(jobId: string, filePath: string, data: unknown): void {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
-    console.warn(
-      `[Storyboard] Job ${jobId}: could not write ${path.basename(filePath)} — ` +
+    logWarn(
+      'Storyboard',
+      `Job ${jobId}: could not write ${path.basename(filePath)} — ` +
         (err instanceof Error ? err.message : String(err)),
     );
   }
@@ -139,11 +141,17 @@ class StoryboardService {
     // topic string.
     const content = analysis ?? deriveContentAnalysis({ script });
     const prompt = buildStoryboardPrompt(script, config, audioDurationMs, content);
-    console.log(
-      `[Storyboard] Job ${jobId}: using ${content.domain} analysis ` +
+    logInfo(
+      'Storyboard',
+      `Job ${jobId}: using ${content.domain} analysis ` +
         `(${content.keyTerms.length} key term(s), ${content.claims.length} claim(s))`,
     );
     const totalFrames = Math.ceil((audioDurationMs / 1000) * config.fps);
+    logStep(
+      'Storyboard',
+      `Job ${jobId}: planning ${(audioDurationMs / 1000).toFixed(1)}s / ${totalFrames} frames`,
+      '🗂️',
+    );
 
     const messages = [
       {
@@ -224,7 +232,7 @@ class StoryboardService {
           schema: 'failed',
         });
         flushLlmLog(null);
-        console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt}/${attempts} — ${lastFailure}`);
+        logWarn('Storyboard', `Job ${jobId}: attempt ${attempt}/${attempts} — ${lastFailure}`);
         continue;
       }
 
@@ -271,22 +279,23 @@ class StoryboardService {
           bestAttempt = withVisuals;
           bestAssetUses = assetUses;
           bestAttemptNumber = attempt;
-          console.log(`[Storyboard] Job ${jobId}: attempt ${attempt} valid with relevance score: ${relevanceScore.toFixed(2)}`);
+          logSuccess('Storyboard', `Job ${jobId}: attempt ${attempt} valid (relevance ${relevanceScore.toFixed(2)})`);
 
           // If we have a perfect or near-perfect score, stop here
           if (relevanceScore >= 0.8) {
-            console.log(`[Storyboard] Job ${jobId}: high relevance score achieved, stopping early`);
+            logSuccess('Storyboard', `Job ${jobId}: relevance target reached, stopping early`);
             break;
           }
         } else {
-          console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt} validation failed: ${validation.overallIssues.join('; ')}`);
+          logWarn('Storyboard', `Job ${jobId}: attempt ${attempt} validation failed: ${validation.overallIssues.join('; ')}`);
           if (relevanceScore > backupScore) {
             backupScore = relevanceScore;
             backupAttempt = withVisuals;
             backupAssetUses = assetUses;
             backupAttemptNumber = attempt;
-            console.warn(
-              `[Storyboard] Job ${jobId}: keeping attempt ${attempt} as the best storyboard so far ` +
+            logWarn(
+              'Storyboard',
+              `Job ${jobId}: keeping attempt ${attempt} as the best so far ` +
                 `(relevance ${relevanceScore.toFixed(2)})`,
             );
           }
@@ -328,7 +337,7 @@ class StoryboardService {
           bestAttempt = withVisuals;
           bestAssetUses = assetUses;
           bestAttemptNumber = attempt;
-          console.log(`[Storyboard] Job ${jobId}: repaired attempt ${attempt} with relevance score: ${relevanceScore.toFixed(2)}`);
+          logSuccess('Storyboard', `Job ${jobId}: repaired attempt ${attempt} (relevance ${relevanceScore.toFixed(2)})`);
         } else if (relevanceScore > backupScore) {
           backupScore = relevanceScore;
           backupAttempt = withVisuals;
@@ -353,7 +362,7 @@ class StoryboardService {
       }
 
       lastFailure = this.describeIssues(retryResult?.error?.errors || []);
-      console.warn(`[Storyboard] Job ${jobId}: attempt ${attempt}/${attempts} — ${lastFailure}`);
+      logWarn('Storyboard', `Job ${jobId}: attempt ${attempt}/${attempts} — ${lastFailure}`);
     }
 
     const chosenAttempt = bestAttempt ?? backupAttempt;
@@ -366,8 +375,9 @@ class StoryboardService {
         : { attempt: null, source: 'fallback', relevance: null };
 
     if (!bestAttempt && chosenAttempt) {
-      console.warn(
-        `[Storyboard] Job ${jobId}: no attempt passed validation; using the best storyboard ` +
+      logWarn(
+        'Storyboard',
+        `Job ${jobId}: no attempt passed validation; using the best storyboard ` +
           `(relevance ${backupScore.toFixed(2)}) instead of a fallback slideshow`,
       );
     }
@@ -381,8 +391,9 @@ class StoryboardService {
         config.voice,
       );
       if (changes.length > 0) {
-        console.log(
-          `[Storyboard] Job ${jobId}: directed ${changes.length} change(s) — ${changes.slice(0, 4).join('; ')}`,
+        logInfo(
+          'Storyboard',
+          `Job ${jobId}: directed ${changes.length} change(s) — ${changes.slice(0, 4).join('; ')}`,
         );
       }
 
@@ -390,16 +401,18 @@ class StoryboardService {
       const { storyboard: timed, report: timing } = normalizeStoryboardTiming(repairedFinal);
       writeJobJson(jobId, jobFiles.timingReport(jobId), timing);
       if (timing.repaired > 0) {
-        console.warn(
-          `[Timing] Job ${jobId}: repaired ${timing.repaired} child start frame(s) ` +
+        logWarn(
+          'Storyboard',
+          `Job ${jobId}: repaired ${timing.repaired} child start frame(s) ` +
             `(${timing.issues.slice(0, 3).join('; ')})`,
         );
       }
 
       const finalValidation = storyboardValidator.validate(timed, script);
       if (finalValidation.isValid) {
-        console.log(
-          `[Storyboard] Job ${jobId}: final storyboard valid with ${finalValidation.validScenes}/${finalValidation.totalScenes} scenes`,
+        logSuccess(
+          'Storyboard',
+          `Job ${jobId}: final storyboard valid with ${finalValidation.validScenes}/${finalValidation.totalScenes} scenes`,
         );
       } else {
         // Keep the directed storyboard: it is still a designed video, and the
@@ -407,14 +420,16 @@ class StoryboardService {
         // generic slideshow would hide those problems instead of surfacing them.
         for (const result of finalValidation.sceneResults) {
           if (!result.isValid) {
-            console.warn(
-              `[Storyboard] Job ${jobId}: ${result.sceneId} issues — ${result.issues.join('; ')} ` +
+            logWarn(
+              'Storyboard',
+              `Job ${jobId}: ${result.sceneId} issues — ${result.issues.join('; ')} ` +
                 `(relevance ${result.visualRelevance?.toFixed(2) ?? 'n/a'})`,
             );
           }
         }
-        console.warn(
-          `[Storyboard] Job ${jobId}: using directed storyboard despite ${finalValidation.overallIssues.length} issue(s)`,
+        logWarn(
+          'Storyboard',
+          `Job ${jobId}: using directed storyboard despite ${finalValidation.overallIssues.length} issue(s)`,
         );
       }
       flushLlmLog(timed);
@@ -423,7 +438,7 @@ class StoryboardService {
 
     // No attempt produced a usable storyboard: build a deterministic one and give
     // it the same visual direction so the output still looks designed.
-    console.warn(`[Storyboard] Job ${jobId}: all attempts failed, creating fallback storyboard`);
+    logWarn('Storyboard', `Job ${jobId}: all attempts failed, creating fallback storyboard`);
     const fallback = this.createFallbackStoryboard(
       jobId,
       script,
@@ -439,7 +454,7 @@ class StoryboardService {
       normalizeStoryboardTiming(directedFallback);
     writeJobJson(jobId, jobFiles.timingReport(jobId), fallbackTiming);
     if (fallbackTiming.repaired > 0) {
-      console.warn(`[Timing] Job ${jobId}: fallback repaired ${fallbackTiming.repaired} child frame(s)`);
+      logWarn('Storyboard', `Job ${jobId}: fallback repaired ${fallbackTiming.repaired} child frame(s)`);
     }
     flushLlmLog(timedFallback);
     // The fallback has no downloaded artwork to report here; the worker attaches
@@ -655,8 +670,9 @@ class StoryboardService {
     });
 
     if (repaired > 0) {
-      console.warn(
-        `[Storyboard] Repaired ${repaired} scene root(s) by wrapping visuals in BackgroundScene`,
+      logWarn(
+        'Storyboard',
+        `Repaired ${repaired} scene root(s) by wrapping visuals in BackgroundScene`,
       );
     }
     return repaired > 0 ? { ...storyboard, scenes } : storyboard;

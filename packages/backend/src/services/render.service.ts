@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config.js';
 import { jobFiles } from './job.files.js';
 import { recommendSettings } from './hardware.service.js';
+import { logError, logStep, logSuccess, logWarn } from '../logger.js';
 import type { StoryboardPlan, VideoConfig, SceneInstruction } from '@edumotion/shared';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -63,11 +64,13 @@ class RenderService {
 
       onProgress?.(10);
 
-      console.log(
-        `[Render] Job ${jobId}: ${storyboard.scenes.length} scenes, ` +
+      logStep(
+        'Render',
+        `Job ${jobId}: ${storyboard.scenes.length} scenes, ` +
           `${storyboard.totalFrames} frames @ ${videoConfig.fps}fps, ` +
           `profile=${renderSettings.profile}, concurrency=${renderSettings.concurrency}, ` +
           `gl=${renderSettings.gl ?? 'chrome-default'}, nvenc=${renderSettings.useNvenc}`,
+        '🎥',
       );
 
       // Render the image sequence via the Remotion CLI
@@ -101,8 +104,9 @@ class RenderService {
       const renderFps = renderFramesMs > 0
         ? storyboard.totalFrames / (renderFramesMs / 1000)
         : 0;
-      console.log(
-        `[Render] Job ${jobId}: ${storyboard.totalFrames} frames in ` +
+      logSuccess(
+        'Render',
+        `Job ${jobId}: ${storyboard.totalFrames} frames in ` +
           `${(renderFramesMs / 1000).toFixed(1)}s (${renderFps.toFixed(2)} fps), ` +
           `mux ${(muxMs / 1000).toFixed(1)}s`,
       );
@@ -116,6 +120,7 @@ class RenderService {
 
       // Validate output
       await this.validateOutput(finalPath);
+      logSuccess('Render', `Job ${jobId}: output validated`);
 
       const stat = fs.statSync(finalPath);
       const durationSec = storyboard.totalFrames / videoConfig.fps;
@@ -149,6 +154,13 @@ class RenderService {
         durationSec,
         sizeBytes: stat.size,
       };
+    } catch (err) {
+      logError(
+        'Render',
+        `Job ${jobId}: render failed`,
+        err instanceof Error ? err.message : String(err),
+      );
+      throw err;
     } finally {
       // Always clean up temp frames
       this.cleanupTemp(jobId);
@@ -176,8 +188,9 @@ class RenderService {
         );
         return;
       } catch (err) {
-        console.warn(
-          `[Render] Job ${jobId}: chunked render failed, falling back to single pass: ` +
+        logWarn(
+          'Render',
+          `Job ${jobId}: chunked render failed, falling back to single pass: ` +
             (err instanceof Error ? err.message : String(err)),
         );
       }
@@ -243,8 +256,9 @@ class RenderService {
 
           scenesDone++;
           const label = this.sceneLabel(scene);
-          console.log(
-            `[Render] Job ${jobId}: scene ${scenesDone}/${totalScenes} rendered — ${label} ` +
+          logSuccess(
+            'Render',
+            `Job ${jobId}: scene ${scenesDone}/${totalScenes} rendered — ${label} ` +
               `(${framesDone}/${totalFrames} frames)`,
           );
           onSceneProgress?.({ completed: scenesDone, total: totalScenes, sceneId: scene.id, label });
@@ -295,7 +309,7 @@ class RenderService {
           // scenes that never got a progress line so the UI shows N/N.
           report(totalFrames);
           if (scenesDone === totalScenes) {
-            console.log(`[Render] Job ${jobId}: all ${totalScenes} scenes rendered`);
+            logSuccess('Render', `Job ${jobId}: all ${totalScenes} scenes rendered`);
           }
           resolve();
         } catch (err) {
@@ -581,7 +595,10 @@ class RenderService {
         await run(true);
         return;
       } catch (err) {
-        console.warn(`[Render] NVENC mux failed, falling back to libx264: ${err instanceof Error ? err.message : err}`);
+        logWarn(
+          'Render',
+          `NVENC mux failed, falling back to libx264: ${err instanceof Error ? err.message : err}`,
+        );
         // Clean up partial output before retrying.
         try { fs.rmSync(outputPath, { force: true }); } catch { /* ignore */ }
       }

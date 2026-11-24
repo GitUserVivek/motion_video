@@ -7,6 +7,7 @@ import { buildContentAnalysisPrompt } from '../prompts/content-analysis.prompt.j
 import { jobFiles } from './job.files.js';
 import { researchService } from './research.service.js';
 import { researchQueriesFor, verifyClaims } from './fact.check.js';
+import { logInfo, logStep, logSuccess, logWarn } from '../logger.js';
 
 /**
  * Understand the narration before any visual decision is made.
@@ -148,6 +149,10 @@ class ContentAnalysisService {
     research?: boolean;
   }): Promise<ContentAnalysis> {
     const useLlm = options.useLlm !== false;
+    const input = options.topic
+      ? `topic "${options.topic}"`
+      : `${options.script?.length ?? 0} chars of narration`;
+    logStep('Content', `Analyzing ${input}`, '🧠');
     let analysis: ContentAnalysis | null = null;
 
     if (useLlm) {
@@ -174,19 +179,22 @@ class ContentAnalysisService {
         const parsed = ContentAnalysisSchema.safeParse(parseLooseJson(raw));
         if (parsed.success) {
           analysis = parsed.data;
-          console.log(
-            `[Content] Analysed "${analysis.topic}" — domain ${analysis.domain}, ` +
+          logSuccess(
+            'Content',
+            `Analysed "${analysis.topic}" — domain ${analysis.domain}, ` +
               `${analysis.keyTerms.length} key term(s), ${analysis.claims.length} claim(s)`,
           );
         } else {
-          console.warn(
-            '[Content] Analysis JSON failed validation, using narration-derived fallback: ' +
+          logWarn(
+            'Content',
+            'Analysis JSON failed validation, using narration-derived fallback: ' +
               parsed.error.errors.slice(0, 3).map((issue) => issue.message).join('; '),
           );
         }
       } catch (err) {
-        console.warn(
-          '[Content] Analysis model failed, using narration-derived fallback: ' +
+        logWarn(
+          'Content',
+          'Analysis model failed, using narration-derived fallback: ' +
             (err instanceof Error ? err.message : String(err)),
         );
       }
@@ -200,8 +208,10 @@ class ContentAnalysisService {
 
     if (shouldResearch) {
       const queries = researchQueriesFor(analysis);
+      logStep('Research', `Checking ${queries.length} quer(y/ies)`, '🔎');
       const research = await researchService.gather(queries);
       if (research.sources.length > 0) {
+        logSuccess('Research', `${research.sources.length} source(s) found`);
         analysis = {
           ...analysis,
           sources: research.sources,
@@ -209,6 +219,7 @@ class ContentAnalysisService {
           researchNotes: [...analysis.researchNotes, ...research.errors],
         };
       } else if (research.enabled) {
+        logWarn('Research', 'No sources found; claims stay unverified');
         analysis = {
           ...analysis,
           researchNotes: [...analysis.researchNotes, ...research.errors],
@@ -223,7 +234,7 @@ class ContentAnalysisService {
         researchNotes: [...analysis.researchNotes, ...checked.issues].slice(0, 12),
       };
       if (checked.unverified > 0) {
-        console.warn(`[Content] ${checked.unverified} unsupported claim(s) remain unverified`);
+        logWarn('Content', `${checked.unverified} unsupported claim(s) remain unverified`);
       }
     } else {
       // Still normalise statuses even when research is disabled.
@@ -242,6 +253,7 @@ class ContentAnalysisService {
         sources: analysis.sources,
         notes: analysis.researchNotes,
       });
+      logInfo('Content', `Saved analysis and research reports for job ${options.jobId}`);
     }
 
     return analysis;

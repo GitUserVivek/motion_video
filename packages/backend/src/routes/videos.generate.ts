@@ -4,6 +4,7 @@ import { getDb } from '../db/db.js';
 import { GenerateVideoRequestSchema } from '@edumotion/shared';
 import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import type { JobResponse, ApiResponse } from '@edumotion/shared';
+import { logSuccess } from '../logger.js';
 
 const router = Router();
 
@@ -29,6 +30,7 @@ router.post('/generate', asyncHandler(async (req, res) => {
     INSERT INTO jobs (id, project_id, script_id, config_json)
     VALUES (?, ?, ?, ?)
   `).run(jobId, script.project_id, scriptId, JSON.stringify(config));
+  logSuccess('Job', `Queued ${jobId} for script ${scriptId}`);
 
   const response: ApiResponse<JobResponse> = {
     success: true,

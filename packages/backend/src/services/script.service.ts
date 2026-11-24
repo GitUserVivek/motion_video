@@ -15,6 +15,7 @@ import {
 import { AppError } from '../middleware/errorHandler.js';
 import { WORDS_PER_SECOND } from '@edumotion/shared';
 import { contentAnalysisService } from './content.analysis.js';
+import { logStep, logSuccess, logWarn } from '../logger.js';
 
 class ScriptService {
   async generateFromTopic(
@@ -23,6 +24,7 @@ class ScriptService {
   ): Promise<string> {
     const duration = videoConfig?.duration ?? 40;
     const language = videoConfig?.language ?? 'en';
+    logStep('Script', `Generating narration for "${topic}" (${duration}s, ${language})`, '✍️');
 
     // Understand the subject before writing so the script is not guided by a
     // generic keyword. Research is deferred to the approved narration, where the
@@ -52,7 +54,12 @@ class ScriptService {
     // overshoot, and an oversized script silently turns a 40s video into a 2min one.
     const targetWords = Math.round(duration * WORDS_PER_SECOND);
     const budgeted = this.enforceWordBudget(cleaned, Math.round(targetWords * 1.2));
-    return this.removeUnsupportedClaims(budgeted, Math.round(targetWords * 1.2));
+    const finalScript = await this.removeUnsupportedClaims(
+      budgeted,
+      Math.round(targetWords * 1.2),
+    );
+    logSuccess('Script', `Generated ${this.wordCount(finalScript)} word(s) for "${topic}"`);
+    return finalScript;
   }
 
   /**
@@ -73,9 +80,9 @@ class ScriptService {
       );
       if (unverified.length === 0) return script;
 
-      console.warn(
-        `[Script] ${unverified.length} unverified claim(s) found before approval; ` +
-          'asking the model to soften them.',
+      logWarn(
+        'Script',
+        `${unverified.length} unverified claim(s) found before approval; asking the model to soften them`,
       );
       const rewritten = await ollamaService.chat(
         [
@@ -93,8 +100,9 @@ class ScriptService {
       const cleaned = this.cleanScriptOutput(rewritten);
       return cleaned.length >= 20 ? this.enforceWordBudget(cleaned, maxWords) : script;
     } catch (err) {
-      console.warn(
-        '[Script] Claim verification failed; keeping the generated script: ' +
+      logWarn(
+        'Script',
+        'Claim verification failed; keeping the generated script: ' +
           (err instanceof Error ? err.message : String(err)),
       );
       return script;
@@ -102,6 +110,7 @@ class ScriptService {
   }
 
   async validateScript(content: string): Promise<string> {
+    logStep('Script', `Validating own script (${content.length} chars)`, '✍️');
     const result = await ollamaService.chat([
       { role: 'system', content: buildValidateSystemPrompt() },
       { role: 'user', content: buildScriptValidatePrompt(content) },
@@ -109,10 +118,13 @@ class ScriptService {
       temperature: 0.3,
       num_predict: 2048,
     });
-    return this.cleanScriptOutput(result);
+    const cleaned = this.cleanScriptOutput(result);
+    logSuccess('Script', `Validated script (${this.wordCount(cleaned)} words)`);
+    return cleaned;
   }
 
   async rewriteScript(content: string, mode: 'improve' | 'preserve'): Promise<string> {
+    logStep('Script', `Rewriting script (${mode}, ${content.length} chars)`, '✍️');
     const result = await ollamaService.chat([
       { role: 'system', content: buildRewriteSystemPrompt() },
       { role: 'user', content: buildScriptRewritePrompt(content, mode) },
@@ -120,7 +132,9 @@ class ScriptService {
       temperature: mode === 'improve' ? 0.6 : 0.2,
       num_predict: 2048,
     });
-    return this.cleanScriptOutput(result);
+    const cleaned = this.cleanScriptOutput(result);
+    logSuccess('Script', `Rewritten script (${this.wordCount(cleaned)} words, ${mode})`);
+    return cleaned;
   }
 
   /**

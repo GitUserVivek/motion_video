@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import type { ApiError } from '@edumotion/shared';
+import { logError, logWarn } from '../logger.js';
 
 export class AppError extends Error {
   constructor(
@@ -33,6 +34,7 @@ export function errorHandler(
   _next: NextFunction,
 ): void {
   if (err instanceof AppError) {
+    logWarn('HTTP', `${err.statusCode} ${err.code}: ${err.message}`);
     const error: ApiError = {
       code: err.code,
       message: err.message,
@@ -43,7 +45,7 @@ export function errorHandler(
   }
 
   if (err instanceof Error) {
-    console.error('[ERROR]', err.message, err.stack);
+    logError('HTTP', err.message, err.stack);
     const error: ApiError = {
       code: 'INTERNAL_ERROR',
       message: 'An unexpected error occurred',

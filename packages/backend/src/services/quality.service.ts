@@ -5,6 +5,7 @@ import type { StoryboardPlan } from '@edumotion/shared';
 import { jobFiles } from './job.files.js';
 import { validateLayout } from './layout.validation.js';
 import type { SceneAssetUse } from './storyboard.visuals.js';
+import { logStep } from '../logger.js';
 
 /**
  * Post-render quality control.
@@ -128,6 +129,8 @@ class QualityService {
       expectedFps: options.expectedFps,
       expectAudio: options.expectAudio,
     };
+
+    logStep('Quality', `Job ${options.jobId}: inspecting ${path.basename(options.videoPath)}`, '📊');
 
     let probe: ProbeResult = {};
     try {

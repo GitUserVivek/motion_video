@@ -12,6 +12,7 @@ import { resetAssetCache } from '../services/asset.library.js';
 import { userAssetService } from '../services/user.asset.service.js';
 import { ensureJobDir, jobFiles } from '../services/job.files.js';
 import { config } from '../config.js';
+import { logError, logInfo, logStep, logSuccess, logWarn } from '../logger.js';
 import fs from 'fs';
 import { ASPECT_RATIOS, resolveTtsVoice } from '@edumotion/shared';
 import type { VideoConfig } from '@edumotion/shared';
@@ -62,7 +63,7 @@ async function processJob(job: JobRow): Promise<void> {
   const videoConfig = JSON.parse(job.config_json) as VideoConfig;
 
   updateJob(job.id, 'processing', 5, 'generating_audio');
-  console.log(`[Worker] Processing job ${job.id}`);
+  logStep('Worker', `Job ${job.id} picked up`, '🚀');
 
   // 1. Get script content
   const scriptRow = db
@@ -77,11 +78,11 @@ async function processJob(job: JobRow): Promise<void> {
   // output/<jobId>/, so audio, subtitles, report and video stay together.
   ensureJobDir(job.id);
   const audioPath = jobFiles.audio(job.id);
-  console.log(`[Worker] Job ${job.id} [1/4] synthesizing audio (${script.length} chars)`);
+  logStep('Worker', `Job ${job.id} [1/8] audio synthesis (${script.length} chars)`, '🎙️');
   // The per-video voice wins over the server default, and preset ids from the
   // UI ('en-US-male-1') are translated into the engine's own voice name.
   const ttsVoice = resolveTtsVoice(videoConfig.voice ?? config.tts.voice);
-  console.log(`[Worker] Job ${job.id} voice: ${videoConfig.voice ?? 'default'} -> ${ttsVoice.voice}`);
+  logInfo('Worker', `Job ${job.id} voice: ${videoConfig.voice ?? 'default'} -> ${ttsVoice.voice}`);
   const {
     audioPath: finalAudioPath,
     durationMs,
@@ -92,7 +93,8 @@ async function processJob(job: JobRow): Promise<void> {
     audioPath,
     ttsVoice.engine,
   );
-  console.log(`[Worker] Job ${job.id} [2/4] subtitles for ${(durationMs / 1000).toFixed(1)}s of audio`);
+  logSuccess('Worker', `Job ${job.id} audio ready (${(durationMs / 1000).toFixed(1)}s)`);
+  logStep('Worker', `Job ${job.id} [2/8] subtitle alignment`, '📝');
 
   updateJob(job.id, 'processing', 20, 'aligning_subtitles');
 
@@ -109,8 +111,9 @@ async function processJob(job: JobRow): Promise<void> {
   // Some engines emit phrase cues whose timestamps overlap by a few frames.
   // Resolve that before writing SRT or injecting scene captions.
   const subtitles = subtitleService.normalizeCueTimeline(subtitleCues);
-  console.log(
-    `[Subtitles] Job ${job.id}: ${subtitles.length} cue(s) from ${subtitleSource} timings`,
+  logSuccess(
+    'Subtitles',
+    `Job ${job.id}: ${subtitles.length} cue(s) from ${subtitleSource} timings`,
   );
   const srtPath = jobFiles.subtitlesSrt(job.id);
   const jsonSubPath = jobFiles.subtitlesJson(job.id);
@@ -121,14 +124,15 @@ async function processJob(job: JobRow): Promise<void> {
   // for the storyboard, so a topic guess from the project title cannot leak a
   // wrong domain into the visuals. Research is best-effort and never blocks.
   updateJob(job.id, 'processing', 22, 'analyzing_content');
+  logStep('Worker', `Job ${job.id} [3/8] content analysis`, '🧠');
   const contentAnalysis = await contentAnalysisService.analyze({
     script,
     jobId: job.id,
     research: true,
   });
-  console.log(
-    `[Worker] Job ${job.id} content: ${contentAnalysis.domain} — ` +
-      `${contentAnalysis.keyTerms.length} key term(s), ` +
+  logSuccess(
+    'Content',
+    `Job ${job.id}: ${contentAnalysis.domain}, ${contentAnalysis.keyTerms.length} key term(s), ` +
       `${contentAnalysis.claims.filter((claim) => claim.status === 'supported').length}/` +
       `${contentAnalysis.claims.length} claim(s) supported`,
   );
@@ -136,7 +140,7 @@ async function processJob(job: JobRow): Promise<void> {
   updateJob(job.id, 'processing', 30, 'planning_storyboard');
 
   // 4. Plan storyboard
-  console.log(`[Worker] Job ${job.id} [3/4] planning storyboard (LLM)`);
+  logStep('Worker', `Job ${job.id} [4/8] storyboard planning (LLM)`, '🗂️');
   const planned = await storyboardService.planStoryboard(
     job.id,
     script,
@@ -144,6 +148,10 @@ async function processJob(job: JobRow): Promise<void> {
     durationMs,
     subtitles,
     contentAnalysis,
+  );
+  logSuccess(
+    'Storyboard',
+    `Job ${job.id}: planned ${planned.storyboard.scenes.length} scene(s) / ${planned.storyboard.totalFrames} frame(s)`,
   );
 
   // 4b. Optional images uploaded by the user on Review Script. Analyze them
@@ -153,8 +161,9 @@ async function processJob(job: JobRow): Promise<void> {
   updateJob(job.id, 'processing', 33, 'analyzing_user_assets');
   const userAssets = await userAssetService.loadForJob(job.script_id);
   if (userAssets.length > 0) {
-    console.log(
-      `[Worker] Job ${job.id} user assets: ${userAssets.length} uploaded, ` +
+    logInfo(
+      'Assets',
+      `Job ${job.id}: ${userAssets.length} user image(s), ` +
         `${userAssets.filter((asset) => asset.keywords.length > 0).length} with metadata`,
     );
   }
@@ -167,21 +176,23 @@ async function processJob(job: JobRow): Promise<void> {
   const sceneQueries = planned.storyboard.scenes.flatMap((scene) =>
     buildSceneAssetQueries(scene, 2),
   );
-  console.log(
-    `[Worker] Job ${job.id} asset queries (${sceneQueries.length}): ` +
-      sceneQueries.map((query) => `"${query}"`).join(', '),
+  logStep('Worker', `Job ${job.id} [5/8] scene artwork discovery (${sceneQueries.length} queries)`, '🖼️');
+  logInfo(
+    'Assets',
+    `Job ${job.id} queries: ${sceneQueries.map((query) => `"${query}"`).join(', ')}`,
   );
   const sceneDiscovery = await assetDiscovery.ensureAssetsForQueries(
     sceneQueries,
     Math.min(18, Math.max(6, planned.storyboard.scenes.length * 2)),
   );
   if (sceneDiscovery.errors.length > 0) {
-    console.warn(`[Worker] Job ${job.id} scene asset discovery had ${sceneDiscovery.errors.length} error(s)`);
+    logWarn('Assets', `Job ${job.id}: discovery had ${sceneDiscovery.errors.length} error(s)`);
   }
   resetAssetCache();
   const attached = await attachSceneArtwork(planned.storyboard, contentAnalysis, userAssets);
   const storyboard = attached.storyboard;
   const assetUses = attached.assetUses;
+  logSuccess('Assets', `Job ${job.id}: ${assetUses.length} visual(s) attached`);
 
   const usedUserAssetIds = new Set(
     assetUses
@@ -210,8 +221,9 @@ async function processJob(job: JobRow): Promise<void> {
       'utf-8',
     );
   } catch (err) {
-    console.warn(
-      `[Worker] Job ${job.id} could not write the user asset manifest: ` +
+    logWarn(
+      'Assets',
+      `Job ${job.id}: could not write the user asset manifest: ` +
         (err instanceof Error ? err.message : String(err)),
     );
   }
@@ -241,14 +253,16 @@ async function processJob(job: JobRow): Promise<void> {
       'utf-8',
     );
   } catch (err) {
-    console.warn(
-      `[Worker] Job ${job.id} could not write the asset manifest: ` +
+    logWarn(
+      'Assets',
+      `Job ${job.id}: could not write the asset manifest: ` +
         (err instanceof Error ? err.message : String(err)),
     );
   }
 
   // 4c. Semantic and structural validation before any expensive render work.
   updateJob(job.id, 'processing', 37, 'validating_storyboard');
+  logStep('Worker', `Job ${job.id} [6/8] validating storyboard`, '🧪');
   const validation = validateVideo({
     storyboard,
     script,
@@ -282,14 +296,15 @@ async function processJob(job: JobRow): Promise<void> {
       'utf-8',
     );
   } catch (err) {
-    console.warn(
-      `[Worker] Job ${job.id} could not write validation reports: ` +
+    logWarn(
+      'Validation',
+      `Job ${job.id}: could not write validation reports: ` +
         (err instanceof Error ? err.message : String(err)),
     );
   }
 
   for (const warning of validation.warnings.slice(0, 8)) {
-    console.warn(`[Validation] ${warning.sceneId ?? 'job'}: ${warning.message}`);
+    logWarn('Validation', `${warning.sceneId ?? 'job'}: ${warning.message}`);
   }
   if (!validation.passed) {
     const first = validation.blocking.slice(0, 3).map((issue) => issue.message).join(' | ');
@@ -300,15 +315,17 @@ async function processJob(job: JobRow): Promise<void> {
       'validation_failed',
       `Semantic validation failed: ${first} (report: ${jobFiles.validationReport(job.id)})`,
     );
-    console.error(`[Validation] Job ${job.id} blocked: ${first}`);
+    logError('Validation', `Job ${job.id} blocked: ${first}`);
     return;
   }
-  console.log(
-    `[Validation] Job ${job.id} passed with ${validation.warnings.length} warning(s)`,
+  logSuccess(
+    'Validation',
+    `Job ${job.id} passed with ${validation.warnings.length} warning(s)`,
   );
 
   // Persist scenes to DB — replace any scenes left by a previous attempt so a
   // shorter retry storyboard cannot leave stale scenes behind.
+  logStep('Worker', `Job ${job.id}: persisting ${storyboard.scenes.length} scene(s)`, '💾');
   db.prepare('DELETE FROM scenes WHERE job_id = ?').run(job.id);
   const insertScene = db.prepare(
     'INSERT INTO scenes (id, job_id, scene_index, instruction_json) VALUES (?, ?, ?, ?)',
@@ -324,13 +341,15 @@ async function processJob(job: JobRow): Promise<void> {
   // the video is still being rendered.
   db.prepare("UPDATE jobs SET assets_json = ?, updated_at = datetime('now') WHERE id = ?")
     .run(JSON.stringify(assetUses), job.id);
-  console.log(
-    `[Worker] Job ${job.id} artwork: ${assetUses.filter((use) => use.source === 'downloaded').length} downloaded, ` +
+  logInfo(
+    'Assets',
+    `Job ${job.id} artwork: ${assetUses.filter((use) => use.source === 'downloaded').length} downloaded, ` +
       `${assetUses.filter((use) => use.source === 'library').length} local, ` +
       `${assetUses.filter((use) => use.source === 'builtin').length} built-in glyph(s)`,
   );
-  console.log(
-    `[Worker] Job ${job.id} storyboard ready: ${storyboard.scenes.length} scenes, ${storyboard.totalFrames} frames`,
+  logSuccess(
+    'Worker',
+    `Job ${job.id} storyboard ready: ${storyboard.scenes.length} scenes, ${storyboard.totalFrames} frames`,
   );
 
   // Seed scene counters before rendering so the UI can show 0 / N immediately.
@@ -343,14 +362,15 @@ async function processJob(job: JobRow): Promise<void> {
     .prepare('SELECT status FROM jobs WHERE id = ?')
     .get(job.id) as { status: string } | undefined;
   if (jobStatus?.status === 'cancelled') {
-    console.log(`[Worker] Job ${job.id} cancelled before render`);
+    logWarn('Worker', `Job ${job.id} cancelled before render`);
     return;
   }
 
   // 6. Render video
-  console.log(
-    `[Worker] Job ${job.id} [4/4] rendering ${storyboard.scenes.length} scenes ` +
-      `(${storyboard.totalFrames} frames)`,
+  logStep(
+    'Worker',
+    `Job ${job.id} [7/8] rendering ${storyboard.scenes.length} scenes (${storyboard.totalFrames} frames)`,
+    '🎥',
   );
   const result = await renderService.renderVideo(
     job.id,
@@ -367,8 +387,15 @@ async function processJob(job: JobRow): Promise<void> {
     },
   );
 
+  logSuccess(
+    'Render',
+    `Job ${job.id}: MP4 ready ${result.videoPath} ` +
+      `(${(result.sizeBytes / 1024 / 1024).toFixed(1)} MB, ${result.durationSec.toFixed(1)}s)`,
+  );
+
   // 7. Quality control on the actual MP4 before the job may be called complete.
   updateJob(job.id, 'processing', 88, 'validating');
+  logStep('Worker', `Job ${job.id} [8/8] quality inspection`, '📊');
   const dimensions = ASPECT_RATIOS[videoConfig.aspectRatio];
   const report = await qualityService.inspect({
     jobId: job.id,
@@ -385,26 +412,28 @@ async function processJob(job: JobRow): Promise<void> {
     expectAudio: true,
   });
 
-  console.log(
-    `[Worker] Job ${job.id} quality: ${report.passed ? 'passed' : 'FAILED'} ` +
-      `(${report.durationSec?.toFixed(1) ?? '?'}s, ${report.width ?? '?'}x${report.height ?? '?'}, ` +
-      `${report.blackDurationSec.toFixed(1)}s black, ${report.frozenSegments} frozen) -> ${report.reportPath}`,
-  );
+  const qualitySummary =
+    `Job ${job.id}: ${report.durationSec?.toFixed(1) ?? '?'}s, ` +
+    `${report.width ?? '?'}x${report.height ?? '?'}, ` +
+    `${report.blackDurationSec.toFixed(1)}s black, ${report.frozenSegments} frozen -> ${report.reportPath}`;
+  if (report.passed) logSuccess('Quality', qualitySummary);
+  else logError('Quality', qualitySummary);
   for (const warning of report.warnings) {
-    console.warn(`[Worker] Job ${job.id} quality warning: ${warning}`);
+    logWarn('Quality', `Job ${job.id}: ${warning}`);
   }
 
-  console.log(
-    `[Worker] Job ${job.id} editorial: ${report.editorial.passed ? 'passed' : 'BLOCKED'} ` +
-      `(${report.editorial.blocking.length} blocking, ${report.editorial.warnings.length} warning(s), ` +
-      `${report.editorial.assets.downloaded} downloaded / ${report.editorial.assets.user} user / ` +
-      `${report.editorial.assets.builtin} built-in)`,
-  );
+  const editorialSummary =
+    `Job ${job.id}: ${report.editorial.blocking.length} blocking, ` +
+    `${report.editorial.warnings.length} warning(s), ` +
+    `${report.editorial.assets.downloaded} downloaded / ${report.editorial.assets.user} user / ` +
+    `${report.editorial.assets.builtin} built-in`;
+  if (report.editorial.passed) logSuccess('Editorial', editorialSummary);
+  else logError('Editorial', editorialSummary);
   for (const warning of report.editorial.warnings.slice(0, 8)) {
-    console.warn(`[Editorial] ${warning}`);
+    logWarn('Editorial', warning);
   }
   for (const message of report.editorial.blocking.slice(0, 8)) {
-    console.warn(`[Editorial] BLOCKING ${message}`);
+    logError('Editorial', message);
   }
 
   if (!report.passed) {
@@ -416,11 +445,12 @@ async function processJob(job: JobRow): Promise<void> {
       'quality_failed',
       `Quality checks failed: ${report.failures.join(' | ')} (report: ${report.reportPath})`,
     );
-    console.error(`[Worker] Job ${job.id} rejected by quality checks: ${report.failures.join(' | ')}`);
+    logError('Quality', `Job ${job.id} rejected: ${report.failures.join(' | ')}`);
     return;
   }
 
   updateJob(job.id, 'processing', 96, 'saving');
+  logStep('Worker', `Job ${job.id}: saving video record`, '💾');
 
   // 8. Save video record to DB
   const videoId = `vid-${job.id}`;
@@ -437,7 +467,7 @@ async function processJob(job: JobRow): Promise<void> {
   );
 
   updateJob(job.id, 'completed', 100, 'completed');
-  console.log(`[Worker] Job ${job.id} completed. Output: ${result.videoPath}`);
+  logSuccess('Worker', `Job ${job.id} completed 🎉 — ${result.videoPath}`);
 }
 
 async function runWorkerCycle(): Promise<void> {
@@ -462,7 +492,7 @@ async function runWorkerCycle(): Promise<void> {
     await processJob(job);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[Worker] Job ${job.id} failed:`, message);
+    logError('Worker', `Job ${job.id} failed: ${message}`);
 
     const retryCount = (job.retry_count ?? 0) + 1;
     const maxRetries = config.render.maxRetryCount;
@@ -473,11 +503,11 @@ async function runWorkerCycle(): Promise<void> {
         SET status = 'pending', retry_count = ?, error = ?, updated_at = datetime('now')
         WHERE id = ?
       `).run(retryCount, message, job.id);
-      console.log(`[Worker] Job ${job.id} re-queued (attempt ${retryCount}/${maxRetries})`);
+      logWarn('Worker', `Job ${job.id} re-queued (attempt ${retryCount}/${maxRetries})`);
     } else {
       updateJob(job.id, 'failed', 0, 'failed', message);
       renderService.cleanupTemp(job.id);
-      console.log(`[Worker] Job ${job.id} permanently failed after ${maxRetries} retries`);
+      logError('Worker', `Job ${job.id} permanently failed after ${maxRetries} retries`);
     }
   } finally {
     isProcessing = false;
@@ -485,7 +515,7 @@ async function runWorkerCycle(): Promise<void> {
 }
 
 export function startRenderWorker(): void {
-  console.log('[RenderWorker] Starting job queue worker (poll interval: 2s)');
+  logStep('RenderWorker', 'Starting job queue worker (poll interval: 2s)', '🚀');
 
   // A job left in 'processing' belongs to a previous process that died or was
   // restarted mid-render. Put it back in the queue so it is not stranded.
@@ -495,12 +525,12 @@ export function startRenderWorker(): void {
     updateJob(row.id, 'pending', 0, 'requeued');
   }
   if (stuck.length > 0) {
-    console.log(`[RenderWorker] Re-queued ${stuck.length} interrupted job(s)`);
+    logWarn('RenderWorker', `Re-queued ${stuck.length} interrupted job(s)`);
   }
 
   const tick = (): void => {
     runWorkerCycle().catch((err) => {
-      console.error('[Worker] Unexpected error in worker cycle:', err);
+      logError('Worker', 'Unexpected error in worker cycle', err);
     });
     workerTimer = setTimeout(tick, POLL_INTERVAL_MS);
   };
@@ -513,5 +543,5 @@ export function stopRenderWorker(): void {
     clearTimeout(workerTimer);
     workerTimer = null;
   }
-  console.log('[RenderWorker] Worker stopped');
+  logInfo('RenderWorker', 'Worker stopped');
 }

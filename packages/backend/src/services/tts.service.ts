@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../config.js';
 import type { SubtitleEntry, TtsEngine } from '@edumotion/shared';
+import { logStep, logSuccess, logWarn } from '../logger.js';
 
 // Augment PATH to include common pip install locations
 const EXTRA_PATHS = [
@@ -50,8 +51,9 @@ class TtsService {
 
         this.edgeTtsCmd = cmd;
         this.detectedEngine = 'edge-tts';
-        console.log(
-          `[TTS] Using edge-tts via: ${cmd}` +
+        logSuccess(
+          'TTS',
+          `Using edge-tts via: ${cmd}` +
             `${this.edgeTtsSupportsSubtitles ? ' (word-boundary captions)' : ''}`,
         );
         return 'edge-tts';
@@ -63,7 +65,7 @@ class TtsService {
       try {
         await this.runCommand(cmd, ['--version'], 10000);
         this.detectedEngine = 'espeak';
-        console.log(`[TTS] Using espeak: ${cmd}`);
+        logSuccess('TTS', `Using espeak: ${cmd}`);
         return 'espeak';
       } catch { /* try next */ }
     }
@@ -92,7 +94,7 @@ class TtsService {
     engineOverride?: TtsEngine,
   ): Promise<TtsSynthesisResult> {
     const engine = await this.resolveEngine(engineOverride);
-    console.log(`[TTS] Requested voice: ${voice} (engine: ${engine})`);
+    logStep('TTS', `Synthesizing ${text.length} chars with ${voice} (${engine})`, '🎙️');
 
     const wavPath = outputPath.endsWith('.wav') ? outputPath : `${outputPath}.wav`;
     const mp3Path = wavPath.replace(/\.wav$/, '.mp3');
@@ -131,9 +133,10 @@ class TtsService {
         try {
           measuredCues = this.readSrt(srtPath);
         } catch (err) {
-          console.warn(
-            '[TTS] Could not parse edge-tts captions, falling back to proportional timing:',
-            err instanceof Error ? err.message : String(err),
+          logWarn(
+            'TTS',
+            'Could not parse edge-tts captions, falling back to proportional timing: ' +
+              (err instanceof Error ? err.message : String(err)),
           );
         }
         this.removeIfExists(srtPath);
@@ -158,8 +161,9 @@ class TtsService {
         endMs: Math.min(cue.endMs, durationMs),
       }));
 
-    console.log(
-      `[TTS] Synthesized ${(durationMs / 1000).toFixed(1)}s of audio with ${engine} in ${
+    logSuccess(
+      'TTS',
+      `Synthesized ${(durationMs / 1000).toFixed(1)}s of audio with ${engine} in ${
         Date.now() - startedAt
       }ms` + (subtitles.length > 0 ? ` (${subtitles.length} measured caption cues)` : ''),
     );
@@ -267,7 +271,7 @@ class TtsService {
     }
 
     const { stderr } = await this.runCommand(bin, args, 120000);
-    if (stderr) console.warn('[TTS] edge-tts stderr:', stderr.slice(0, 300));
+    if (stderr) logWarn('TTS', `edge-tts stderr: ${stderr.slice(0, 300)}`);
   }
 
   private async synthesizeEspeak(textFile: string, wavPath: string): Promise<void> {

@@ -7,6 +7,7 @@ import type {
   SceneAssetUsage,
 } from '@edumotion/shared';
 import { AppError } from '../middleware/errorHandler.js';
+import { logInfo, logWarn } from '../logger.js';
 
 const router = Router();
 
@@ -153,6 +154,7 @@ router.post('/:jobId/cancel', (req, res) => {
   db.prepare(`
     UPDATE jobs SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?
   `).run(req.params['jobId']);
+  logWarn('Job', `Cancelled ${req.params['jobId']}`);
 
   res.json({ success: true });
 });
@@ -181,6 +183,7 @@ router.post('/:jobId/resume', (req, res) => {
         updated_at = datetime('now')
     WHERE id = ?
   `).run(req.params['jobId']);
+  logInfo('Job', `Resumed ${req.params['jobId']}`);
 
   res.json({ success: true });
 });

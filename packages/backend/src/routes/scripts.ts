@@ -12,6 +12,7 @@ import { userAssetService } from '../services/user.asset.service.js';
 import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import type { ScriptResponse, ApiResponse } from '@edumotion/shared';
 import { WORDS_PER_SECOND } from '@edumotion/shared';
+import { logInfo, logStep, logSuccess } from '../logger.js';
 
 const router = Router();
 
@@ -23,6 +24,11 @@ router.post('/generate', asyncHandler(async (req, res) => {
   }
 
   const { topic, config: videoConfig } = parsed.data;
+  logStep(
+    'Script',
+    `API: generate "${topic}" (${videoConfig?.duration ?? 40}s, ${videoConfig?.language ?? 'en'})`,
+    '🌐',
+  );
 
   // Create project
   const db = getDb();
@@ -38,6 +44,7 @@ router.post('/generate', asyncHandler(async (req, res) => {
     INSERT INTO scripts (id, project_id, mode, content, word_count, estimated_duration_sec, original_topic)
     VALUES (?, ?, 'topic', ?, ?, ?, ?)
   `).run(scriptId, projectId, content, wordCount, estimatedDuration, topic);
+  logSuccess('Script', `Stored generated script ${scriptId} (${wordCount} words)`);
 
   const response: ApiResponse<ScriptResponse> = {
     success: true,
@@ -54,10 +61,17 @@ router.post('/validate', asyncHandler(async (req, res) => {
   }
 
   const { content, mode, config: videoConfig } = parsed.data;
+  logStep(
+    'Script',
+    `API: ${mode === 'improve' ? 'improve' : 'validate'} own script (${content.length} chars)`,
+    '🌐',
+  );
 
   const processedContent = mode === 'improve'
     ? await scriptService.rewriteScript(content, 'improve')
     : await scriptService.validateScript(content);
+
+  logSuccess('Script', `Processed own script (${videoConfig?.duration ?? 'auto'}s target)`);
 
   const db = getDb();
   const projectId = uuidv4();
@@ -97,6 +111,7 @@ router.post('/rewrite', asyncHandler(async (req, res) => {
     | { id: string; content: string }
     | undefined;
   if (!script) throw new AppError('SCRIPT_NOT_FOUND', 'Script not found', 404);
+  logStep('Script', `API: rewrite ${body.scriptId} (${body.mode})`, '🌐');
 
   const newContent = await scriptService.rewriteScript(
     script.content,
@@ -109,6 +124,7 @@ router.post('/rewrite', asyncHandler(async (req, res) => {
   db.prepare(`
     UPDATE scripts SET content = ?, word_count = ?, estimated_duration_sec = ? WHERE id = ?
   `).run(newContent, wordCount, estimatedDuration, body.scriptId);
+  logSuccess('Script', `Rewrote script ${body.scriptId} (${wordCount} words)`);
 
   const response: ApiResponse<ScriptResponse> = {
     success: true,
@@ -162,12 +178,14 @@ router.post('/:scriptId/assets', (req, res) => {
   }
 
   const assets = userAssetService.upload(scriptId, parsed.data.assets);
+  logInfo('Assets', `Attached ${assets.length} image(s) to script ${scriptId}`, '📎');
   res.status(201).json({ success: true, data: { assets } });
 });
 
 // DELETE /api/scripts/:scriptId/assets/:assetId
 router.delete('/:scriptId/assets/:assetId', (req, res) => {
   userAssetService.remove(req.params['scriptId'] ?? '', req.params['assetId'] ?? '');
+  logInfo('Assets', `Removed image ${req.params['assetId']} from script ${req.params['scriptId']}`);
   res.json({ success: true });
 });
 
@@ -191,6 +209,7 @@ router.post('/approve', (req, res) => {
     db.prepare(`UPDATE scripts SET status = 'approved' WHERE id = ?`).run(body.scriptId);
   }
 
+  logSuccess('Script', `Approved script ${body.scriptId}`);
   res.json({ success: true });
 });
 

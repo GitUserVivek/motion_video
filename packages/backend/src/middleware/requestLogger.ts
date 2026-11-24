@@ -4,7 +4,10 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+    const icon = res.statusCode >= 500 ? '❌' : res.statusCode >= 400 ? '⚠️' : '✅';
+    console.log(
+      `${icon} [HTTP] ${req.method} ${req.path} -> ${res.statusCode} (${duration}ms)`,
+    );
   });
   next();
 }
