@@ -41,6 +41,12 @@ class LlmService {
    * released instead of failing with "No sequences left".
    */
   private chatQueue: Promise<unknown> = Promise.resolve();
+  /**
+   * Set once the GPU path has produced undecodable output. The model is then
+   * reloaded on CPU and stays there: a broken kernel does not heal, and a
+   * correct (slower) reply beats a fast one made of `?`.
+   */
+  private gpuDisabled = false;
 
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
@@ -70,17 +76,20 @@ class LlmService {
     // `gpu: false` selects the CPU-only build of llama.cpp, so it must only be
     // used when GPU offloading is explicitly disabled. "auto" resolves to CUDA
     // or Vulkan when the driver is usable and falls back to CPU otherwise.
-    if (config.localLlm.buildFromSource && config.localLlm.gpuLayers !== 0) {
+    const useGpu = !this.gpuDisabled && config.localLlm.gpuLayers !== 0;
+    const gpuLayers = useGpu ? config.localLlm.gpuLayers : 0;
+
+    if (config.localLlm.buildFromSource && useGpu) {
       console.log(
         '[LLM] Source build enabled — reusing the cached llama.cpp build if one ' +
           'exists (only a first-time build can take up to an hour)...',
       );
     }
     this.llama = await getLlama({
-      gpu: config.localLlm.gpuLayers === 0 ? false : 'auto',
+      gpu: useGpu ? 'auto' : false,
       // Prebuilt CUDA binaries can require a newer driver than the machine has;
       // building from source targets the installed toolkit and GPU instead.
-      ...(config.localLlm.buildFromSource ? { usePrebuiltBinaries: false } : {}),
+      ...(config.localLlm.buildFromSource && useGpu ? { usePrebuiltBinaries: false } : {}),
     });
 
     const deviceNames = await this.llama.getGpuDeviceNames().catch(() => [] as string[]);
@@ -88,13 +97,15 @@ class LlmService {
       console.log(
         `[LLM] GPU backend: ${this.llama.gpu}${deviceNames.length > 0 ? ` (${deviceNames.join(', ')})` : ''}`,
       );
+    } else if (this.gpuDisabled) {
+      console.log('[LLM] GPU backend: disabled — running on CPU');
     } else {
       console.log('[LLM] GPU backend: none detected — running on CPU');
     }
 
     this.model = await this.llama.loadModel({
       modelPath,
-      gpuLayers: config.localLlm.gpuLayers,
+      gpuLayers,
     });
 
     console.log(`[LLM] Offloaded layers: ${this.model.gpuLayers}`);
@@ -114,15 +125,25 @@ class LlmService {
 
       console.warn(
         `[LLM] Reply had no letters or digits (${reply.length} chars, ` +
-          `start ${JSON.stringify(reply.slice(0, 40))}); retrying once at low temperature`,
+          `start ${JSON.stringify(reply.slice(0, 40))})`,
       );
-      const retry = await this.runChat(messages, { ...options, temperature: 0.05 });
-      if (!looksUndecodable(retry)) return retry;
+
+      // A GPU whose kernels do not match the card returns valid-looking tokens
+      // that decode to nothing. Reload on CPU and try the same prompt there.
+      if (this.llama?.gpu && !this.gpuDisabled) {
+        await this.reloadOnCpu();
+        const cpuReply = await this.runChat(messages, { ...options, temperature: 0.05 });
+        if (!looksUndecodable(cpuReply)) return cpuReply;
+        console.warn('[LLM] CPU reply was also undecodable');
+      } else {
+        const retry = await this.runChat(messages, { ...options, temperature: 0.05 });
+        if (!looksUndecodable(retry)) return retry;
+      }
 
       throw new Error(
-        'LLM produced undecodable text twice (no letters or digits in the reply). ' +
-          'When the backend is CUDA this usually means the kernels do not support ' +
-          'this GPU — set LLM_GPU_LAYERS=0 to test the CPU path.',
+        'LLM produced undecodable text (no letters or digits in the reply). ' +
+          'The model file is probably corrupt or its tokenizer does not match ' +
+          'node-llama-cpp; delete it so the downloader fetches it again.',
       );
     };
 
@@ -133,6 +154,18 @@ class LlmService {
       () => undefined,
     );
     return chained;
+  }
+
+  /** Dispose the CUDA model and reload it with no offloaded layers. */
+  private async reloadOnCpu(): Promise<void> {
+    if (this.gpuDisabled) return;
+    this.gpuDisabled = true;
+    console.warn(
+      '[LLM] CUDA output was undecodable — reloading the model on CPU. ' +
+        'Generation will be slower; set LLM_GPU_LAYERS=0 to skip this probe next start.',
+    );
+    await this.dispose();
+    await this.ensureInitialized();
   }
 
   private async runChat(messages: LlmMessage[], options?: LlmChatOptions): Promise<string> {
@@ -160,7 +193,11 @@ class LlmService {
         };
       }
 
-      const timeoutMs = config.localLlm.timeoutMs;
+      // CPU generation is several times slower than the GPU path, so the same
+      // 3-minute budget would abort a long reply before it finishes.
+      const timeoutMs = this.gpuDisabled
+        ? config.localLlm.timeoutMs * 4
+        : config.localLlm.timeoutMs;
       // Abort the generation itself on timeout, so the sequence is released
       // instead of continuing to generate in the background.
       const controller = new AbortController();

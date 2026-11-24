@@ -74,6 +74,16 @@ function line(icon: string, scope: string, message: string): string {
   return `${icon} [${scope}] ${message}`;
 }
 
+/** Local `YYYY-MM-DD HH:MM:SS`, so a log line can be placed in time at a glance. */
+function timestamp(): string {
+  const now = new Date();
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return (
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ` +
+    `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+  );
+}
+
 const ASCII_MAP: Record<string, string> = {
   '—': '-',
   '–': '-',
@@ -113,7 +123,8 @@ function write(
   message: string,
   detail?: unknown,
 ): void {
-  const prefix = UNICODE ? line(icon, scope, message) : `${asciiTag(scope)} ${toAscii(message)}`;
+  const body = UNICODE ? line(icon, scope, message) : `${asciiTag(scope)} ${toAscii(message)}`;
+  const prefix = `${timestamp()} ${body}`;
   const sink = level === 'log' ? console.log : level === 'warn' ? console.warn : console.error;
   if (detail === undefined) sink(prefix);
   else sink(prefix, detail);
