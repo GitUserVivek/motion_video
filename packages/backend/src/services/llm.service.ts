@@ -85,6 +85,20 @@ class LlmService {
           'exists (only a first-time build can take up to an hour)...',
       );
     }
+    // llama.cpp turns CUDA graphs on for Volta/Turing (ggml-org/llama.cpp#25749),
+    // and on sm_75 cards such as the Tesla T4 the captured graph replays stale
+    // buffers: the model loads, offloads every layer, and then emits one filler
+    // token per step (a run of `?`). Graphs only speed up decoding, so dropping
+    // them costs ~10-15% and restores correct logits. An explicit value from the
+    // operator wins.
+    if (useGpu && process.env['GGML_CUDA_DISABLE_GRAPHS'] === undefined) {
+      process.env['GGML_CUDA_DISABLE_GRAPHS'] = '1';
+      console.log(
+        '[LLM] CUDA graphs disabled (Turing/sm_75 workaround for garbled output; ' +
+          'unset GGML_CUDA_DISABLE_GRAPHS to opt back in)',
+      );
+    }
+
     this.llama = await getLlama({
       gpu: useGpu ? 'auto' : false,
       // Prebuilt CUDA binaries can require a newer driver than the machine has;
@@ -144,8 +158,7 @@ class LlmService {
         'LLM produced undecodable text (no letters or digits in the reply). ' +
           'The model file is probably corrupt or its tokenizer does not match ' +
           'node-llama-cpp; delete it so the downloader fetches it again.',
-      );
-    };
+      );    };
 
     const chained = this.chatQueue.then(run, run);
     // Keep the chain alive whether the run succeeds or fails.
