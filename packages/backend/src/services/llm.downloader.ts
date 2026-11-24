@@ -43,7 +43,11 @@ export async function downloadModel(
 
   // Skip if already downloaded
   if (fs.existsSync(modelPath) && fs.statSync(modelPath).size > 0) {
-    console.log(`[Downloader] Model already present: ${modelPath}`);
+    const size = fs.statSync(modelPath).size;
+    console.log(
+      `[Downloader] Model already present: ${modelPath} (${(size / 1024 / 1024).toFixed(1)} MB)`,
+    );
+    await warnIfSizeMismatch(size);
     return { modelPath, alreadyExisted: true };
   }
 
@@ -66,6 +70,7 @@ export async function downloadModel(
 
   const sizeMB = (fs.statSync(modelPath).size / 1024 / 1024).toFixed(1);
   console.log(`[Downloader] Done — ${sizeMB} MB saved to ${modelPath}`);
+  await warnIfSizeMismatch(fs.statSync(modelPath).size);
 
   return { modelPath, alreadyExisted: false };
 }
@@ -121,6 +126,18 @@ function streamDownload(
 
         fileStream.on('finish', () => {
           fileStream.close();
+          // A dropped connection ends the response early but still lets the
+          // file stream finish. A truncated GGUF loads and then generates
+          // garbage, so treat a short body as a failed download.
+          if (total > 0 && downloaded < total) {
+            fs.unlink(destPath, () => undefined);
+            reject(
+              new Error(
+                `Download incomplete: got ${downloaded} of ${total} bytes from ${requestUrl}`,
+              ),
+            );
+            return;
+          }
           resolve();
         });
 
@@ -138,6 +155,54 @@ function streamDownload(
 
     makeRequest(url);
   });
+}
+
+/**
+ * Byte size the HuggingFace API reports for the configured file, or null when
+ * the API is unreachable (offline runs must still work).
+ */
+async function fetchExpectedSize(): Promise<number | null> {
+  const { hfRepo, hfFile } = config.localLlm;
+  const url = `https://huggingface.co/api/models/${hfRepo}/tree/main`;
+
+  return new Promise((resolve) => {
+    const request = https.get(url, { timeout: 5000 }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        resolve(null);
+        return;
+      }
+      let body = '';
+      res.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+      });
+      res.on('end', () => {
+        try {
+          const entries = JSON.parse(body) as Array<{ path?: string; size?: number }>;
+          const match = entries.find((entry) => entry.path === hfFile);
+          resolve(typeof match?.size === 'number' ? match.size : null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(null));
+  });
+}
+
+/**
+ * Compare the local GGUF against the published size. A short file is the most
+ * common reason a model loads but answers with undecodable tokens.
+ */
+async function warnIfSizeMismatch(localSize: number): Promise<void> {
+  const expected = await fetchExpectedSize();
+  if (expected === null || expected === localSize) return;
+
+  console.warn(
+    `[Downloader] Model size mismatch: ${localSize} bytes on disk, ${expected} expected. ` +
+      'The file is truncated — delete it so it can be downloaded again.',
+  );
 }
 
 /**
