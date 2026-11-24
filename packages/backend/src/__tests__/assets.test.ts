@@ -4,6 +4,8 @@ import {
   buildAssetQueries,
   buildSceneAssetQueries,
   isConfidentCandidate,
+  parseRetryAfterMs,
+  retryDelayMs,
   sanitizeSvg,
   selectWikimediaThumbnailUrl,
   scoreAssetCandidate,
@@ -112,6 +114,29 @@ describe('selectWikimediaThumbnailUrl', () => {
         width: 300,
       }),
     ).toBeNull();
+  });
+});
+
+describe('rate-limit backoff', () => {
+  it('reads Retry-After as seconds or an HTTP date', () => {
+    expect(parseRetryAfterMs('7')).toBe(7000);
+    expect(parseRetryAfterMs(null)).toBeNull();
+    expect(parseRetryAfterMs('soon')).toBeNull();
+
+    const now = Date.parse('2026-01-01T00:00:00Z');
+    expect(parseRetryAfterMs('Thu, 01 Jan 2026 00:00:30 GMT', now)).toBe(30_000);
+    expect(parseRetryAfterMs('Thu, 01 Jan 2020 00:00:00 GMT', now)).toBe(0);
+  });
+
+  it('honours Retry-After and keeps exponential backoff bounded', () => {
+    expect(retryDelayMs(1, 2000)).toBe(2000);
+    expect(retryDelayMs(3, 120_000)).toBe(15_000);
+
+    const first = retryDelayMs(1, null, () => 0.5);
+    const third = retryDelayMs(3, null, () => 0.5);
+    expect(first).toBeLessThan(third);
+    expect(third).toBeLessThanOrEqual(15_000);
+    expect(retryDelayMs(9, null, () => 0.5)).toBeLessThanOrEqual(15_000);
   });
 });
 

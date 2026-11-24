@@ -692,10 +692,9 @@ function dedupeNarration(
     if (duplicatesCue || duplicatesTitle) remove.add(index);
   });
 
-  if (titleText && cues.length > 0) {
-    const firstCue = cues[0] ?? '';
-    if (isDuplicateText(titleText, firstCue)) removeTitle = true;
-  }
+  // Compare with every cue, not only the first: a split scene's title can
+  // repeat the second or third caption just as easily as the opening one.
+  if (titleText && cues.some((cue) => isDuplicateText(titleText, cue))) removeTitle = true;
 
   remove.forEach((index) => {
     const child = children[index];

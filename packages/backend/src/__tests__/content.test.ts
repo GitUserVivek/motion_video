@@ -141,6 +141,46 @@ describe('verifyAssetMatch', () => {
     );
     expect(verdict.accepted).toBe(true);
   });
+
+  it('keeps a plant diagram in a photosynthesis scene', () => {
+    const verdict = verifyAssetMatch(
+      {
+        id: 'auto/plant-cell-structure-en-881bbed3.png',
+        dataUrl: 'data:image/png;base64,x',
+        tokens: ['plant', 'cell', 'structure', 'en'],
+      },
+      ['plants', 'glucose', 'oxygen', 'sunlight', 'chlorophyll', 'carbon', 'dioxide'],
+    );
+    expect(verdict.accepted).toBe(true);
+    expect(verdict.conflicts).toEqual([]);
+  });
+
+  it('rejects a candidate whose field conflicts with the label and narration', () => {
+    const verdict = verifyAssetMatch(
+      {
+        id: 'auto/widget-anatomy-1234.png',
+        dataUrl: 'data:image/png;base64,x',
+        tokens: ['widget', 'anatomy'],
+      },
+      ['widget'],
+      'Revenue and profit for the quarter',
+    );
+    expect(verdict.accepted).toBe(false);
+    expect(verdict.conflicts).toContain('biology');
+  });
+
+  it('does not invent a field conflict when the scene names no subject field', () => {
+    const verdict = verifyAssetMatch(
+      {
+        id: 'auto/widget-anatomy-1234.png',
+        dataUrl: 'data:image/png;base64,x',
+        tokens: ['widget', 'anatomy'],
+      },
+      ['widget'],
+    );
+    expect(verdict.accepted).toBe(true);
+    expect(verdict.conflicts).toEqual([]);
+  });
 });
 
 describe('validateMath', () => {

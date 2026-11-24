@@ -232,6 +232,19 @@ describe('scene director text hierarchy', () => {
     expect(directed.children?.some((child) => child.component === 'SpeechBubble')).toBe(false);
   });
 
+  it('removes a title that repeats a later caption cue', () => {
+    const directed = directedScene([
+      { component: 'AnimatedText', props: { text: 'Oxygen is released as a byproduct', top: '10%' } },
+      subtitle(
+        'Plants capture sunlight in their leaves.',
+        'Oxygen is released as a byproduct.',
+      ),
+      { component: 'ImageScene', props: {} },
+    ]);
+
+    expect(directed.children?.some((child) => child.component === 'AnimatedText')).toBe(false);
+  });
+
   it('does not add a bubble when a process flow already fills the middle lane', () => {
     const directed = directedScene([
       { component: 'AnimatedText', props: { text: 'Why does this matter?' } },

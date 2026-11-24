@@ -48,6 +48,36 @@ const WIKIMEDIA_THUMBNAIL_WIDTH = 640;
 const WIKIMEDIA_SMALL_THUMBNAIL_WIDTH = 320;
 /** Stop hammering Wikimedia for two minutes after a 429. */
 const WIKIMEDIA_COOLDOWN_MS = 2 * 60 * 1000;
+/** Iconify and jsDelivr need a shorter pause after a 429. */
+const PROVIDER_COOLDOWN_MS = 60 * 1000;
+/** A Retry-After this short can be waited out inside the request. */
+const MAX_INLINE_RETRY_MS = 5_000;
+const MAX_RETRY_DELAY_MS = 15_000;
+
+/**
+ * Retry-After is either delta-seconds (`120`) or an HTTP date. A missing or
+ * malformed value is unknown, not zero: retrying immediately makes a 429 worse.
+ */
+export function parseRetryAfterMs(header: string | null, now = Date.now()): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(header);
+  if (Number.isNaN(date)) return null;
+  return Math.max(0, date - now);
+}
+
+/** Exponential backoff with jitter; an explicit Retry-After always wins. */
+export function retryDelayMs(
+  attempt: number,
+  retryAfterMs: number | null,
+  random = Math.random,
+): number {
+  if (retryAfterMs !== null) return Math.min(MAX_RETRY_DELAY_MS, Math.max(250, retryAfterMs));
+  const ceiling = Math.min(MAX_RETRY_DELAY_MS, 800 * 2 ** Math.max(0, attempt - 1));
+  const jitter = 0.5 + Math.min(1, Math.max(0, random())) * 0.5;
+  return Math.max(250, Math.round(ceiling * jitter));
+}
 
 export type AssetFormat = 'svg' | 'png' | 'jpg' | 'webp';
 export type AssetProviderId = 'iconify' | 'openmoji' | 'wikimedia';
@@ -495,7 +525,9 @@ class AssetDiscoveryService {
   private openMojiIndex: OpenMojiEntry[] | null = null;
   private collectionLicenses: Record<string, AssetLicense> | null = null;
   private lastWikimediaRequestAt = 0;
-  private wikimediaBlockedUntil = 0;
+  private hostBlockedUntil = new Map<string, number>();
+  /** Hosts that failed during the current search, so an empty result is not cached. */
+  private failedHosts = new Set<string>();
 
   isEnabled(): boolean {
     return config.assets.discoveryEnabled && typeof fetch === 'function';
@@ -619,6 +651,7 @@ class AssetDiscoveryService {
     const cached = this.readSearchCache(query);
     if (cached) return cached;
 
+    this.failedHosts.clear();
     const collected: AssetCandidate[] = [];
 
     for (const provider of config.assets.providers) {
@@ -637,7 +670,14 @@ class AssetDiscoveryService {
     }
 
     if (collected.length === 0) {
-      this.writeSearchCache(query, []);
+      // A provider outage or 429 is not "this topic has no artwork". Prefer an
+      // expired search result over overwriting the cache with an empty list.
+      const stale = this.readSearchCache(query, true);
+      if (stale) {
+        console.warn(`[Assets] Providers unavailable; using cached results for "${query}"`);
+        return stale;
+      }
+      if (this.failedHosts.size === 0) this.writeSearchCache(query, []);
       return [];
     }
 
@@ -924,7 +964,9 @@ class AssetDiscoveryService {
     candidates: AssetCandidate[],
     query: string,
   ): Promise<'downloaded' | 'reused' | 'skipped'> {
-    for (const candidate of candidates.slice(0, 2)) {
+    // Try several matches: the top results may all come from a host that is
+    // cooling down, while a later Iconify/OpenMoji candidate can still load.
+    for (const candidate of candidates.slice(0, 6)) {
       const status = await this.persist(candidate, query);
       if (status !== 'skipped') return status;
     }
@@ -1058,11 +1100,11 @@ class AssetDiscoveryService {
     }
   }
 
-  private readSearchCache(query: string): AssetCandidate[] | null {
+  private readSearchCache(query: string, allowStale = false): AssetCandidate[] | null {
     const cache = this.loadSearchCache();
     const entry = cache[`${SEARCH_CACHE_VERSION}:${query}`];
     if (!entry) return null;
-    if (Date.now() - entry.at > SEARCH_CACHE_TTL_MS) return null;
+    if (!allowStale && Date.now() - entry.at > SEARCH_CACHE_TTL_MS) return null;
     return entry.candidates;
   }
 
@@ -1111,34 +1153,40 @@ class AssetDiscoveryService {
 
   /** One serial request at a time to Wikimedia; bursty clients get HTTP 429. */
   private async paceWikimediaRequest(url: string): Promise<void> {
-    let host = '';
-    try {
-      host = new URL(url).hostname.toLowerCase();
-    } catch {
-      return;
-    }
-    if (host !== 'wikimedia.org' && !host.endsWith('.wikimedia.org')) return;
+    const host = this.hostOf(url);
+    if (!host || !this.isWikimediaHost(host)) return;
 
     const wait = this.lastWikimediaRequestAt + WIKIMEDIA_MIN_INTERVAL_MS - Date.now();
     if (wait > 0) await delay(wait);
     this.lastWikimediaRequestAt = Date.now();
   }
 
-  /** GET with a hard deadline and retries on 5xx; null instead of throwing. */
-  private isWikimediaUrl(url: string): boolean {
+  private hostOf(url: string): string | null {
     try {
-      const host = new URL(url).hostname.toLowerCase();
-      return host === 'wikimedia.org' || host.endsWith('.wikimedia.org');
+      return new URL(url).hostname.toLowerCase();
     } catch {
-      return false;
+      return null;
     }
   }
 
+  private isWikimediaHost(host: string): boolean {
+    return host === 'wikimedia.org' || host.endsWith('.wikimedia.org');
+  }
+
+  /**
+   * GET with a hard deadline, per-host cooldown and bounded exponential
+   * backoff. A 429 with a short Retry-After is retried in place; a long one
+   * puts the host to sleep so callers can use cached or alternative artwork
+   * instead of stalling the job.
+   */
   private async fetchBuffer(url: string, maxBytes: number): Promise<Buffer | null> {
     if (typeof fetch !== 'function') return null;
-    // After a 429, skip the rest of this job's Wikimedia candidates instead of
-    // spending a minute on retries that cannot succeed during the cooldown.
-    if (this.isWikimediaUrl(url) && Date.now() < this.wikimediaBlockedUntil) return null;
+
+    const host = this.hostOf(url);
+    if (host && Date.now() < (this.hostBlockedUntil.get(host) ?? 0)) {
+      this.failedHosts.add(host);
+      return null;
+    }
 
     for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
       const controller = new AbortController();
@@ -1156,25 +1204,40 @@ class AssetDiscoveryService {
 
         if (!response.ok) {
           const status = response.status;
-          if (status === 429 && this.isWikimediaUrl(url)) {
-            const retryAfter = Number(response.headers.get('retry-after') ?? '');
-            const cooldown = Number.isFinite(retryAfter) && retryAfter > 0
-              ? Math.min(WIKIMEDIA_COOLDOWN_MS, Math.max(30_000, retryAfter * 1000))
-              : WIKIMEDIA_COOLDOWN_MS;
-            this.wikimediaBlockedUntil = Date.now() + cooldown;
-            console.warn(
-              `[Assets] Wikimedia rate-limited (HTTP 429); pausing Wikimedia requests for ` +
-                `${Math.round(cooldown / 1000)}s`,
-            );
+          const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+
+          if (status === 429) {
+            if (
+              retryAfterMs !== null &&
+              retryAfterMs <= MAX_INLINE_RETRY_MS &&
+              attempt < MAX_FETCH_ATTEMPTS
+            ) {
+              await delay(retryDelayMs(attempt, retryAfterMs));
+              continue;
+            }
+
+            if (host) {
+              const fallback = this.isWikimediaHost(host)
+                ? WIKIMEDIA_COOLDOWN_MS
+                : PROVIDER_COOLDOWN_MS;
+              const minimum = this.isWikimediaHost(host) ? 30_000 : 10_000;
+              const cooldown = Math.min(
+                fallback,
+                Math.max(minimum, retryAfterMs ?? fallback),
+              );
+              this.hostBlockedUntil.set(host, Date.now() + cooldown);
+              this.failedHosts.add(host);
+              console.warn(
+                `[Assets] ${host} rate-limited (HTTP 429); cooling down for ` +
+                  `${Math.round(cooldown / 1000)}s and using cached or alternative artwork`,
+              );
+            }
             return null;
           }
-          retryable = status === 429 || status >= 500;
+
+          retryable = status >= 500;
           if (retryable && attempt < MAX_FETCH_ATTEMPTS) {
-            const retryAfter = Number(response.headers.get('retry-after') ?? '');
-            const wait = Number.isFinite(retryAfter) && retryAfter > 0
-              ? retryAfter * 1000
-              : 1200 * attempt;
-            await delay(Math.min(15_000, Math.max(1000, wait)));
+            await delay(retryDelayMs(attempt, retryAfterMs));
             continue;
           }
           throw new Error(`HTTP ${status}`);
@@ -1190,11 +1253,13 @@ class AssetDiscoveryService {
         if (buffer.byteLength === 0 || buffer.byteLength > maxBytes) return null;
         return buffer;
       } catch (err) {
-        if (attempt === MAX_FETCH_ATTEMPTS || !retryable) {
+        const timedOut = controller.signal.aborted;
+        if (attempt === MAX_FETCH_ATTEMPTS || !retryable || timedOut) {
+          if (host) this.failedHosts.add(host);
           console.warn(`[Assets] Download failed: ${url} — ${message(err)}`);
           return null;
         }
-        await delay(800 * attempt);
+        await delay(retryDelayMs(attempt, null));
       } finally {
         clearTimeout(timer);
       }

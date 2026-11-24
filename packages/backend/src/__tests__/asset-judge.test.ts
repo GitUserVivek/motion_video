@@ -129,6 +129,24 @@ describe('AssetJudge', () => {
     expect(verdict.accepted).toBe(true);
   });
 
+  it('stops consulting the model after repeated unusable replies', async () => {
+    const chat = vi.fn(async () => 'I think this image is fine.');
+    const judge = judgeWith('auto', chat, 'breaker');
+    const ids = ['1111', '2222', '3333', '4444'].map((suffix) => asset(
+      `auto/heart-pumping-photograph-${suffix}.png`,
+      ['heart', 'pumping', 'photograph'],
+    ));
+
+    for (const candidate of ids.slice(0, 3)) {
+      await judge.verify(candidate, context);
+    }
+    const afterThreshold = await judge.verify(ids[3]!, context);
+
+    expect(chat).toHaveBeenCalledTimes(3);
+    expect(afterThreshold.source).toBe('tags');
+    expect(afterThreshold.accepted).toBe(true);
+  });
+
   it('falls back to the deterministic verdict on malformed or failing replies', async () => {
     const malformed = await judgeWith(
       'llm',

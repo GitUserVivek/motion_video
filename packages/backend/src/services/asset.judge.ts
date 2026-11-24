@@ -32,6 +32,8 @@ import {
 
 const CACHE_VERSION = 1;
 const MAX_CACHE_ENTRIES = 2000;
+/** Stop paying for unusable replies once the model has clearly missed the format. */
+const MAX_UNUSABLE_REPLIES = 3;
 
 export type JudgeSource = 'tags' | 'llm' | 'cache';
 
@@ -160,6 +162,8 @@ export class AssetJudge {
   private readonly modelAvailable: () => boolean;
   private readonly chat: AssetJudgeChat;
   private cache: Record<string, CacheEntry> | null = null;
+  private unusableReplies = 0;
+  private judgeDisabled = false;
 
   constructor(options: AssetJudgeOptions = {}) {
     this.mode = options.mode ?? config.assets.verify.mode;
@@ -173,7 +177,11 @@ export class AssetJudge {
   }
 
   async verify(match: MatchedAsset, context: AssetJudgeContext): Promise<JudgeVerdict> {
-    const rule = verifyAssetMatch(match, context.keyTerms);
+    const rule = verifyAssetMatch(
+      match,
+      context.keyTerms,
+      `${context.label} ${context.narration ?? ''}`,
+    );
 
     // Deterministic rejections are final in every mode.
     if (!rule.accepted) return { ...rule, source: 'tags' };
@@ -185,6 +193,8 @@ export class AssetJudge {
     const key = cacheKey(match, context);
     const cached = this.read(key);
     if (cached) return { ...cached.verdict, source: 'cache' };
+
+    if (this.judgeDisabled) return { ...rule, source: 'tags' };
 
     if (!this.modelAvailable()) {
       if (this.mode === 'llm') {
@@ -213,8 +223,19 @@ export class AssetJudge {
       );
     }
 
-    if (!judged) return { ...rule, source: 'tags' };
+    if (!judged) {
+      this.unusableReplies++;
+      if (this.unusableReplies >= MAX_UNUSABLE_REPLIES && !this.judgeDisabled) {
+        this.judgeDisabled = true;
+        console.warn(
+          `[Assets] Semantic judge disabled for this run after ${this.unusableReplies} ` +
+            'unusable replies; using deterministic tags from here on.',
+        );
+      }
+      return { ...rule, source: 'tags' };
+    }
 
+    this.unusableReplies = 0;
     this.write(key, judged);
     return { ...judged, source: 'llm' };
   }

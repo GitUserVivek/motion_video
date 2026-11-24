@@ -76,17 +76,31 @@ const SEMANTIC_FIELDS: Record<string, readonly string[]> = {
     'computer', 'software', 'hardware', 'code', 'coding', 'programming',
     'server', 'database', 'internet', 'network', 'algorithm', 'chip',
   ],
+  geometry: [
+    'geometry', 'geometric', 'shape', 'shapes', 'cube', 'cubes', 'pyramid',
+    'pyramids', 'sphere', 'spheres', 'cone', 'cones', 'cylinder', 'cylinders',
+    'triangle', 'triangles', 'square', 'squares', 'rectangle', 'rectangles',
+    'polygon', 'polygons', 'angle', 'angles', 'vertex', 'vertices', 'edge',
+    'edges', 'face', 'faces', 'volume', 'area',
+  ],
   biology: [
     'biology', 'biological', 'cell', 'cells', 'dna', 'gene', 'genes', 'organ',
     'organs', 'species', 'organism', 'anatomy', 'medical', 'medicine', 'patient',
+    'plant', 'plants', 'botany', 'leaf', 'leaves', 'photosynthesis', 'chlorophyll',
+    'seed', 'seeds', 'root', 'roots', 'stem', 'stems', 'flower', 'flowers',
+    'tree', 'trees', 'ecosystem', 'ecosystems', 'habitat', 'habitats',
+    'blood', 'heart', 'brain', 'lung', 'lungs', 'muscle', 'muscles', 'nerve',
+    'nerves', 'pulse', 'artery', 'arteries', 'vein', 'veins',
   ],
   chemistry: [
     'chemistry', 'chemical', 'molecule', 'molecules', 'atom', 'atoms', 'acid',
-    'reaction', 'laboratory', 'beaker', 'compound',
+    'reaction', 'laboratory', 'beaker', 'compound', 'oxygen', 'carbon', 'dioxide',
+    'hydrogen', 'nitrogen',
   ],
   geography: [
     'map', 'maps', 'country', 'countries', 'continent', 'continents', 'ocean',
-    'river', 'mountain', 'climate', 'geography', 'region',
+    'river', 'mountain', 'climate', 'geography', 'region', 'atmosphere', 'earth',
+    'weather', 'soil', 'landscape', 'terrain',
   ],
 };
 
@@ -127,18 +141,27 @@ function candidateIdentity(match: MatchedAsset): Set<string> {
  * Fields the candidate names that the scene's own vocabulary never mentions.
  * A scene that talks about space keeps its satellite pictures; a geometry scene
  * does not inherit a spacecraft just because the file name contains "cube".
+ *
+ * A conflict requires positive evidence of a *different* field in the scene. If
+ * the scene names no subject at all, a mismatch is a guess, not a contradiction:
+ * the shared-term and generic-file rules (and the optional judge) still apply.
+ * This keeps a plant-cell diagram in a photosynthesis scene from being rejected
+ * merely because the scene uses words outside the marker list.
  */
 function conflictingFields(
   identity: Set<string>,
   sceneTokens: Set<string>,
 ): string[] {
+  const sceneFields = new Set<string>();
+  for (const [field, markers] of Object.entries(SEMANTIC_FIELDS)) {
+    if (markers.some((word) => hasToken(sceneTokens, word))) sceneFields.add(field);
+  }
+  if (sceneFields.size === 0) return [];
+
   const conflicts: string[] = [];
   for (const [field, markers] of Object.entries(SEMANTIC_FIELDS)) {
-    const marker = markers.find((word) => hasToken(identity, word));
-    if (!marker) continue;
-    // The scene may mention the field itself ("safety", "space", "profit").
-    if (markers.some((word) => hasToken(sceneTokens, word))) continue;
-    conflicts.push(field);
+    if (sceneFields.has(field)) continue;
+    if (markers.some((word) => hasToken(identity, word))) conflicts.push(field);
   }
   return conflicts;
 }
@@ -146,8 +169,11 @@ function conflictingFields(
 export function verifyAssetMatch(
   match: MatchedAsset,
   keyTerms: string[],
+  /** Label and narration written around the candidate, for field detection. */
+  sceneText = '',
 ): AssetVerdict {
   const keyTokens = new Set(keyTerms.flatMap(tokenize));
+  const sceneTokens = new Set([...keyTokens, ...tokenize(sceneText)]);
   const assetTokens = candidateIdentity(match);
 
   const path = match.id.toLowerCase();
@@ -205,7 +231,7 @@ export function verifyAssetMatch(
   // A candidate from a different subject area is about a different thing. This
   // is what stops a mission/spacecraft photo from illustrating a shape, or a
   // workplace-safety chart from illustrating a geometric solid.
-  const conflicts = conflictingFields(assetTokens, keyTokens);
+  const conflicts = conflictingFields(assetTokens, sceneTokens);
   if (conflicts.length > 0) {
     const shared = matchedTerms.join(', ');
     return {
