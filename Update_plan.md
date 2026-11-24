@@ -16,8 +16,10 @@ Status: **code phases implemented — runtime/render verification pending**
 > - The target job's raw LLM/storyboard/metrics/JPEG artifacts were not present
 >   locally, so the fixtures reproduce its documented defects rather than copying
 >   the files.
-> - LLM semantic judging (`ASSET_VERIFY=llm`) was not added; the deterministic
->   semantic-field verifier is the fallback and the only path used.
+> - Optional LLM semantic judging is available: `ASSET_VERIFY=auto|llm|tags`,
+>   with a content-hash cache at `data/assets/verify-cache.json`. Deterministic
+>   rejections remain final; the model only reviews candidates the rules accept.
+>   Without a local model, every mode falls back to the deterministic verifier.
 
 This plan fixes the defects visible in the generated video and raw LLM storyboard. It is written as execution instructions for the next implementation pass, not as a redesign of the project.
 
@@ -207,7 +209,7 @@ Tasks:
   - “cube” must not accept a satellite whose identity is “Mars Cube One”;
   - “pyramid” must not accept a safety/management hierarchy;
   - “face/edge/vertex” must not accept a generic book, building, or satellite.
-- [ ] Use the existing local LLM verifier for ambiguous cases, with:
+- [x] Use the existing local LLM verifier for ambiguous cases, with:
   - `ASSET_VERIFY=auto|llm|tags`;
   - hash-based cache;
   - strict lexical fallback when the model is unavailable.

@@ -51,7 +51,7 @@ describe('user asset matching', () => {
 });
 
 describe('attachSceneArtwork with uploaded images', () => {
-  it('puts uploaded cube and pyramid images on the matching comparison sides', () => {
+  it('puts uploaded cube and pyramid images on the matching comparison sides', async () => {
     const storyboard = {
       jobId: 'job-1',
       totalFrames: 192,
@@ -85,7 +85,7 @@ describe('attachSceneArtwork with uploaded images', () => {
       assetPath: `user/${asset.id}`,
     }));
 
-    const result = attachSceneArtwork(storyboard, undefined, assets);
+    const result = await attachSceneArtwork(storyboard, undefined, assets);
     const comparison = result.storyboard.scenes[0]?.children?.[0];
     expect(comparison?.component).toBe('SplitScreenComparison');
     expect((comparison?.props['left'] as { image?: string }).image).toContain('cube-1');

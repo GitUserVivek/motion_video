@@ -242,7 +242,7 @@ class StoryboardService {
 
       const direct = StoryboardPlanSchema.safeParse(withMeta);
       if (direct.success) {
-        const { storyboard: withVisuals, assetUses } = this.prepareStoryboard(
+        const { storyboard: withVisuals, assetUses } = await this.prepareStoryboard(
           direct.data,
           subtitles,
           script,
@@ -300,7 +300,7 @@ class StoryboardService {
         this.repairStoryboard(withMeta, totalFrames),
       );
       if (retryResult.success) {
-        const { storyboard: withVisuals, assetUses } = this.prepareStoryboard(
+        const { storyboard: withVisuals, assetUses } = await this.prepareStoryboard(
           retryResult.data,
           subtitles,
           script,
@@ -452,20 +452,20 @@ class StoryboardService {
    * background roots, caption-backed scene boundaries, supported props, and a
    * deterministic visual for every scene that the model left under-specified.
    */
-  private prepareStoryboard(
+  private async prepareStoryboard(
     storyboard: StoryboardPlan,
     subtitles: SubtitleEntry[],
     script: string,
     content: ContentAnalysis,
     jobId: string,
-  ): { storyboard: StoryboardPlan; assetUses: SceneAssetUse[] } {
+  ): Promise<{ storyboard: StoryboardPlan; assetUses: SceneAssetUse[] }> {
     const rooted = this.ensureBackgroundRoots(storyboard);
     const { storyboard: balanced } = splitOversizedScenes(rooted, subtitles);
     // Captions must exist before key-term alignment: the scene's own spoken
     // words are what the repair compares its keyTerms against.
     const captioned = this.injectSubtitles(balanced, subtitles);
     const { storyboard: repaired } = repairStoryboardProps(captioned);
-    const { storyboard: withVisuals, assetUses } = ensureSceneVisuals(
+    const { storyboard: withVisuals, assetUses } = await ensureSceneVisuals(
       repaired,
       script,
       content,

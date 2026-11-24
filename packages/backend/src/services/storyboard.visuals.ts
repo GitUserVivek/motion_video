@@ -5,7 +5,7 @@ import type {
   StoryboardPlan,
 } from '@edumotion/shared';
 import { assetSource, matchAssetImage } from './asset.library.js';
-import { verifyAssetMatch } from './asset.verify.js';
+import { assetJudge } from './asset.judge.js';
 import { pickUserAsset } from './user.asset.match.js';
 import type { UserAsset } from './user.asset.service.js';
 
@@ -440,12 +440,13 @@ function pickDistinctIcon(
  * or its label. A tile without a match keeps its built-in SVG glyph, and one
  * file is never placed on two tiles of the same diagram.
  */
-function attachImages<T extends { icon: string; label: string; image?: string }>(
+async function attachImages<T extends { icon: string; label: string; image?: string }>(
   tiles: T[],
   narration: string,
   keyTerms: string[],
   record?: AssetRecorder,
-): T[] {
+  sceneId?: string,
+): Promise<T[]> {
   const used = new Set<string>();
   for (const tile of tiles) {
     if (tile.image) continue;
@@ -457,7 +458,12 @@ function attachImages<T extends { icon: string; label: string; image?: string }>
       exclude: used,
     });
     if (match) {
-      const verdict = verifyAssetMatch(match, keyTerms);
+      const verdict = await assetJudge.verify(match, {
+        label: tile.label,
+        keyTerms,
+        narration,
+        ...(sceneId ? { sceneId } : {}),
+      });
       if (!verdict.accepted) {
         console.warn(`[Assets] Rejected ${match.id}: ${verdict.reason}`);
         record?.({
@@ -476,37 +482,56 @@ function attachImages<T extends { icon: string; label: string; image?: string }>
 }
 
 /** Same artwork lookup for a ConceptDiagram the model planned itself. */
-function attachDiagramImages(
+async function attachDiagramImages(
   child: SceneChild,
   narration: string,
   keyTerms: string[],
   record?: AssetRecorder,
   overwrite = false,
   used: Set<string> = new Set(),
-): SceneChild {
+  sceneId?: string,
+): Promise<SceneChild> {
   const items = child.props['items'];
   if (!Array.isArray(items)) return child;
 
   let changed = false;
+  const next: unknown[] = [];
 
-  const next = items.map((raw) => {
-    if (!raw || typeof raw !== 'object') return raw;
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') {
+      next.push(raw);
+      continue;
+    }
     const item = raw as { icon?: unknown; label?: unknown; image?: unknown; imageSource?: unknown };
-    if (typeof item.icon !== 'string') return raw;
+    if (typeof item.icon !== 'string') {
+      next.push(raw);
+      continue;
+    }
     if (typeof item.image === 'string' && item.image.startsWith('data:image/')) {
       // Never replace a file the user explicitly uploaded. Ordinary downloaded
       // artwork may still be re-attached on a later pass.
-      if (!overwrite || item.imageSource === 'user') return raw;
+      if (!overwrite || item.imageSource === 'user') {
+        next.push(raw);
+        continue;
+      }
     }
 
+    const label = typeof item.label === 'string' ? item.label : '';
     const match = matchAssetImage({
       icon: item.icon,
-      label: typeof item.label === 'string' ? item.label : '',
+      label,
       narration,
       keyTerms,
       exclude: used,
     });
-    const verdict = match ? verifyAssetMatch(match, keyTerms) : null;
+    const verdict = match
+      ? await assetJudge.verify(match, {
+          label: label || item.icon,
+          keyTerms,
+          narration,
+          ...(sceneId ? { sceneId } : {}),
+        })
+      : null;
     const accepted = verdict?.accepted ?? false;
     if (match && verdict && !verdict.accepted) {
       console.warn(
@@ -524,16 +549,19 @@ function attachDiagramImages(
         : {}),
     });
 
-    if (!match || !accepted) return raw;
+    if (!match || !accepted) {
+      next.push(raw);
+      continue;
+    }
 
     used.add(match.id);
     changed = true;
-    return {
+    next.push({
       ...item,
       image: match.dataUrl,
       imageAlt: match.tokens.slice(0, 8).join(' '),
-    };
-  });
+    });
+  }
 
   return changed ? { ...child, props: { ...child.props, items: next } } : child;
 }
@@ -548,7 +576,7 @@ interface VerifiedArtwork {
 }
 
 /** One verified library image for a labelled scene element. */
-function verifiedArtwork(options: {
+async function verifiedArtwork(options: {
   label: string;
   icon: string;
   narration: string;
@@ -556,8 +584,9 @@ function verifiedArtwork(options: {
   used: Set<string>;
   record?: AssetRecorder;
   fallback?: TopicObjectType;
-}): VerifiedArtwork | null {
-  const { label, icon, narration, keyTerms, used, record, fallback = 'book' } = options;
+  sceneId?: string;
+}): Promise<VerifiedArtwork | null> {
+  const { label, icon, narration, keyTerms, used, record, fallback = 'book', sceneId } = options;
   const match = matchAssetImage({
     icon,
     label,
@@ -570,7 +599,7 @@ function verifiedArtwork(options: {
     return null;
   }
 
-  const verdict = verifyAssetMatch(match, keyTerms);
+  const verdict = await assetJudge.verify(match, { label, keyTerms, narration, sceneId });
   record?.({
     label,
     icon,
@@ -590,26 +619,34 @@ function verifiedArtwork(options: {
   };
 }
 
-function attachAnimatedDiagramImages(
+async function attachAnimatedDiagramImages(
   child: SceneChild,
   narration: string,
   keyTerms: string[],
   used: Set<string>,
   record?: AssetRecorder,
   fallback: TopicObjectType = 'book',
-): SceneChild {
+  sceneId?: string,
+): Promise<SceneChild> {
   const items = child.props['items'];
   if (!Array.isArray(items)) return child;
 
   let changed = false;
-  const next = items.map((raw) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const next: unknown[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      next.push(raw);
+      continue;
+    }
     const item = raw as Record<string, unknown>;
-    if (hasEmbeddedImage(item['image'])) return raw;
+    if (hasEmbeddedImage(item['image'])) {
+      next.push(raw);
+      continue;
+    }
 
     const label = typeof item['label'] === 'string' ? item['label'] : '';
     const icon = typeof item['icon'] === 'string' ? item['icon'] : pickTopicObject(label, fallback);
-    const image = verifiedArtwork({
+    const image = await verifiedArtwork({
       label: label || icon,
       icon,
       narration,
@@ -617,41 +654,56 @@ function attachAnimatedDiagramImages(
       used,
       record,
       fallback,
+      ...(sceneId ? { sceneId } : {}),
     });
-    if (!image) return raw;
+    if (!image) {
+      next.push(raw);
+      continue;
+    }
     changed = true;
-    return { ...item, image: image.dataUrl, imageAlt: image.alt };
-  });
+    next.push({ ...item, image: image.dataUrl, imageAlt: image.alt });
+  }
 
   return changed ? { ...child, props: { ...child.props, items: next } } : child;
 }
 
-function attachProcessFlowImages(
+async function attachProcessFlowImages(
   child: SceneChild,
   narration: string,
   keyTerms: string[],
   used: Set<string>,
   record?: AssetRecorder,
   fallback: TopicObjectType = 'book',
-): SceneChild {
+  sceneId?: string,
+): Promise<SceneChild> {
   const steps = child.props['steps'];
   if (!Array.isArray(steps)) return child;
 
   let changed = false;
-  const next = steps.map((raw) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const next: unknown[] = [];
+  for (const raw of steps) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      next.push(raw);
+      continue;
+    }
     const step = raw as Record<string, unknown>;
-    if (hasEmbeddedImage(step['image'])) return raw;
+    if (hasEmbeddedImage(step['image'])) {
+      next.push(raw);
+      continue;
+    }
 
     const label = typeof step['label'] === 'string'
       ? step['label']
       : typeof step['text'] === 'string'
         ? step['text']
         : '';
-    if (!label) return raw;
+    if (!label) {
+      next.push(raw);
+      continue;
+    }
 
     const icon = pickTopicObject(label, fallback);
-    const image = verifiedArtwork({
+    const image = await verifiedArtwork({
       label,
       icon,
       narration,
@@ -659,32 +711,38 @@ function attachProcessFlowImages(
       used,
       record,
       fallback,
+      ...(sceneId ? { sceneId } : {}),
     });
     if (image) {
       changed = true;
-      return {
+      next.push({
         ...step,
         iconName: icon,
         image: image.dataUrl,
         imageAlt: image.alt,
-      };
+      });
+      continue;
     }
-    if (typeof step['iconName'] === 'string') return raw;
+    if (typeof step['iconName'] === 'string') {
+      next.push(raw);
+      continue;
+    }
     changed = true;
-    return { ...step, iconName: icon };
-  });
+    next.push({ ...step, iconName: icon });
+  }
 
   return changed ? { ...child, props: { ...child.props, steps: next } } : child;
 }
 
-function attachSplitScreenImages(
+async function attachSplitScreenImages(
   child: SceneChild,
   narration: string,
   keyTerms: string[],
   used: Set<string>,
   record?: AssetRecorder,
   fallback: TopicObjectType = 'book',
-): SceneChild {
+  sceneId?: string,
+): Promise<SceneChild> {
   let changed = false;
   const props = { ...child.props } as Record<string, unknown>;
 
@@ -702,7 +760,7 @@ function attachSplitScreenImages(
     if (!label) continue;
 
     const icon = pickTopicObject(label, fallback);
-    const image = verifiedArtwork({
+    const image = await verifiedArtwork({
       label,
       icon,
       narration,
@@ -710,6 +768,7 @@ function attachSplitScreenImages(
       used,
       record,
       fallback,
+      ...(sceneId ? { sceneId } : {}),
     });
     if (!image) continue;
     props[side] = { ...pane, image: image.dataUrl, imageAlt: image.alt };
@@ -719,7 +778,7 @@ function attachSplitScreenImages(
   return changed ? { ...child, props } : child;
 }
 
-function attachAnnotatedCalloutImage(
+async function attachAnnotatedCalloutImage(
   child: SceneChild,
   brief: string,
   narration: string,
@@ -727,14 +786,15 @@ function attachAnnotatedCalloutImage(
   used: Set<string>,
   record?: AssetRecorder,
   fallback: TopicObjectType = 'book',
-): SceneChild {
+  sceneId?: string,
+): Promise<SceneChild> {
   if (hasEmbeddedImage(child.props['image'])) return child;
 
   const subject = typeof child.props['subject'] === 'string'
     ? child.props['subject']
     : fallback;
   const label = brief.trim() || subject;
-  const image = verifiedArtwork({
+  const image = await verifiedArtwork({
     label,
     icon: subject,
     narration,
@@ -742,13 +802,14 @@ function attachAnnotatedCalloutImage(
     used,
     record,
     fallback,
+    ...(sceneId ? { sceneId } : {}),
   });
   return image
     ? { ...child, props: { ...child.props, image: image.dataUrl, imageAlt: image.alt } }
     : child;
 }
 
-function attachSingleImage(
+async function attachSingleImage(
   child: SceneChild,
   label: string,
   narration: string,
@@ -756,12 +817,13 @@ function attachSingleImage(
   used: Set<string>,
   record?: AssetRecorder,
   fallback: TopicObjectType = 'book',
-): SceneChild {
+  sceneId?: string,
+): Promise<SceneChild> {
   if (hasEmbeddedImage(child.props['image'])) return child;
   const text = label.trim();
   if (!text) return child;
 
-  const image = verifiedArtwork({
+  const image = await verifiedArtwork({
     label: text,
     icon: pickTopicObject(text, fallback),
     narration,
@@ -769,37 +831,49 @@ function attachSingleImage(
     used,
     record,
     fallback,
+    ...(sceneId ? { sceneId } : {}),
   });
   return image
     ? { ...child, props: { ...child.props, image: image.dataUrl, imageAlt: image.alt } }
     : child;
 }
 
-function attachTimelineImages(
+async function attachTimelineImages(
   child: SceneChild,
   narration: string,
   keyTerms: string[],
   used: Set<string>,
   record?: AssetRecorder,
   fallback: TopicObjectType = 'book',
-): SceneChild {
+  sceneId?: string,
+): Promise<SceneChild> {
   const events = child.props['events'];
   if (!Array.isArray(events)) return child;
 
   let changed = false;
-  const next = events.map((raw) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const next: unknown[] = [];
+  for (const raw of events) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      next.push(raw);
+      continue;
+    }
     const event = raw as Record<string, unknown>;
-    if (hasEmbeddedImage(event['image'])) return raw;
+    if (hasEmbeddedImage(event['image'])) {
+      next.push(raw);
+      continue;
+    }
 
     const title = typeof event['title'] === 'string'
       ? event['title']
       : typeof event['label'] === 'string'
         ? event['label']
         : '';
-    if (!title) return raw;
+    if (!title) {
+      next.push(raw);
+      continue;
+    }
 
-    const image = verifiedArtwork({
+    const image = await verifiedArtwork({
       label: title,
       icon: pickTopicObject(title, fallback),
       narration,
@@ -807,11 +881,15 @@ function attachTimelineImages(
       used,
       record,
       fallback,
+      ...(sceneId ? { sceneId } : {}),
     });
-    if (!image) return raw;
+    if (!image) {
+      next.push(raw);
+      continue;
+    }
     changed = true;
-    return { ...event, image: image.dataUrl, imageAlt: image.alt };
-  });
+    next.push({ ...event, image: image.dataUrl, imageAlt: image.alt });
+  }
 
   return changed ? { ...child, props: { ...child.props, events: next } } : child;
 }
@@ -824,7 +902,7 @@ function attachTimelineImages(
  * `reserved` holds labels already used earlier in the video; they are skipped so
  * consecutive scenes do not repeat the same diagram.
  */
-export function buildConceptItems(
+export async function buildConceptItems(
   narration: string,
   script: string,
   fallback: TopicObjectType,
@@ -832,7 +910,8 @@ export function buildConceptItems(
   record?: AssetRecorder,
   analysis?: ContentAnalysis,
   keyTerms: string[] = [],
-): ConceptItem[] {
+  sceneId?: string,
+): Promise<ConceptItem[]> {
   const items: ConceptItem[] = [];
   const blocked = new Set(reserved);
   const usedIcons = new Set<TopicObjectType>();
@@ -903,7 +982,7 @@ export function buildConceptItems(
     // A repeated neutral glyph is preferable to inventing an unrelated icon just
     // to make the row look varied; the labels carry the meaning.
     for (const item of items) reserved.add(item.label.toLowerCase());
-    return attachImages(items, narration, keyTerms, record);
+    return attachImages(items, narration, keyTerms, record, sceneId);
   }
   return [];
 }
@@ -998,16 +1077,17 @@ function numberVisual(measurement: Measurement, _scene: SceneInstruction): Scene
  * Placement alternates so consecutive scenes do not look like one template, and
  * labels already used earlier in the video are skipped.
  */
-export function attachSceneArtwork(
+export async function attachSceneArtwork(
   storyboard: StoryboardPlan,
   analysis?: ContentAnalysis,
   userAssets: UserAsset[] = [],
-): { storyboard: StoryboardPlan; assetUses: SceneAssetUse[] } {
+): Promise<{ storyboard: StoryboardPlan; assetUses: SceneAssetUse[] }> {
   const assetUses: SceneAssetUse[] = [];
   const fallback = analysisFallbackObject(analysis);
   const usedUserAssets = new Set<string>();
+  const scenes: SceneInstruction[] = [];
 
-  const scenes = storyboard.scenes.map((scene, index) => {
+  for (const [index, scene] of storyboard.scenes.entries()) {
     const children = scene.children ?? [];
     const picks: AssetPick[] = [];
     const record: AssetRecorder = (pick) => picks.push(pick);
@@ -1027,16 +1107,23 @@ export function attachSceneArtwork(
       keyTerms,
     };
     const userChildren = children.map((child) => attachUserArtwork(child, userContext));
+    const nextChildren: SceneChild[] = [];
 
-    const nextChildren = userChildren.map((child) => {
+    for (const child of userChildren) {
       if (child.component === 'ConceptDiagram') {
-        return attachDiagramImages(child, displayText, keyTerms, record, true, used);
+        nextChildren.push(
+          await attachDiagramImages(child, displayText, keyTerms, record, true, used, scene.id),
+        );
+        continue;
       }
 
       if (child.component === 'EducationalObject') {
-        if (hasEmbeddedImage(child.props['image'])) return child;
+        if (hasEmbeddedImage(child.props['image'])) {
+          nextChildren.push(child);
+          continue;
+        }
         const type = typeof child.props['type'] === 'string' ? child.props['type'] : fallback;
-        const image = verifiedArtwork({
+        const image = await verifiedArtwork({
           label: type,
           icon: type,
           narration: displayText,
@@ -1044,47 +1131,55 @@ export function attachSceneArtwork(
           used,
           record,
           fallback,
+          sceneId: scene.id,
         });
-        return image
+        nextChildren.push(image
           ? { ...child, props: { ...child.props, image: image.dataUrl, imageAlt: image.alt } }
-          : child;
+          : child);
+        continue;
       }
 
       if (child.component === 'AnimatedDiagram') {
-        return attachAnimatedDiagramImages(
+        nextChildren.push(await attachAnimatedDiagramImages(
           child,
           displayText,
           keyTerms,
           used,
           record,
           fallback,
-        );
+          scene.id,
+        ));
+        continue;
       }
 
       if (child.component === 'ProcessFlow') {
-        return attachProcessFlowImages(
+        nextChildren.push(await attachProcessFlowImages(
           child,
           displayText,
           keyTerms,
           used,
           record,
           fallback,
-        );
+          scene.id,
+        ));
+        continue;
       }
 
       if (child.component === 'SplitScreenComparison') {
-        return attachSplitScreenImages(
+        nextChildren.push(await attachSplitScreenImages(
           child,
           displayText,
           keyTerms,
           used,
           record,
           fallback,
-        );
+          scene.id,
+        ));
+        continue;
       }
 
       if (child.component === 'AnnotatedCallout') {
-        return attachAnnotatedCalloutImage(
+        nextChildren.push(await attachAnnotatedCalloutImage(
           child,
           brief,
           displayText,
@@ -1092,23 +1187,27 @@ export function attachSceneArtwork(
           used,
           record,
           fallback,
-        );
+          scene.id,
+        ));
+        continue;
       }
 
       if (child.component === 'Timeline') {
-        return attachTimelineImages(
+        nextChildren.push(await attachTimelineImages(
           child,
           displayText,
           keyTerms,
           used,
           record,
           fallback,
-        );
+          scene.id,
+        ));
+        continue;
       }
 
-      if (child.component === 'SummaryScene') {
+      if (child.component === 'SummaryScene' || child.component === 'ComparisonChart') {
         const title = typeof child.props['title'] === 'string' ? child.props['title'] : brief;
-        return attachSingleImage(
+        nextChildren.push(await attachSingleImage(
           child,
           title,
           displayText,
@@ -1116,25 +1215,14 @@ export function attachSceneArtwork(
           used,
           record,
           fallback,
-        );
-      }
-
-      if (child.component === 'ComparisonChart') {
-        const title = typeof child.props['title'] === 'string' ? child.props['title'] : brief;
-        return attachSingleImage(
-          child,
-          title,
-          displayText,
-          keyTerms,
-          used,
-          record,
-          fallback,
-        );
+          scene.id,
+        ));
+        continue;
       }
 
       if (child.component === 'SpeechBubble') {
         const text = typeof child.props['text'] === 'string' ? child.props['text'] : brief;
-        return attachSingleImage(
+        nextChildren.push(await attachSingleImage(
           child,
           text,
           displayText,
@@ -1142,25 +1230,27 @@ export function attachSceneArtwork(
           used,
           record,
           fallback,
-        );
+          scene.id,
+        ));
+        continue;
       }
 
-      return child;
-    });
+      nextChildren.push(child);
+    }
 
     assetUses.push(...picks.map((pick) => ({ sceneIndex: index, ...pick })));
-    return { ...scene, children: nextChildren };
-  });
+    scenes.push({ ...scene, children: nextChildren });
+  }
 
   return { storyboard: { ...storyboard, scenes }, assetUses };
 }
 
-export function ensureSceneVisuals(
+export async function ensureSceneVisuals(
   storyboard: StoryboardPlan,
   script: string,
   analysis?: ContentAnalysis,
   jobId?: string,
-): { storyboard: StoryboardPlan; injected: number; assetUses: SceneAssetUse[] } {
+): Promise<{ storyboard: StoryboardPlan; injected: number; assetUses: SceneAssetUse[] }> {
   const fallback = analysisFallbackObject(analysis);
   const sceneBriefs = new Map<string, string>();
   for (const scene of storyboard.scenes) {
@@ -1168,16 +1258,20 @@ export function ensureSceneVisuals(
   }
   const reserved = new Set<string>();
   const assetUses: SceneAssetUse[] = [];
+  const scenes: SceneInstruction[] = [];
   let injected = 0;
 
-  const scenes: SceneInstruction[] = storyboard.scenes.map((scene, index) => {
+  for (const [index, scene] of storyboard.scenes.entries()) {
     const children = scene.children ?? [];
     const picks: AssetPick[] = [];
     const record: AssetRecorder = (pick) => picks.push(pick);
 
     const isClosing = scene.component === 'EndScreen'
       || children.some((child) => child.component === 'EndScreen');
-    if (isClosing) return { ...scene, children };
+    if (isClosing) {
+      scenes.push({ ...scene, children });
+      continue;
+    }
 
     const narration = childText(children) || script;
     const brief = sceneBriefs.get(scene.id) ?? '';
@@ -1192,13 +1286,22 @@ export function ensureSceneVisuals(
     const alignedProps = scene.component === 'EducationalObject'
       ? aligned.find((child) => child.component === 'EducationalObject')?.props ?? scene.props
       : scene.props;
-    const enriched = aligned.map((child) => {
+    const enriched: SceneChild[] = [];
+
+    for (const child of aligned) {
       if (child.component === 'ConceptDiagram') {
-        return attachDiagramImages(child, `${brief} ${narration}`, keyTerms, record);
+        enriched.push(
+          await attachDiagramImages(child, `${brief} ${narration}`, keyTerms, record, false, new Set(), scene.id),
+        );
+        continue;
       }
-      if (child.component !== 'EducationalObject') return child;
+      if (child.component !== 'EducationalObject') {
+        enriched.push(child);
+        continue;
+      }
       if (typeof child.props['image'] === 'string' && child.props['image'].startsWith('data:image/')) {
-        return child;
+        enriched.push(child);
+        continue;
       }
       const type = typeof child.props['type'] === 'string' ? child.props['type'] : fallback;
       const match = matchAssetImage({
@@ -1207,8 +1310,16 @@ export function ensureSceneVisuals(
         narration: `${brief} ${narration}`,
         keyTerms,
       });
-      if (!match) return child;
-      const verdict = verifyAssetMatch(match, keyTerms);
+      if (!match) {
+        enriched.push(child);
+        continue;
+      }
+      const verdict = await assetJudge.verify(match, {
+        label: type,
+        keyTerms,
+        narration: `${brief} ${narration}`,
+        sceneId: scene.id,
+      });
       record?.({
         label: type,
         icon: type,
@@ -1218,17 +1329,19 @@ export function ensureSceneVisuals(
       });
       if (!verdict.accepted) {
         console.warn(`[Assets] Rejected object image ${match.id}: ${verdict.reason}`);
-        return child;
+        enriched.push(child);
+        continue;
       }
-      return {
+      enriched.push({
         ...child,
         props: {
           ...child.props,
           image: match.dataUrl,
           imageAlt: match.tokens.slice(0, 8).join(' '),
         },
-      };
-    });
+      });
+    }
+
     const extra: SceneChild[] = [];
 
     // Every scene names the idea it teaches.
@@ -1249,7 +1362,7 @@ export function ensureSceneVisuals(
     }
 
     if (!children.some((child) => TOPIC_COMPONENTS.has(child.component))) {
-      const items = buildConceptItems(
+      const items = await buildConceptItems(
         narration,
         script,
         fallback,
@@ -1257,6 +1370,7 @@ export function ensureSceneVisuals(
         record,
         analysis,
         keyTerms,
+        scene.id,
       );
       if (items.length >= 2) {
         // Keep the graphic clear of the heading (~12%) and captions (bottom 8%).
@@ -1282,12 +1396,15 @@ export function ensureSceneVisuals(
     // Record what this scene's tiles ended up with, downloaded or not.
     assetUses.push(...picks.map((pick) => ({ sceneIndex: index, ...pick })));
 
-    if (extra.length === 0) return { ...scene, props: alignedProps, children: enriched };
+    if (extra.length === 0) {
+      scenes.push({ ...scene, props: alignedProps, children: enriched });
+      continue;
+    }
 
     injected += extra.length;
     // Prepended so captions and titles painted afterwards stay on top.
-    return { ...scene, props: alignedProps, children: [...extra, ...enriched] };
-  });
+    scenes.push({ ...scene, props: alignedProps, children: [...extra, ...enriched] });
+  }
 
   return { storyboard: { ...storyboard, scenes }, injected, assetUses };
 }

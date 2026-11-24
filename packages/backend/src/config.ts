@@ -41,6 +41,24 @@ function parseRenderGl(raw: string | undefined): RenderGl | null {
   return match;
 }
 
+export type AssetVerifyMode = 'auto' | 'llm' | 'tags';
+
+/**
+ * ASSET_VERIFY controls the semantic asset judge:
+ *  - auto: deterministic verification, LLM only for ambiguous one-word matches;
+ *  - llm: always ask the local model, with the deterministic result as fallback;
+ *  - tags: deterministic rules only (no model load).
+ */
+export function parseAssetVerifyMode(raw: string | undefined): AssetVerifyMode {
+  const value = (raw ?? '').trim().toLowerCase();
+  if (!value) return 'auto';
+  if (value === 'auto' || value === 'llm' || value === 'tags') return value;
+  console.warn(
+    `[Config] Ignoring ASSET_VERIFY="${raw}": expected auto, llm or tags`,
+  );
+  return 'auto';
+}
+
 export type GpuLayers = 'auto' | 'max' | number;
 
 /**
@@ -147,6 +165,12 @@ export const config = {
     // A tile is small; anything bigger only bloats the inlined props JSON.
     maxSvgBytes: 400 * 1024,
     maxRasterBytes: 900 * 1024,
+    verify: {
+      mode: parseAssetVerifyMode(process.env['ASSET_VERIFY']),
+      // Judgements are cached by a hash of the scene vocabulary + candidate, so
+      // a repeated topic never pays for the same model call twice.
+      cachePath: path.join(ROOT_DIR, 'data', 'assets', 'verify-cache.json'),
+    },
   },
 
   research: {

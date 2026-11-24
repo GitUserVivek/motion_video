@@ -179,7 +179,7 @@ async function processJob(job: JobRow): Promise<void> {
     console.warn(`[Worker] Job ${job.id} scene asset discovery had ${sceneDiscovery.errors.length} error(s)`);
   }
   resetAssetCache();
-  const attached = attachSceneArtwork(planned.storyboard, contentAnalysis, userAssets);
+  const attached = await attachSceneArtwork(planned.storyboard, contentAnalysis, userAssets);
   const storyboard = attached.storyboard;
   const assetUses = attached.assetUses;
 

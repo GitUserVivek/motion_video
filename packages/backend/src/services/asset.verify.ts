@@ -225,3 +225,31 @@ export function verifyAssetMatch(
     conflicts: [],
   };
 }
+
+/**
+ * Whether the deterministic verdict can stand without a semantic judge.
+ *
+ * A rejection is always confident: the rules only reject for a concrete reason
+ * (backdrop, no scene term, generic-only file, or a conflicting subject field).
+ * An acceptance is confident when it matches at least two scene terms, or when
+ * the candidate names nothing except scene words. One shared word plus extra
+ * unexplained nouns ("heart anatomy chart", "leaf collection photo") is the
+ * ambiguous case worth asking the local model about.
+ */
+export function isConfidentVerdict(
+  verdict: AssetVerdict,
+  match: MatchedAsset,
+  keyTerms: string[],
+): boolean {
+  if (!verdict.accepted) return true;
+  if (verdict.matchedTerms.length >= 2) return true;
+
+  const sceneTokens = new Set(keyTerms.flatMap(tokenize));
+  const extras = match.tokens
+    .flatMap(tokenize)
+    .filter((token) => token.length > 2)
+    .filter((token) => !GENERIC_TOKENS.has(token))
+    .filter((token) => !hasToken(sceneTokens, token));
+
+  return extras.length === 0;
+}

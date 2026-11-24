@@ -219,6 +219,10 @@ Implemented from `Update_plan.md`:
   semantic field (a spacecraft called “Mars Cube One” cannot illustrate a shape;
   a workplace “hierarchy of control” chart cannot illustrate a solid). Rejected
   candidates now appear in `assets.json` with the candidate id and reason.
+- `ASSET_VERIFY=auto|llm|tags` adds an optional local-model judge for ambiguous
+  one-word matches, cached by content hash in `data/assets/verify-cache.json`.
+  Deterministic rejections stay final, and every mode falls back to the rules
+  when the model is unavailable.
 - `AnimatedDiagram` defaults to `layout: "auto"`: a centered grid derived from
   item count, clamped to the safe box, with wrapped labels and a readable minimum
   font. `layout: "manual"` keeps old storyboards unchanged.

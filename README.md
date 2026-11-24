@@ -200,6 +200,7 @@ Edit `.env` to customize settings:
 | `RESEARCH_TIMEOUT_MS` | `7000` | Research request timeout |
 | `RESEARCH_MAX_SOURCES` | `3` | Max sources kept per job |
 | `ASSET_DISCOVERY` | `on` | Automatic artwork search/download |
+| `ASSET_VERIFY` | `auto` | Image meaning check: `auto` (rules + LLM for ambiguous matches), `llm` (always ask the local model), `tags` (rules only) |
 | `VISION_API_URL` | unset | Optional OpenAI-compatible vision endpoint for uploaded images |
 | `VISION_API_KEY` | unset | Optional key for the vision endpoint |
 | `VISION_MODEL` | unset | Vision model, e.g. `qwen2.5vl:3b` or a free provider model |
