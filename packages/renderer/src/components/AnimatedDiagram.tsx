@@ -108,10 +108,11 @@ export function AnimatedDiagram({
   const { fps } = useVideoConfig();
 
   const formula = equation?.trim();
+  const formulaOnly = Boolean(formula) && items.length === 0;
   const isManual = layout === 'manual';
   const panelWidth = Math.max(320, Math.min(width, 940));
   const auto = autoLayout(items.length, panelWidth, iconSize);
-  const panelHeight = isManual ? height : auto.height;
+  const panelHeight = isManual ? height : formulaOnly ? 280 : auto.height;
 
   const positions: Placement[] = items.map((item, index) => {
     if (isManual) {
@@ -176,10 +177,9 @@ export function AnimatedDiagram({
             lines={[formula]}
             title="THE SHAPE EQUATION"
             accent={accentAt(2)}
-            style={{
-              width: panelWidth - 40,
-              fontSize: Math.max(24, Math.min(34, Math.round(panelWidth * 0.045))),
-            }}
+            showLineNumbers={false}
+            fontSize={Math.max(26, Math.min(36, Math.round(panelWidth * 0.038)))}
+            style={{ width: panelWidth - 40 }}
           />
         </div>
       ) : null}

@@ -116,7 +116,7 @@ export function ProcessFlow({
     flexDirection: vertical ? 'column' : 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: vertical ? 8 : 12,
+    gap: vertical ? 16 : 12,
   };
 
   return (
@@ -140,7 +140,7 @@ export function ProcessFlow({
               style={{
                 width: vertical ? '100%' : '100%',
                 maxWidth: vertical ? 880 : 430,
-                minHeight: vertical ? 132 : 176,
+                minHeight: vertical ? 142 : 176,
                 background: active ? '#FFF3C4' : PAPER,
                 border: BORDER,
                 borderRadius: 18,

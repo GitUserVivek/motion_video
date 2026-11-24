@@ -139,6 +139,9 @@ export interface CodePanelProps {
   lines: string[];
   title?: string;
   accent?: string;
+  fontSize?: number;
+  /** Line numbers help code, but read as noise in front of a formula. */
+  showLineNumbers?: boolean;
   style?: React.CSSProperties;
 }
 
@@ -147,6 +150,8 @@ export function CodePanel({
   lines,
   title,
   accent = accentAt(2),
+  fontSize = 28,
+  showLineNumbers = true,
   style,
 }: CodePanelProps): React.ReactElement {
   return (
@@ -180,12 +185,14 @@ export function CodePanel({
         <div
           key={`${line}-${index}`}
           style={{
-            fontSize: 28,
+            fontSize,
             lineHeight: 1.55,
             whiteSpace: 'pre-wrap',
           }}
         >
-          <span style={{ color: accent, marginRight: 14 }}>{String(index + 1).padStart(2, '0')}</span>
+          {showLineNumbers ? (
+            <span style={{ color: accent, marginRight: 14 }}>{String(index + 1).padStart(2, '0')}</span>
+          ) : null}
           {line}
         </div>
       ))}
@@ -237,7 +244,7 @@ export function FrameMeter({ scenes, totalFrames }: FrameMeterProps): React.Reac
         position: 'absolute',
         left: '4%',
         right: '4%',
-        bottom: 18,
+        bottom: 34,
         zIndex: 120,
         color: INK,
         fontFamily: FONTS.mono,
@@ -249,10 +256,10 @@ export function FrameMeter({ scenes, totalFrames }: FrameMeterProps): React.Reac
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'baseline',
-          fontSize: 20,
+          fontSize: 19,
           fontWeight: 700,
           letterSpacing: 0.8,
-          marginBottom: 8,
+          marginBottom: 7,
           textTransform: 'uppercase',
         }}
       >
@@ -266,11 +273,11 @@ export function FrameMeter({ scenes, totalFrames }: FrameMeterProps): React.Reac
         style={{
           position: 'relative',
           display: 'flex',
-          height: 32,
+          height: 28,
           background: PAPER,
           border: BORDER,
           borderRadius: 9,
-          boxShadow: '5px 5px 0 #111111',
+          boxShadow: '4px 4px 0 #111111',
           overflow: 'visible',
         }}
       >
