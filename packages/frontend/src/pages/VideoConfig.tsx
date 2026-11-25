@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useProjectStore } from '../store/projectStore.js';
 import {
   DURATION_OPTIONS,
   ANIMATION_THEMES,
-  VOICES,
+  LANGUAGES,
   ASPECT_RATIOS,
+  defaultVoiceFor,
+  normalizeLanguage,
   resolveInstructor,
+  voicesForLanguage,
 } from '@edumotion/shared';
 import type { AspectRatio, AnimationTheme } from '@edumotion/shared';
 import { ErrorNotice, errorMessage } from '../components/Feedback.js';
@@ -17,6 +20,20 @@ export function VideoConfig(): React.ReactElement {
   const { script, videoConfig, setVideoConfig, setActiveJob } = useProjectStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const language = LANGUAGES.find(
+    (entry) => entry.code === normalizeLanguage(videoConfig.language),
+  ) ?? LANGUAGES[0];
+  const voiceOptions = voicesForLanguage(language.code);
+
+  // A stored job from another language (or an English default) must not reach
+  // the renderer: an English voice reading a Marathi script floods the video
+  // with the wrong phonemes.
+  useEffect(() => {
+    if (!voiceOptions.some(([id]) => id === videoConfig.voice)) {
+      setVideoConfig({ voice: defaultVoiceFor(language.code) });
+    }
+  }, [language.code, videoConfig.voice, setVideoConfig]);
 
   if (!script) return <Navigate to="/create" replace />;
 
@@ -105,19 +122,19 @@ export function VideoConfig(): React.ReactElement {
           ))}
         </select>
 
-        <label style={labelStyle}>Voice</label>
+        <label style={labelStyle}>Voice ({language.nativeLabel})</label>
         <select
           value={videoConfig.voice}
           onChange={(e) => setVideoConfig({ voice: e.target.value })}
           disabled={loading}
           style={{ marginBottom: 20 }}
         >
-          {Object.entries(VOICES).map(([id, v]) => (
+          {voiceOptions.map(([id, v]) => (
             <option key={id} value={id}>{v.label}</option>
           ))}
         </select>
         <p style={{ fontSize: 12, color: '#8f8faa', marginTop: -12, marginBottom: 20 }}>
-          Instructor: <strong style={{ color: '#c9c9e0' }}>{instructor.name}</strong> — the presenter changes with the selected voice.
+          Instructor: <strong style={{ color: '#c9c9e0' }}>{instructor.name}</strong> — the presenter changes with the selected voice. Narration language is {language.nativeLabel}; <Link to="/create" style={{ color: '#4A90D9' }}>change it on the Create page</Link>.
         </p>
 
         <div style={{ display: 'flex', gap: 24, marginBottom: 20, flexWrap: 'wrap' }}>

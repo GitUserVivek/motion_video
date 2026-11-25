@@ -15,9 +15,12 @@ export const PAPER_ALT = '#F4EEDC';
 export const WHITE = '#FFFFFF';
 export const MUTED = '#5B564C';
 
+// The Devanagari face sits after the Latin ones: Chromium falls through to it
+// per glyph, so English keeps Ubuntu/DejaVu while Marathi gets real letterforms
+// instead of boxes. It is registered by utils/fonts.ts.
 export const FONTS = {
-  display: '"Ubuntu Sans", "DejaVu Sans", "Liberation Sans", sans-serif',
-  body: '"Ubuntu Sans", "DejaVu Sans", "Liberation Sans", sans-serif',
+  display: '"Ubuntu Sans", "Noto Sans Devanagari", "DejaVu Sans", "Liberation Sans", sans-serif',
+  body: '"Ubuntu Sans", "Noto Sans Devanagari", "DejaVu Sans", "Liberation Sans", sans-serif',
   mono: '"DejaVu Sans Mono", "Ubuntu Mono", monospace',
 } as const;
 

@@ -5,7 +5,10 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "module": "ESNext",
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    // The composition runs in Remotion's browser, so font registration uses the
+    // DOM (FontFace / document.fonts).
+    "lib": ["ES2022", "DOM"]
   },
   "include": ["src"]
 }

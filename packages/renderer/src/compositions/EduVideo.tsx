@@ -34,6 +34,7 @@ import { FrameMeter, SceneWipe } from '../components/motion/Primitives.js';
 import { isPaletteId, PALETTES } from '../utils/palette.js';
 import { accentAt, FONTS, INK, PAPER } from '../utils/design.js';
 import { sanitizeProps } from '../utils/sanitize.js';
+import { useRenderFonts } from '../utils/fonts.js';
 
 const COMPONENT_MAP: Record<ComponentName, React.ComponentType<Record<string, unknown>>> = {
   AnimatedText:        AnimatedText as unknown as React.ComponentType<Record<string, unknown>>,
@@ -246,6 +247,7 @@ export interface EduVideoProps {
 }
 
 export function EduVideo({ storyboard }: EduVideoProps): React.ReactElement {
+  useRenderFonts();
   const scenes = storyboard?.scenes ?? [];
   const { durationInFrames } = useVideoConfig();
   const meterScenes = scenes.map((scene, index) => {

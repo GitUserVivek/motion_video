@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { LANGUAGES, defaultVoiceFor } from '@edumotion/shared';
 import { api } from '../api/client.js';
 import { useProjectStore } from '../store/projectStore.js';
 import { ErrorNotice, errorMessage } from '../components/Feedback.js';
@@ -8,12 +9,14 @@ export function CreateInput(): React.ReactElement {
   const navigate = useNavigate();
   const {
     mode, topic, ownScriptContent, ownScriptMode, videoConfig,
-    setMode, setTopic, setOwnScript, setOwnScriptMode, setScript,
+    setMode, setTopic, setOwnScript, setOwnScriptMode, setScript, setVideoConfig,
   } = useProjectStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const activeMode = mode ?? 'topic';
+  const language = LANGUAGES.find((entry) => entry.code === videoConfig.language) ?? LANGUAGES[0];
+  const marathi = language.code === 'mr';
   const ownWordCount = ownScriptContent.trim()
     ? ownScriptContent.split(/\s+/).filter(Boolean).length
     : 0;
@@ -36,9 +39,9 @@ export function CreateInput(): React.ReactElement {
     try {
       let script;
       if (activeMode === 'topic') {
-        script = await api.generateScript(topic.trim(), videoConfig.duration);
+        script = await api.generateScript(topic.trim(), videoConfig.duration, language.code);
       } else {
-        script = await api.validateScript(ownScriptContent.trim(), ownScriptMode);
+        script = await api.validateScript(ownScriptContent.trim(), ownScriptMode, language.code);
       }
       setScript(script);
       navigate('/script');
@@ -57,6 +60,40 @@ export function CreateInput(): React.ReactElement {
       </p>
 
       <form onSubmit={(event) => void handleSubmit(event)}>
+        {/* Language */}
+        <div style={{ marginBottom: 24 }}>
+          <label style={labelStyle}>Video Language</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {LANGUAGES.map((entry) => (
+              <button
+                key={entry.code}
+                type="button"
+                onClick={() => setVideoConfig({
+                  language: entry.code,
+                  // The voice has to be able to speak the script; an English
+                  // voice reading Marathi produces gibberish audio.
+                  voice: defaultVoiceFor(entry.code),
+                })}
+                disabled={loading}
+                aria-pressed={language.code === entry.code}
+                style={{
+                  flex: '1 1 140px', padding: '10px 12px', borderRadius: 8,
+                  border: `1px solid ${language.code === entry.code ? '#4A90D9' : '#3a3a5a'}`,
+                  backgroundColor: language.code === entry.code ? '#4A90D920' : '#1e1e36',
+                  color: language.code === entry.code ? '#4A90D9' : '#a0a0c0',
+                  fontWeight: 700, fontSize: 14,
+                }}
+              >
+                {entry.nativeLabel}
+                {entry.code === 'mr' ? ' · Marathi' : ''}
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: '#666', marginTop: 8, marginBottom: 0 }}>
+            Script, narration and on-screen text will all be in {language.nativeLabel}.
+          </p>
+        </div>
+
         {/* Mode Toggle */}
         <div className="mode-toggle" style={{ marginBottom: 28 }}>
           {(['topic', 'own-script'] as const).map((m) => (
@@ -84,12 +121,14 @@ export function CreateInput(): React.ReactElement {
               id="video-topic"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. How does photosynthesis work?"
+              placeholder={marathi
+                ? 'उदा. प्रकाशसंश्लेषण कसे होते?'
+                : 'e.g. How does photosynthesis work?'}
               disabled={loading}
               style={{ marginBottom: 8 }}
             />
             <p style={{ fontSize: 12, color: '#666', marginBottom: 20 }}>
-              AI will generate a {videoConfig.duration}-second educational script based on this topic.
+              AI will write a {videoConfig.duration}-second {language.nativeLabel} educational script based on this topic.
             </p>
           </div>
         ) : (
@@ -119,7 +158,9 @@ export function CreateInput(): React.ReactElement {
               value={ownScriptContent}
               onChange={(e) => setOwnScript(e.target.value)}
               rows={10}
-              placeholder="Paste your educational script here…"
+              placeholder={marathi
+                ? 'तुमची मराठी स्क्रिप्ट येथे पेस्ट करा…'
+                : 'Paste your educational script here…'}
               disabled={loading}
               style={{ marginBottom: 8, resize: 'vertical' }}
             />

@@ -174,7 +174,9 @@ class ScriptService {
 
     const sentences = lines
       .join(' ')
-      .split(/(?<=[.!?])\s+/)
+      // `।` (danda) ends a Marathi sentence; splitting only on Latin stops would
+      // glue a whole Marathi script into one unreadable line.
+      .split(/(?<=[.!?।॥])\s+/)
       .map((sentence) => this.normalizeSentence(sentence))
       .filter((sentence) => sentence.length > 0);
 
@@ -184,7 +186,9 @@ class ScriptService {
   private normalizeSentence(sentence: string): string {
     const trimmed = sentence.trim().replace(/\s+/g, ' ');
     if (!trimmed) return '';
-    return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+    if (/[.!?।॥]$/.test(trimmed)) return trimmed;
+    // Devanagari scripts close a sentence with the danda, not a Latin period.
+    return /[\u0900-\u097F]/.test(trimmed) ? `${trimmed}।` : `${trimmed}.`;
   }
 
   /**

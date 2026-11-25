@@ -56,6 +56,7 @@ Return this exact shape (all keys required):
 
 RULES:
 - Derive everything from the material above. Never infer the domain from a single incidental word.
+- Quote the narration exactly as written: never translate its sentences or terms into English, so a claim can be matched back to the script.
 - "business profit and loss" is business/finance, not technology, even if the script mentions a computer or software once.
 - List only terms that are central to understanding the narration, at most 8.
 - "visualCandidates" must name things that can actually be drawn or illustrated. Never use generic labels like "idea", "concept" or "information".

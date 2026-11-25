@@ -50,16 +50,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: (): Promise<HealthStatus> => request('/health'),
 
-  generateScript: (topic: string, duration?: number): Promise<ScriptResponse> =>
+  generateScript: (
+    topic: string,
+    duration?: number,
+    language?: string,
+  ): Promise<ScriptResponse> =>
     request('/scripts/generate', {
       method: 'POST',
-      body: JSON.stringify({ topic, config: { duration: duration ?? 40 } }),
+      body: JSON.stringify({
+        topic,
+        config: { duration: duration ?? 40, ...(language ? { language } : {}) },
+      }),
     }),
 
-  validateScript: (content: string, mode: 'preserve' | 'improve'): Promise<ScriptResponse> =>
+  validateScript: (
+    content: string,
+    mode: 'preserve' | 'improve',
+    language?: string,
+  ): Promise<ScriptResponse> =>
     request('/scripts/validate', {
       method: 'POST',
-      body: JSON.stringify({ content, mode }),
+      body: JSON.stringify({ content, mode, config: language ? { language } : {} }),
     }),
 
   rewriteScript: (scriptId: string, mode: 'improve' | 'preserve'): Promise<ScriptResponse> =>

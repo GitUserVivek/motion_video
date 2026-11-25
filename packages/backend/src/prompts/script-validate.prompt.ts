@@ -6,7 +6,7 @@ export function buildScriptValidatePrompt(content: string): string {
 4. Any inappropriate content
 
 If the script is acceptable as-is, return it UNCHANGED.
-If it needs minor fixes, return the corrected version.
+If it needs minor fixes, return the corrected version in the same language and writing system as the original.
 Output ONLY the script text — no commentary, no explanations.
 
 SCRIPT:

@@ -43,7 +43,7 @@ function firstTopicSentence(text: string): string {
   const sentence = text.split(/\n+/).map((line) => line.trim()).find(Boolean) ?? text.trim();
   const cleaned = sentence
     .replace(/^(?:have|do|does|did|can|could|would|what|why|how|when|where|who|is|are|was|were)\s+/i, '')
-    .replace(/[.!?]+$/, '')
+    .replace(/[.!?।॥]+$/, '')
     .trim();
   const limited = cleaned.split(/\s+/).slice(0, 8).join(' ');
   return limited || 'educational topic';
@@ -86,7 +86,7 @@ export function deriveContentAnalysis(input: {
     }));
 
   const sentences = source
-    .split(/(?<=[.!?])\s+|\n+/)
+    .split(/(?<=[.!?।॥])\s+|\n+/)
     .map((sentence) => sentence.trim())
     .filter(Boolean);
 

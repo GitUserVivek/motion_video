@@ -389,6 +389,7 @@ class StoryboardService {
         chosenAttempt,
         script,
         config.voice,
+        config.language,
       );
       if (changes.length > 0) {
         logInfo(
@@ -448,7 +449,7 @@ class StoryboardService {
       content,
     );
     const directedFallback = repairStoryboardProps(
-      directStoryboard(fallback, script, config.voice).storyboard,
+      directStoryboard(fallback, script, config.voice, config.language).storyboard,
     ).storyboard;
     const { storyboard: timedFallback, report: fallbackTiming } =
       normalizeStoryboardTiming(directedFallback);
@@ -627,7 +628,7 @@ class StoryboardService {
     const text = sentence
       .replace(/^(have|do|does|did|can|could|would|what|why|how|when|where|who|is|are|was|were|will)\s+/i, '')
       // Remove trailing punctuation
-      .replace(/[.!?]+$/, '')
+      .replace(/[.!?।॥]+$/, '')
       .trim();
 
     return (text.split(/[,;:]/)[0] ?? text).trim() || text;

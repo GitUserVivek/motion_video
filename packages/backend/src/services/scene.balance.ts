@@ -29,7 +29,7 @@ interface CueGroup {
 
 /** True when a cue ends a spoken sentence, so it is a clean scene boundary. */
 function endsSentence(cue: SubtitleEntry): boolean {
-  return /[.!?]["')\]]?\s*$/.test(cue.text.trim());
+  return /[.!?।॥]["')\]]?\s*$/.test(cue.text.trim());
 }
 
 /**

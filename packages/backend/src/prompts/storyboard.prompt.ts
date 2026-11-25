@@ -1,4 +1,4 @@
-import type { ContentAnalysis, VideoConfig } from '@edumotion/shared';
+import { languageName, normalizeLanguage, type ContentAnalysis, type VideoConfig } from '@edumotion/shared';
 import { formatContentAnalysisForStoryboard } from './content-analysis.prompt.js';
 
 /**
@@ -46,6 +46,7 @@ VIDEO SPECS:
 - Aspect ratio: ${config.aspectRatio}
 - Theme: ${config.animationTheme}
 - Scenes to create: ${sceneCount}
+- On-screen text language: ${languageName(config.language)}${normalizeLanguage(config.language) === 'mr' ? ' (Devanagari script)' : ''}
 
 SCENE RULES:
 1. Each scene teaches ONE idea from the script and follows the script order.
@@ -68,6 +69,7 @@ SCENE RULES:
 11. The final scene MUST contain EndScreen with a short recap. It should cover only the closing sentence, not the remaining lesson.
 12. No scene may exceed 240 frames (8 seconds) unless one caption cue is itself longer. Distribute sentences across scenes; never make the first scenes short and dump the rest into the final scene.
 13. Use the Teacher presenter in at most three teaching scenes (hook, definition, example, process or comparison). Do not put a presenter in the ending scene. The backend selects the instructor matching the chosen voice.
+14. Write every piece of text the viewer reads (titles, labels, chart values, keyTerms) in ${languageName(config.language)}${normalizeLanguage(config.language) === 'mr' ? ', in Devanagari script, using the same wording as the narration' : ''}. Only "assetQueries" stays in English, because the illustration search services are English-language indexes.
 
 FRAME TIMING (MANDATORY):
 - Scene "startFrame" and "endFrame" are absolute video frames.

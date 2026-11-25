@@ -83,7 +83,7 @@ class SubtitleService {
         text: pending
           .map((cue) => cue.text.trim())
           .join(' ')
-          .replace(/\s+([,.!?;:%])/g, '$1')
+          .replace(/\s+([,.!?;:%।॥])/g, '$1')
           .replace(/\s+/g, ' ')
           .trim(),
         words: pending.map((cue) => ({
@@ -290,7 +290,7 @@ class SubtitleService {
     // Split on sentence-ending punctuation, keeping reasonable chunk sizes
     const raw = text
       .replace(/\n+/g, ' ')
-      .split(/(?<=[.!?])\s+/)
+      .split(/(?<=[.!?।॥])\s+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 

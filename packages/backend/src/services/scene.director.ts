@@ -1,4 +1,5 @@
 import {
+  isEnglish,
   pickScenePalette,
   resolveInstructor,
   type ComponentName,
@@ -408,7 +409,7 @@ function buildComposition(
           child: {
             component: 'ComparisonChart',
             props: {
-              title: (narration.split(/[.!?]/)[0] ?? '').trim(),
+              title: (narration.split(/[.!?।॥]/)[0] ?? '').trim(),
               bars,
               accent: '#FFD166',
               top: '56%',
@@ -507,7 +508,7 @@ function buildComposition(
       // A bubble is only justified by a real question. "Imagine…" used to make
       // a bubble that repeated the caption word for word.
       const question = narration
-        .split(/(?<=[.!?])\s+/)
+        .split(/(?<=[.!?।॥])\s+/)
         .find((part) => part.includes('?'));
       if (!question) return null;
       const text = question.trim();
@@ -601,6 +602,45 @@ function semanticTitle(text: string, maxWords = 8): string {
   return cut.join(' ').replace(/[,;:\-–—]+$/, '').trim();
 }
 
+/**
+ * Closing-screen copy per language. The English strings are the component's own
+ * defaults; a Marathi video must never show them.
+ */
+const END_SCREEN_COPY = {
+  en: {
+    title: 'Thanks for watching!',
+    subtitle: 'Keep exploring with Anupam Classes',
+    recapPrefix: 'In short: ',
+    kicker: 'RECAP',
+  },
+  mr: {
+    title: 'पाहिल्याबद्दल धन्यवाद!',
+    subtitle: 'Anupam Classes सोबत शिकत राहा',
+    recapPrefix: 'थोडक्यात: ',
+    kicker: 'सारांश',
+  },
+} as const;
+
+const END_SCREEN_DEFAULTS = {
+  title: 'Thanks for Watching!',
+  subtitle: 'Subscribe for more educational videos',
+  kicker: 'RECAP',
+};
+
+/**
+ * A model-written title in a non-English script. The English checks below test
+ * English conjunctions and word counts; this one only rejects something that is
+ * obviously not a heading (a cut-off phrase or a whole paragraph).
+ */
+function isUsableTitle(text: string): boolean {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (!clean || clean.endsWith('…')) return false;
+  if (clean.length > 90) return false;
+  if (/[,;:\-–—]$/.test(clean)) return false;
+  const words = clean.split(/\s+/).filter(Boolean);
+  return words.length >= 2 && words.length <= 12;
+}
+
 /** Whether a model-written line reads as a title rather than a caption cut-off. */
 function isGoodTitle(text: string): boolean {
   const clean = text.replace(/\s+/g, ' ').trim();
@@ -617,10 +657,19 @@ function isGoodTitle(text: string): boolean {
  * purpose + key terms, otherwise nothing. Narration is deliberately not
  * truncated into a heading any more.
  */
-function sceneHeading(scene: SceneInstruction, existingTitle?: string): string | null {
-  if (existingTitle && isGoodTitle(existingTitle)) {
-    return existingTitle.replace(/\s+/g, ' ').trim();
+function sceneHeading(
+  scene: SceneInstruction,
+  existingTitle?: string,
+  english = true,
+): string | null {
+  if (existingTitle) {
+    const clean = existingTitle.replace(/\s+/g, ' ').trim();
+    if (english ? isGoodTitle(clean) : isUsableTitle(clean)) return clean;
   }
+
+  // Everything below composes an English phrase ("Explained", "vs", purpose
+  // names), so a Marathi video keeps the model's own heading or none at all.
+  if (!english) return null;
 
   const fromBrief = semanticTitle(scene.visualBrief ?? '', 8);
   if (fromBrief) return titleCase(fromBrief);
@@ -773,10 +822,13 @@ export function directStoryboard(
   plan: StoryboardPlan,
   script: string,
   voice?: string,
+  language?: string,
 ): DirectedStoryboard {
   const changes: string[] = [];
   const totalScenes = plan.scenes.length;
   const instructor = resolveInstructor(voice);
+  const english = isEnglish(language);
+  const endCopy = END_SCREEN_COPY[english ? 'en' : 'mr'];
   let instructorScenes = 0;
   let previousPalette: PaletteId | undefined;
 
@@ -830,7 +882,7 @@ export function directStoryboard(
     const modelTitle = titleIndex >= 0 ? children[titleIndex]?.props['text'] : undefined;
     const heading = isLast
       ? null
-      : sceneHeading(scene, typeof modelTitle === 'string' ? modelTitle : undefined);
+      : sceneHeading(scene, typeof modelTitle === 'string' ? modelTitle : undefined, english);
 
     if (!isLast) {
       if (titleIndex >= 0) {
@@ -997,19 +1049,30 @@ export function directStoryboard(
       const existingSubtitle = typeof existing?.props['subtitle'] === 'string'
         ? existing.props['subtitle'].trim()
         : '';
+      const existingKicker = typeof existing?.props['kicker'] === 'string'
+        ? existing.props['kicker'].trim()
+        : '';
+      const recap = narration.replace(/\s+/g, ' ').trim();
       const endProps = {
         ...(existing?.props ?? {}),
         // Keep a specific model title, but replace the component's generic
         // default (which appears when the model used an unsupported `text` key).
-        title: existingTitle && existingTitle !== 'Thanks for Watching!'
+        title: existingTitle && existingTitle !== END_SCREEN_DEFAULTS.title
           ? existingTitle
-          : topicTitle(script),
-        subtitle: existingSubtitle && existingSubtitle !== 'Subscribe for more educational videos'
+          : english
+            ? topicTitle(script)
+            : endCopy.title,
+        subtitle: existingSubtitle && existingSubtitle !== END_SCREEN_DEFAULTS.subtitle
           ? existingSubtitle
-          : narration
-            ? `In short: ${semanticTitle(narration, 9)
-              || (narration.split(/[.;!?]/)[0] ?? narration).trim()}`
-            : 'Keep exploring with Anupam Classes',
+          : recap
+            ? `${endCopy.recapPrefix}${
+              (english ? semanticTitle(recap, 9) : '')
+              || (recap.split(/[.;!?।॥]/)[0] ?? recap).trim()
+            }`
+            : endCopy.subtitle,
+        kicker: existingKicker && existingKicker.toUpperCase() !== END_SCREEN_DEFAULTS.kicker
+          ? existingKicker
+          : endCopy.kicker,
         showConfetti: existing?.props['showConfetti'] ?? true,
         startFrame: existing?.props['startFrame'] ?? 10,
       };

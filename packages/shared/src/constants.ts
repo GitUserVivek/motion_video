@@ -23,7 +23,56 @@ export const VOICES: Record<string, { label: string; lang: string; engine: TtsEn
   'en-US-male-1':   { label: 'James (US Male)',  lang: 'en', engine: 'edge-tts', voice: 'en-US-GuyNeural' },
   'en-GB-female-1': { label: 'Sophie (UK Female)', lang: 'en', engine: 'edge-tts', voice: 'en-GB-SoniaNeural' },
   'espeak-en':      { label: 'eSpeak English',   lang: 'en', engine: 'espeak', voice: 'en' },
+  'mr-IN-female-1': { label: 'आरोही (Marathi Female)', lang: 'mr', engine: 'edge-tts', voice: 'mr-IN-AarohiNeural' },
+  'mr-IN-male-1':   { label: 'मनोहर (Marathi Male)',   lang: 'mr', engine: 'edge-tts', voice: 'mr-IN-ManoharNeural' },
 };
+
+/**
+ * Languages a video can be written and narrated in. `code` is what the API and
+ * the stored video config carry; `voice` is the default speaker for the
+ * language, so picking a language never leaves an English voice reading Marathi
+ * text.
+ */
+export const LANGUAGES = [
+  { code: 'en', label: 'English', nativeLabel: 'English', voice: 'en-US-female-1' },
+  { code: 'mr', label: 'Marathi', nativeLabel: 'मराठी', voice: 'mr-IN-female-1' },
+] as const;
+
+export type LanguageCode = (typeof LANGUAGES)[number]['code'];
+
+export const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  mr: 'Marathi (मराठी)',
+};
+
+/** Collapse `mr`, `mr-IN` and `MR` to the language code used by the prompts. */
+export function normalizeLanguage(code?: string): string {
+  const value = (code ?? '').trim().toLowerCase();
+  if (!value) return 'en';
+  return value.split(/[-_]/)[0] || 'en';
+}
+
+export function languageName(code?: string): string {
+  return LANGUAGE_NAMES[normalizeLanguage(code)] ?? 'English';
+}
+
+export function isEnglish(code?: string): boolean {
+  return normalizeLanguage(code) === 'en';
+}
+
+/** Voices that can actually speak the selected language. */
+export function voicesForLanguage(code?: string): Array<[string, (typeof VOICES)[string]]> {
+  const language = normalizeLanguage(code);
+  const matches = Object.entries(VOICES).filter(([, preset]) => preset.lang === language);
+  return matches.length > 0
+    ? matches
+    : Object.entries(VOICES).filter(([, preset]) => preset.lang === 'en');
+}
+
+export function defaultVoiceFor(code?: string): string {
+  const language = normalizeLanguage(code);
+  return LANGUAGES.find((entry) => entry.code === language)?.voice ?? 'en-US-female-1';
+}
 
 /**
  * Turn the voice picked in the UI into the engine's own voice name. The UI sends
@@ -91,6 +140,10 @@ const VOICE_INSTRUCTOR: Record<string, InstructorId> = {
   'en-US-AriaNeural': 'emma',
   'en-US-GuyNeural': 'james',
   'en-GB-SoniaNeural': 'sophie',
+  'mr-IN-female-1': 'emma',
+  'mr-IN-male-1': 'james',
+  'mr-IN-AarohiNeural': 'emma',
+  'mr-IN-ManoharNeural': 'james',
 };
 
 /** Stable voice → presenter mapping, so every video with that voice gets the
@@ -102,9 +155,9 @@ export function resolveInstructor(value?: string): InstructorProfile {
 
   const preset = VOICES[key];
   const spoken = (preset?.voice ?? key).toLowerCase();
-  if (/(guy|ryan|george|male|james)/.test(spoken)) return INSTRUCTOR_PROFILES.james;
+  if (/(guy|ryan|george|male|james|manohar)/.test(spoken)) return INSTRUCTOR_PROFILES.james;
   if (/(sonia|libby|sophie)/.test(spoken)) return INSTRUCTOR_PROFILES.sophie;
-  if (/(aria|emma|jenny|female)/.test(spoken)) return INSTRUCTOR_PROFILES.emma;
+  if (/(aria|emma|jenny|female|aarohi)/.test(spoken)) return INSTRUCTOR_PROFILES.emma;
   return INSTRUCTOR_PROFILES.alex;
 }
 
