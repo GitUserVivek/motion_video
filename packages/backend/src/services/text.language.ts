@@ -76,6 +76,20 @@ const MARATHI_CONCEPTS: Array<[RegExp, string[]]> = [
   [/वेग/, ['speed']],
   [/बल/, ['force']],
   [/गुरुत्व/, ['gravity']],
+  // Geometry and maths. Without these, a Marathi diagram label such as
+  // "त्रिकोण" or "कोन" carries no English token at all, so a diagram named
+  // `LabeledTriangle.svg` can never be matched or verified for it and the tile
+  // keeps its built-in glyph even when the right file is already downloaded.
+  [/त्रिकोण/, ['triangle']],
+  [/लंबकोन|काटकोन|समकोन/, ['angle', 'right']],
+  [/कोन/, ['angle']],
+  [/कर्ण|हिपोटेन्यूस|हायपोटेन्यूस/, ['hypotenuse']],
+  [/पिथागोरस|पायथागोरस|पायथॅगोरस/, ['pythagorean', 'theorem']],
+  [/बाजू/, ['side']],
+  [/घन/, ['cube']],
+  [/चौरस/, ['square']],
+  [/आयत/, ['rectangle']],
+  [/वर्तुळ/, ['circle']],
 ];
 
 /** English tokens plus the Marathi concepts named in the text. */

@@ -28,6 +28,15 @@ describe('text.language', () => {
     );
   });
 
+  it('maps Marathi geometry labels so English-named diagrams can match them', () => {
+    expect(mappedTokens('त्रिकोण')).toEqual(expect.arrayContaining(['triangle']));
+    expect(mappedTokens('कोन')).toEqual(expect.arrayContaining(['angle']));
+    expect(mappedTokens('कर्ण')).toEqual(expect.arrayContaining(['hypotenuse']));
+    expect(mappedTokens('पिथागोरस थेअरम')).toEqual(
+      expect.arrayContaining(['pythagorean', 'theorem']),
+    );
+  });
+
   it('repairs the label-level Marathi wording mistakes from the review', () => {
     expect(fixMarathiWording('सूर्याचे प्रकाश शोषण')).toBe('सूर्यप्रकाशाचे शोषण');
     expect(fixMarathiWording('पाणी वाहतुकी')).toBe('पाण्याची वाहतूक');

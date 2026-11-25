@@ -4,6 +4,7 @@ import path from 'path';
 import { config, type AssetVerifyMode } from '../config.js';
 import { llmService, type LlmMessage } from './llm.service.js';
 import { isVisionConfigured, visionModelName, visionService } from './vision.service.js';
+import { mappedTokens } from './text.language.js';
 import type { MatchedAsset } from './asset.library.js';
 import {
   isConfidentVerdict,
@@ -110,6 +111,15 @@ function buildPrompt(match: MatchedAsset, context: AssetJudgeContext): LlmMessag
   const terms = [...new Set(context.keyTerms)].slice(0, 20).join(', ');
   const tokens = [...new Set(match.tokens)].slice(0, 20).join(', ');
   const narration = (context.narration ?? '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  // A Marathi/Hindi tile label is what the picture has to illustrate, but the
+  // image names and this prompt are English. Show the known English meaning so
+  // the judge can compare meanings instead of seeing an unreadable label.
+  const gloss = /[a-z0-9]/i.test(context.label)
+    ? ''
+    : mappedTokens(context.label)
+      .filter((token) => /^[a-z0-9]+$/.test(token))
+      .join(', ');
+  const element = gloss ? `"${context.label}" (${gloss})` : `"${context.label}"`;
 
   return [
     {
@@ -123,7 +133,7 @@ function buildPrompt(match: MatchedAsset, context: AssetJudgeContext): LlmMessag
       role: 'user',
       content: [
         `Scene concept words: ${terms || '(none)'}`,
-        `Element being illustrated: "${context.label}"`,
+        `Element being illustrated: ${element}`,
         `Image name: "${match.id}"`,
         `Image words: ${tokens || '(none)'}`,
         ...(narration ? [`Scene narration: "${narration}"`] : []),
@@ -235,7 +245,11 @@ export class AssetJudge {
     try {
       const raw = await this.chat(buildPrompt(match, context), {
         temperature: 0,
-        num_predict: 120,
+        // A judge answer is one short JSON object, but the same model may be a
+        // reasoning build that needs room to think before it writes it. A tight
+        // budget made every reply empty ("spent the whole token budget on
+        // hidden reasoning") and switched verification off for the whole run.
+        num_predict: 512,
       });
       judged = parseJudgeReply(raw, rule);
       if (!judged) {

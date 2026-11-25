@@ -141,13 +141,14 @@ function readEntries(dir: string): DirEntry[] {
         mtime: stat?.mtime ?? new Date(0),
       };
     })
-    .sort((a, b) =>
-      a.isDir === b.isDir
-        ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-        : a.isDir
-          ? -1
-          : 1,
-    );
+    .sort((a, b) => {
+      // Folders stay grouped above files; inside each group the newest wins, so
+      // the latest job folder (or the latest render artefact) is always on top.
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+      const byTime = b.mtime.getTime() - a.mtime.getTime();
+      if (byTime !== 0) return byTime;
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    });
 }
 
 /** Path below the mount, decoded for display and breadcrumbs. */
@@ -211,7 +212,7 @@ function renderListing(prefix: string, urlPath: string, entries: DirEntry[]): st
   const table = entries.length > 0
     ? `<table>
       <thead>
-        <tr><th>Name</th><th class="size">Size</th><th class="time">Modified (UTC)</th><th></th></tr>
+        <tr><th>Name</th><th class="size">Size</th><th class="time">Modified (UTC) ↓</th><th></th></tr>
       </thead>
       <tbody>
         ${parentRow}

@@ -224,6 +224,20 @@ Default provider order is now `openmoji,iconify,wikimedia,openverse,met,clevelan
 
 **Remaining, separate issue:** several diagram labels are caption fragments (`scene-7` tiles `and`, `For example, imagine holding a cube`). That is `buildConceptItems()` wording, not artwork selection, and it is not changed here.
 
+## Job `c38e520b` (Marathi Pythagoras) — no artwork used, and nothing verified by a model
+
+Report read on 2026-11-25: `https://cover-ended-growing.ngrok-free.dev/output/c38e520b-dac1-4014-9542-7b5318afeb50/`. The render itself is fine (38.1 s, 1080×1920, 0 black, 0 frozen), but **every one of the 13 tiles is a built-in glyph** (book/leaf icons): `assets.json` lists 10 downloaded files and 13 selections, all `source: "builtin"`, `asset: null`.
+
+So no, no asset was correct, and no, nothing was verified by a model — the verifier never saw a single candidate. Replayed this job's own `storyboard.json` with its 10 downloaded files in `resources/auto/`, using the current build: **0 candidates** were offered for the tiles, so neither the deterministic tags nor the semantic judge ran on them.
+
+Cause: the tile labels are Marathi words (`बाजू`, `त्रिकोण`, `कोन`, `हिपोटेन्यूस`), and `mappedTokens()` knew no geometry vocabulary, so `textTokens('त्रिकोण')` was empty. `matchAssetImages()` only offers a downloaded file when it matches the tile's icon or label (hard requirement for `auto/` files), so English-named diagrams such as `LabeledTriangle.svg` and `Right angled triangle.svg` could never be candidates, even though they were already downloaded and are exactly right for those tiles.
+
+**Fixed:** the Marathi→artwork vocabulary in `text.language.ts` now covers geometry (`त्रिकोण`→triangle, `कोन`→angle, `कर्ण`→hypotenuse, `पिथागोरस`→pythagorean/theorem, `बाजू`→side, plus square/rectangle/circle/cube), and the semantic-judge prompt shows that English meaning next to a non-Latin label. Replaying the same storyboard now attaches **3 real diagrams** (`right-angled-triangle`, `triangle-right-circumscribed`) instead of 0, with the rest still glyphs because their labels are caption fragments (`लाडू दीवाळी`, `त्याची खालच्या`), not concepts.
+
+**Also fixed:** the semantic judge asked for `num_predict: 120`; on the reasoning model in that environment it came back empty three times and logged `Semantic judge disabled for this run … using deterministic tags from here on` (visible in the GTA job earlier the same day), so *no* asset was model-checked at all. The judge now has 512 tokens, enough for the hidden reasoning plus the one-line JSON answer.
+
+**Still open:** the deployed server is running pre-`165287c` code — the job's logged searches are un-compacted (`triangle with labeled hypotenuse`) and there is no `scene searches anchored on …` line, so the restart happened before the artwork work. Rebuild and restart before judging these fixes. Diagram labels for Marathi scenes remain caption fragments (`buildConceptItems`), so most tiles still have no concept for any picture to match.
+
 ---
 
 ## Verification
@@ -231,7 +245,7 @@ Default provider order is now `openmoji,iconify,wikimedia,openverse,met,clevelan
 Run on 2026-11-25:
 
 - `npm run build` — exit 0 (shared, backend, renderer, frontend).
-- `npm test` — backend 124/124 in 15 files; frontend 2/2; renderer `--passWithNoTests`.
+- `npm test` — backend 125/125 in 15 files; frontend 2/2; renderer `--passWithNoTests`.
 - Artwork replay against `output/1c112276…/storyboard.json` (see issue 14): 9 tiles with real artwork, 0 wrong files accepted, all rejections recorded with a reason.
 - New regression tests cover: Marathi duplicate title/bubble, Marathi long-caption split, scene-boundary snap, one-word sliver, empty diagrams, invalid icons, unbalanced equations, a planning brief containing an equation, end-card extension, Marathi label wording, cross-language validation, query compaction and part-word anchoring, the vision verdict (accept/reject/cache/fallback), and trying the next candidate after a rejection.
 
