@@ -218,12 +218,33 @@ export interface StoryboardRepairReport {
   dropped: string[];
 }
 
+/**
+ * A scene without a brief fails content validation, leaves nothing for the asset
+ * judge to verify against, and pushes artwork search back onto salvaged caption
+ * words. Derive one from the scene's own caption when the model omitted it.
+ */
+function deriveVisualBrief(caption: string, keyTerms: string[] | undefined): string | null {
+  const clean = caption
+    .replace(/\s+/g, ' ')
+    // Never start a brief with the conjunction a cue boundary cut: it reads as a
+    // continuation of the previous scene rather than this one's subject.
+    .replace(/^(and|but|so|because|which|while|that|then)\b[\s,]+/i, '')
+    .trim();
+  if (!clean) return null;
+
+  const clipped = clean.length > 140 ? `${clean.slice(0, 137).trimEnd()}...` : clean;
+  const terms = (keyTerms ?? []).map((term) => term.trim()).filter(Boolean).slice(0, 3);
+  return terms.length > 0 ? `Shows ${clipped} (${terms.join(', ')})` : `Shows ${clipped}`;
+}
+
 export function repairStoryboardProps(plan: StoryboardPlan): StoryboardRepairReport {
   let repaired = 0;
+  let enriched = 0;
   const dropped: string[] = [];
 
   const scenes = plan.scenes.map((scene) => {
-    const narration = captionText(scene).toLowerCase();
+    const caption = captionText(scene);
+    const narration = caption.toLowerCase();
 
     // Key terms are used for asset verification and content warnings. A term the
     // scene never speaks is not a fact about this scene, so do not keep it there.
@@ -251,8 +272,13 @@ export function repairStoryboardProps(plan: StoryboardPlan): StoryboardRepairRep
       repaired++;
     }
 
+    const trimmedBrief = scene.visualBrief?.trim();
+    const visualBrief = trimmedBrief || deriveVisualBrief(caption, keyTerms) || undefined;
+    if (!trimmedBrief && visualBrief) enriched++;
+
     return {
       ...scene,
+      ...(visualBrief ? { visualBrief } : {}),
       ...(keyTerms && keyTerms.length > 0 ? { keyTerms } : { keyTerms: undefined }),
       ...(rootProps ? { props: rootProps } : {}),
       children,
@@ -267,7 +293,7 @@ export function repairStoryboardProps(plan: StoryboardPlan): StoryboardRepairRep
   }
 
   return {
-    storyboard: repaired > 0 ? { ...plan, scenes } : plan,
+    storyboard: repaired > 0 || enriched > 0 ? { ...plan, scenes } : plan,
     repaired,
     dropped,
   };

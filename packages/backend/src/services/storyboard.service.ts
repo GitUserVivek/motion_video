@@ -798,11 +798,36 @@ class StoryboardService {
               child !== null,
           );
 
+        // Repairing component names and frames must not erase the plan. The
+        // purpose, visual brief, key terms and asset searches are what artwork
+        // search, the asset judge and content validation all work from; dropping
+        // them is how every scene ended up with only a caption and queries
+        // salvaged from sentence fragments ("touch sides", "becomes pyramid").
+        const textField = (key: string): Record<string, string> => {
+          const value = scene[key];
+          return typeof value === 'string' && value.trim() ? { [key]: value.trim() } : {};
+        };
+        const listField = (key: string): Record<string, string[]> => {
+          const value = scene[key];
+          if (!Array.isArray(value)) return {};
+          const list = value
+            .filter((item): item is string => typeof item === 'string')
+            .map((item) => item.trim())
+            .filter(Boolean);
+          return list.length > 0 ? { [key]: list } : {};
+        };
+
         return {
           id: typeof scene['id'] === 'string' && scene['id'] ? scene['id'] : `scene-${i + 1}`,
           component,
           props: isRecord(scene['props']) ? scene['props'] : {},
           children,
+          ...textField('purpose'),
+          ...textField('visualBrief'),
+          ...textField('animationIntent'),
+          ...textField('transition'),
+          ...listField('keyTerms'),
+          ...listField('assetQueries'),
         };
       });
 

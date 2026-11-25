@@ -292,6 +292,41 @@ const CONCEPT_LEXICON: readonly string[] = [
   'recycling', 'climate change', 'greenhouse gas', 'water cycle', 'erosion',
 ];
 
+/**
+ * Whole-word patterns for the lexicon. `includes()` matches inside unrelated
+ * words — "pyramid" contains "ram" — which searched for computer memory while
+ * the scene was about geometry.
+ */
+const CONCEPT_PATTERNS = new Map(
+  CONCEPT_LEXICON.map((term) => [
+    term,
+    new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`),
+  ]),
+);
+
+/** Opening words that make a search a sentence fragment, not a subject. */
+const QUERY_FRAGMENT_LEAD = new Set([
+  'touch', 'touching', 'becomes', 'become', 'becoming', 'imagine', 'counting', 'count',
+  'learn', 'learning', 'tell', 'tells', 'showing', 'shows', 'think', 'thinks', 'thought',
+  'know', 'knows', 'see', 'sees', 'look', 'looks', 'remember', 'notice', 'noticed',
+  'point', 'points', 'gets', 'makes', 'making', 'takes', 'taking',
+  'gives', 'giving', 'puts', 'putting', 'going', 'goes', 'starting', 'starts',
+  'comes', 'coming', 'wonder', 'wondering',
+]);
+
+/**
+ * A search has to name a thing. One substantial word is fine
+ * ("photosynthesis"); a phrase must be short and must not open with a verb
+ * ("touch sides" and "becomes pyramid" only return unrelated photos).
+ */
+export function isUsableQuery(query: string): boolean {
+  const words = tokenizeText(query);
+  const first = words[0] ?? '';
+  if (!first || QUERY_FRAGMENT_LEAD.has(first)) return false;
+  if (words.length === 1) return first.length >= 4;
+  return words.length <= 4;
+}
+
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -362,6 +397,9 @@ export function buildAssetQueries(script: string, max = 5): string[] {
   const bump = (term: string, weight: number): void => {
     const key = term.toLowerCase().replace(/\s+/g, ' ').trim();
     if (key.length < 3 || /^\d+$/.test(key) || GENERIC_QUERY_WORDS.has(key)) return;
+    // A phrase that opens on the verb is half a sentence, not a subject:
+    // "count pyramid" is not a picture anyone publishes.
+    if (key.includes(' ') && QUERY_FRAGMENT_LEAD.has(key.split(' ')[0] ?? '')) return;
     scores.set(key, (scores.get(key) ?? 0) + weight);
   };
 
@@ -379,7 +417,7 @@ export function buildAssetQueries(script: string, max = 5): string[] {
   }
 
   for (const term of CONCEPT_LEXICON) {
-    if (lowerScript.includes(term)) bump(term, 3);
+    if (CONCEPT_PATTERNS.get(term)?.test(lowerScript)) bump(term, 3);
   }
 
   const ranked = [...scores.entries()]
@@ -438,9 +476,13 @@ export function buildSceneAssetQueries(scene: SceneInstruction, max = 3): string
     Math.max(max, 4),
   );
 
+  // The plan's own searches come first, then the scene's key terms: both name
+  // the subject the narration is about. Salvaging words out of the caption is
+  // the last resort, and its fragments are dropped rather than downloaded.
   const queries: string[] = [];
   const seen = new Set<string>();
-  for (const query of [...explicit, ...derived, ...keyTerms]) {
+  for (const query of [...explicit, ...keyTerms, ...derived]) {
+    if (!isUsableQuery(query)) continue;
     const slug = slugify(query);
     if (!slug || seen.has(slug)) continue;
     seen.add(slug);
