@@ -14,7 +14,14 @@ import { ensureJobDir, jobFiles } from '../services/job.files.js';
 import { config } from '../config.js';
 import { logError, logInfo, logStep, logSuccess, logWarn } from '../logger.js';
 import fs from 'fs';
-import { ASPECT_RATIOS, resolveTtsVoice } from '@edumotion/shared';
+import {
+  ASPECT_RATIOS,
+  VOICES,
+  defaultVoiceFor,
+  languageName,
+  normalizeLanguage,
+  resolveTtsVoice,
+} from '@edumotion/shared';
 import type { VideoConfig } from '@edumotion/shared';
 
 const POLL_INTERVAL_MS = 2000;
@@ -80,9 +87,17 @@ async function processJob(job: JobRow): Promise<void> {
   const audioPath = jobFiles.audio(job.id);
   logStep('Worker', `Job ${job.id} [1/8] audio synthesis (${script.length} chars)`, '🎙️');
   // The per-video voice wins over the server default, and preset ids from the
-  // UI ('en-US-male-1') are translated into the engine's own voice name.
-  const ttsVoice = resolveTtsVoice(videoConfig.voice ?? config.tts.voice);
-  logInfo('Worker', `Job ${job.id} voice: ${videoConfig.voice ?? 'default'} -> ${ttsVoice.voice}`);
+  // UI ('en-US-male-1') are translated into the engine's own voice name. A voice
+  // from another language is replaced: an English speaker reading Marathi
+  // produces unusable audio, and jobs created through the API may not send one.
+  const requestedVoice = videoConfig.voice && VOICES[videoConfig.voice]?.lang === normalizeLanguage(videoConfig.language)
+    ? videoConfig.voice
+    : defaultVoiceFor(videoConfig.language);
+  const ttsVoice = resolveTtsVoice(requestedVoice);
+  logInfo(
+    'Worker',
+    `Job ${job.id} voice: ${requestedVoice} (${languageName(videoConfig.language)}) -> ${ttsVoice.voice}`,
+  );
   const {
     audioPath: finalAudioPath,
     durationMs,

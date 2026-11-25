@@ -222,6 +222,10 @@ class RenderService {
         // GPU backend chosen by hardware detection (angle-egl on NVIDIA).
         ...(settings?.gl ? ['--gl', settings.gl] : (config.render.gl ? ['--gl', config.render.gl] : [])),
         '--props', propsPath,
+        // Devanagari glyphs come from packages/renderer/public/fonts, resolved
+        // through staticFile(); point the CLI at that folder explicitly so the
+        // font is served no matter where the CLI infers the project root.
+        '--public-dir', path.join(rendererRoot, 'public'),
         '--log', 'verbose',
       ];
 
@@ -369,6 +373,9 @@ class RenderService {
         '--concurrency', String(Math.max(1, Math.floor((settings?.concurrency ?? 2) / chunkCount))),
         ...(settings?.gl ? ['--gl', settings.gl] : []),
         '--props', propsPath,
+        // Same reason as the single-pass render: the Devanagari font lives in
+        // packages/renderer/public/fonts and must be served to the chunk too.
+        '--public-dir', path.join(rendererRoot, 'public'),
         '--frames', `${start}-${end - 1}`,
         '--log', 'error',
       ];
