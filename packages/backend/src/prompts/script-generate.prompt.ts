@@ -2,18 +2,57 @@ import { languageName, normalizeLanguage, type ContentAnalysis } from '@edumotio
 import { formatContentAnalysisForScript } from './content-analysis.prompt.js';
 
 /**
- * The narration language is a hard requirement, not a hint. A 7B model happily
- * ignores "language: mr" and answers in English, so a Marathi run gets explicit
- * script, numeral and punctuation rules.
+ * The narration language is a hard requirement, not a hint. A small local model
+ * happily ignores "language: mr" and answers in English, and when it does write
+ * Devanagari it translates the English prompt word for word, which produces
+ * sentences such as "पानांवर तुमच्यासाठी अंधार नसलेले असताना" and invented words
+ * such as "पालंड". So a Marathi run gets a real writing guide: grammar and
+ * agreement rules, vocabulary rules, an example of the required prose, and a
+ * self-check, placed before the generic English style instructions.
  */
 export function languageRules(language: string): string {
   if (normalizeLanguage(language) === 'mr') {
-    return `LANGUAGE (MANDATORY): Write the entire narration in Marathi (मराठी) using Devanagari script.
-- Never write the narration in English, and never transliterate Marathi into Latin letters.
-- Write numbers as spoken Marathi words, not digits.
-- End every sentence with the Marathi full stop (।), or with ? or ! for questions and exclamations.
-- Where the style rules above name English habits (contractions, "you" and "we"), write the way a Marathi teacher actually speaks to a class: natural spoken Marathi, not textbook prose.
-- Keep technical terms in Marathi when a common word exists; otherwise use the familiar English term written in Devanagari.`;
+    return `LANGUAGE (MANDATORY): Write the entire narration in Marathi (मराठी) using Devanagari script. Never write the narration in English and never transliterate Marathi into Latin letters. The structure and content rules below still apply; the English style habits do not.
+
+MARATHI WRITING GUIDE — follow every rule here:
+
+1. COMPOSE IN MARATHI, DO NOT TRANSLATE
+- The content brief below may be in English. Take only its facts and ideas, then write original Marathi sentences for a Maharashtra school student.
+- Never translate an English sentence word for word. Say it the way a Marathi teacher would say it out loud, even when the Marathi sentence uses completely different words.
+- Do not build phrases by stacking Marathi words in English order. The verb belongs at the end of the clause: "वनस्पती सूर्यप्रकाशाच्या मदतीने अन्न तयार करते", not "वनस्पती तयार करते अन्न सूर्यप्रकाशाच्या मदतीने".
+- Do not invent Marathi words. If you do not know the standard Marathi word for a scientific term, use the familiar English term written in Devanagari (क्लोरोफिल, क्लोरोप्लास्ट, कार्बन डायऑक्साइड, ऑक्सिजन) or the everyday Marathi word (पान, मूळ, अन्न, हवा, पाणी).
+
+2. GRAMMAR
+- Match every verb to its subject: वनस्पती ... तयार करतात (plural), पान ... तयार करते (neuter singular), पाणी ... वाहते (neuter singular), मुळे ... शोषून घेतात (plural). Do not use a plural verb with a singular subject or the reverse.
+- Use correct case endings and do not guess them: पानांमध्ये (inside the leaves), पानांवर (on the leaves), पानांद्वारे (through the leaves), वनस्पतीला (to the plant), वनस्पतींचे (of the plants).
+- Keep pronouns consistent with the noun they replace: पान is neuter (ते), वनस्पती is feminine (ती), रेणू is masculine (तो).
+- Many abstract nouns are feminine and take ही/ती: ही प्रक्रिया, ही पद्धत, ही ऊर्जा, ही अवस्था, ही रचना. Never write "हे प्रक्रिया" or "ते पद्धत".
+- Use standard school-textbook Marathi, the language of a Maharashtra state-board lesson, not heavy Sanskritised prose and not Hindi.
+
+3. SPOKEN STYLE
+- Address the viewer as तुम्ही and use आपण for "we"/"you and I". Pick one form for the whole script and keep it.
+- Use short spoken sentences of 8-16 words.
+- Use Marathi connectors instead of English ones: कारण (because), म्हणजे (that means), उदाहरणार्थ (for example), त्यामुळे (therefore), म्हणून (so), कल्पना करा (imagine), पण (but), आणि (and).
+- Avoid English words where a common Marathi word exists; keep only technical terms that Marathi speakers actually use in English.
+
+4. PUNCTUATION AND NUMBERS
+- End every sentence with the danda (।), or with ? or ! for questions and exclamations, and put a space after it.
+- Write numbers as spoken Marathi words (दोन, तीन, दहा), never as digits.
+
+5. SELF-CHECK BEFORE ANSWERING
+Read every sentence back once and fix it if any answer is "no":
+- Does the verb agree with its subject?
+- Is every word a real, correctly spelt Marathi word?
+- Would a Marathi teacher say this exact sentence out loud?
+- Is it a Marathi sentence, or an English sentence with Marathi words in it?
+
+EXAMPLE OF THE REQUIRED GRAMMAR AND TONE (the topic is पाण्याच्या तीन अवस्था — copy the grammar and the spoken tone, never this content):
+बर्फ वितळल्यावर पाणी होते, हे तुम्ही पाहिले असेल; पण तेच पाणी वाफेत का बदलते?
+आपल्याभोवतीचे पाणी तापमानानुसार तीन अवस्थांमध्ये राहू शकते.
+थंडीत ते बर्फासारखे घट्ट होते, साध्या तापमानात द्रव राहते, आणि उकळल्यावर वाफ होऊन हवेत मिसळते.
+कारण तापमान वाढल्यावर पाण्याच्या रेणूंना एकमेकांना जवळ ठेवणारे बल कमकुवत होते.
+उदाहरणार्थ, ग्लासमधील बर्फ वितळताना त्याचे रेणू सुटतात आणि पाणी वाहू लागते.
+म्हणूनच पाण्याची अवस्था ठरवणारा खरा घटक म्हणजे तापमान.`;
   }
   return `LANGUAGE (MANDATORY): Write the entire narration in ${languageName(language)}.`;
 }
@@ -29,6 +68,8 @@ export function buildScriptGeneratePrompt(
   const analysisBlock = analysis ? formatContentAnalysisForScript(analysis) : '';
 
   return `You are an expert educational content creator. Write a professional, engaging educational script for a ${durationSeconds}-second explainer video about: ${topic}
+
+${languageRules(language)}
 
 ${analysisBlock ? `CONTENT BRIEF (derived from the actual subject):\n${analysisBlock}\n` : ''}
 
@@ -79,8 +120,6 @@ EDUCATIONAL TECHNIQUES TO USE:
 
 STYLE: open with a question or concrete situation, define the idea in plain language, show one example or analogy, explain the cause-and-effect, and close with a takeaway. The exact wording must come from the content brief and the topic — do not reuse a stock example from another subject.
 
-${languageRules(language)}
-
 Write the script now in ${languageName(language)}. DO NOT add any explanation, commentary, or markdown. Output ONLY the script sentences, one per line:`;
 }
 
@@ -96,7 +135,7 @@ ${claims.map((claim) => `- ${claim}`).join('\n')}
 SCRIPT:
 ${script}
 
-Keep the rewritten script in the original language and writing system of the script above.
+Keep the rewritten script in the original language and writing system of the script above.${/[\u0900-\u097F]/.test(script) ? '\nWrite natural Marathi: match verbs to subjects, put the verb at the end of the clause, never translate English word for word, never invent a Marathi word, and end each sentence with ।, ? or !. Numbers are Marathi words, not digits.' : ''}
 Return only the rewritten script, one sentence per line, with no markdown or commentary.`;
 }
 

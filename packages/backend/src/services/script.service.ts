@@ -13,7 +13,7 @@ import {
   buildRewriteSystemPrompt,
 } from '../prompts/script-rewrite.prompt.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { WORDS_PER_SECOND } from '@edumotion/shared';
+import { WORDS_PER_SECOND, isEnglish } from '@edumotion/shared';
 import { contentAnalysisService } from './content.analysis.js';
 import { logStep, logSuccess, logWarn } from '../logger.js';
 
@@ -41,7 +41,10 @@ class ScriptService {
         content: buildScriptGeneratePrompt(topic, duration, language, analysis),
       },
     ], {
-      temperature: 0.7,
+      // A small model writing a lower-resource language drifts towards invented
+      // words and made-up grammar as soon as the sampler gets freedom; Marathi
+      // needs a tighter distribution than English to stay readable.
+      temperature: isEnglish(language) ? 0.7 : 0.45,
       num_predict: 1024,
     });
 
