@@ -615,21 +615,22 @@ class StoryboardService {
   }
 
   /**
-   * Extract key phrase from sentence
+   * Extract key phrase from sentence.
+   *
+   * The phrase becomes a label a viewer reads, so it is never cut mid-sentence:
+   * "do you know why the..." is a broken render, not an abbreviation. A label
+   * that needs shortening keeps its first complete clause and lets the tile
+   * wrap and shrink its own text.
    */
   private extractKeyPhrase(sentence: string): string {
     // Remove leading questions
-    let text = sentence.replace(/^(have|do|does|did|can|could|would|what|why|how|when|where|who|is|are|was|were|will)\s+/i, '');
+    const text = sentence
+      .replace(/^(have|do|does|did|can|could|would|what|why|how|when|where|who|is|are|was|were|will)\s+/i, '')
+      // Remove trailing punctuation
+      .replace(/[.!?]+$/, '')
+      .trim();
 
-    // Remove trailing punctuation
-    text = text.replace(/[.!?]$/, '');
-
-    // Limit length
-    if (text.length > 40) {
-      text = text.substring(0, 37) + '...';
-    }
-
-    return text;
+    return (text.split(/[,;:]/)[0] ?? text).trim() || text;
   }
 
   /**

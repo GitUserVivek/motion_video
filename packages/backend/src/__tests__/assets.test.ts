@@ -4,6 +4,7 @@ import {
   buildAssetQueries,
   buildSceneAssetQueries,
   isConfidentCandidate,
+  nasaPreviewUrl,
   parseRetryAfterMs,
   retryDelayMs,
   sanitizeSvg,
@@ -114,6 +115,25 @@ describe('selectWikimediaThumbnailUrl', () => {
         width: 300,
       }),
     ).toBeNull();
+  });
+});
+
+describe('nasaPreviewUrl', () => {
+  const base = 'https://images-assets.nasa.gov/image/PIA14417/PIA14417';
+
+  it('picks a web rendition instead of the original upload', () => {
+    expect(
+      nasaPreviewUrl([`${base}~orig.jpg`, `${base}~small.jpg`, `${base}~thumb.jpg`]),
+    ).toBe(`${base}~small.jpg`);
+  });
+
+  it('rewrites an original when it is the only rendition offered', () => {
+    expect(nasaPreviewUrl([`${base}~orig.jpg`])).toBe(`${base}~small.jpg`);
+  });
+
+  it('ignores non-JPEG links and an empty result', () => {
+    expect(nasaPreviewUrl([`${base}~small.png`, `${base}~orig.jpg`])).toBe(`${base}~small.jpg`);
+    expect(nasaPreviewUrl([])).toBeNull();
   });
 });
 

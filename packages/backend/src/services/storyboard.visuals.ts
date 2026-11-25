@@ -373,15 +373,6 @@ function titleCase(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** Cut at a word boundary so a heading never ends mid-word. */
-function shorten(text: string, maxChars: number): string {
-  const trimmed = text.trim();
-  if (trimmed.length <= maxChars) return trimmed;
-  const cut = trimmed.slice(0, maxChars);
-  const lastSpace = cut.lastIndexOf(' ');
-  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
-}
-
 /**
  * The most informative term in a segment: a genuine two-word term when the words
  * are adjacent ("carbon dioxide"), otherwise the longest content word. Terms an
@@ -405,8 +396,9 @@ function bestTerms(segment: string, blocked: Set<string>, limit = 2): string[] {
     .sort((a, b) => b.length - a.length);
 
   const usable = candidates.filter((candidate) => !blocked.has(candidate));
-  const chosen = (usable.length > 0 ? usable : candidates).slice(0, limit);
-  return chosen.map((term) => (term.length > 24 ? shorten(term, 24) : term));
+  // A tile label is shown in full: clipping it to 24 characters put "…" on the
+  // diagram, which reads as a broken render. The tile wraps and shrinks instead.
+  return (usable.length > 0 ? usable : candidates).slice(0, limit);
 }
 
 /** Slide heading: the first meaningful clause of the scene's narration. */
@@ -417,8 +409,9 @@ function headingFor(narration: string): string {
   const first = segments.find((segment) => contentWords(segment).length >= 2)
     ?? segments[0]
     ?? '';
-  const clause = first.split(',')[0] ?? first;
-  return shorten(clause, 46);
+  // Whole clause: a heading is allowed to be shorter than the sentence, never
+  // cut off inside it.
+  return (first.split(',')[0] ?? first).trim();
 }
 
 /** Prefer a glyph that matches this segment and is not already on the row. */

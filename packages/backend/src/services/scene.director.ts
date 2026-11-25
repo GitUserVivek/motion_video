@@ -193,12 +193,18 @@ function tidyLabel(text: string): string {
   return label;
 }
 
-/** Narration cut into the clauses a process flow or recap can show. */
-function clauses(text: string, maxChars: number): string[] {
+/**
+ * Narration cut into the clauses a process flow or recap can show.
+ *
+ * Every clause is kept whole. Cutting a clause to a character budget put an
+ * ellipsis in the middle of a sentence a viewer is reading ("do you know why
+ * the..."); the cards wrap and grow instead, so nothing is hidden.
+ */
+function clauses(text: string): string[] {
   return text
     .replace(/\s+/g, ' ')
     .split(/(?<=[.!?;:])\s+|\s+(?:then|next|after that|finally|lastly)\s+/i)
-    .map((part) => tidyLabel(shorten(part, maxChars)))
+    .map((part) => tidyLabel(part))
     .filter((part) => part.replace(/[^A-Za-z0-9]/g, '').length >= 3);
 }
 
@@ -289,8 +295,8 @@ function comparisonSides(narration: string): { left: string; right: string } | n
     .filter((part) => contentWords(part).length > 0);
   if (parts.length < 2) return null;
 
-  const left = shorten(tidyLabel(parts[0] ?? ''), 42);
-  const right = shorten(tidyLabel(parts.slice(1).join(' ')), 42);
+  const left = tidyLabel(parts[0] ?? '');
+  const right = tidyLabel(parts.slice(1).join(' '));
   return left && right ? { left, right } : null;
 }
 
@@ -308,10 +314,10 @@ function timelineEvents(narration: string): Array<{ date: string; title: string 
     // event's year.
     const nextDate = rest.search(new RegExp(DATE_RE.source, 'i'));
     const piece = nextDate >= 0 ? rest.slice(0, nextDate) : rest;
-    const title = shorten(tidyLabel(piece.split(/[.;!?]/)[0] ?? ''), 44);
+    const title = tidyLabel(piece.split(/[.;!?]/)[0] ?? '');
     if (!title) continue;
     events.push({
-      date: shorten((match[0] ?? '').replace(/^the\s+/i, ''), 18),
+      date: (match[0] ?? '').replace(/^the\s+/i, '').trim(),
       title,
     });
   }
@@ -372,7 +378,7 @@ function buildComposition(
 
   switch (intent) {
     case 'summary': {
-      const points = clauses(narration, 46).slice(0, 4);
+      const points = clauses(narration).slice(0, 4);
       if (points.length < 2) return null;
       return {
         intent,
@@ -402,7 +408,7 @@ function buildComposition(
           child: {
             component: 'ComparisonChart',
             props: {
-              title: shorten(narration.split(/[.!?]/)[0] ?? '', 40),
+              title: (narration.split(/[.!?]/)[0] ?? '').trim(),
               bars,
               accent: '#FFD166',
               top: '56%',
@@ -447,7 +453,7 @@ function buildComposition(
     }
 
     case 'process': {
-      const steps = clauses(narration, 30).slice(0, 4);
+      const steps = clauses(narration).slice(0, 4);
       if (steps.length < 2) return null;
       return {
         intent,
@@ -504,7 +510,7 @@ function buildComposition(
         .split(/(?<=[.!?])\s+/)
         .find((part) => part.includes('?'));
       if (!question) return null;
-      const text = shorten(question, 110);
+      const text = question.trim();
       if (!text) return null;
       return {
         intent,
@@ -537,16 +543,6 @@ export interface DirectedStoryboard {
   storyboard: StoryboardPlan;
   /** Human-readable list of what the director changed, for the job log. */
   changes: string[];
-}
-
-function shorten(text: string, maxChars: number): string {
-  const clean = text.replace(/\s+/g, ' ').replace(/^[^A-Za-z0-9]+/, '').trim();
-  if (clean.length <= maxChars) return clean;
-
-  const cut = clean.slice(0, maxChars);
-  const lastSpace = cut.lastIndexOf(' ');
-  const head = lastSpace > 12 ? cut.slice(0, lastSpace) : cut;
-  return `${head.replace(/[,;:.\-–—]+$/, '').trim()}…`;
 }
 
 /** Comparison key for "is this the same sentence?" checks. */
@@ -1011,7 +1007,8 @@ export function directStoryboard(
         subtitle: existingSubtitle && existingSubtitle !== 'Subscribe for more educational videos'
           ? existingSubtitle
           : narration
-            ? `In short: ${semanticTitle(narration, 9) || narration.slice(0, 60)}`
+            ? `In short: ${semanticTitle(narration, 9)
+              || (narration.split(/[.;!?]/)[0] ?? narration).trim()}`
             : 'Keep exploring with EduMotion',
         showConfetti: existing?.props['showConfetti'] ?? true,
         startFrame: existing?.props['startFrame'] ?? 10,

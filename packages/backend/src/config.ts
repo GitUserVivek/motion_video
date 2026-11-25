@@ -144,9 +144,11 @@ export const config = {
     // A provider being down must never stop a video from rendering, so every
     // failure is logged and the built-in SVG glyphs take over.
     discoveryEnabled: !/^(0|false|no|off)$/i.test(process.env['ASSET_DISCOVERY'] ?? ''),
-    // Colour-first: OpenMoji and Wikimedia return full-colour artwork, while
-    // Iconify is the fallback for concepts those sets do not cover.
-    providers: (process.env['ASSET_PROVIDERS'] ?? 'openmoji,wikimedia,iconify')
+    // Colour-first, in order of preference: OpenMoji and Wikimedia return
+    // full-colour artwork, Cleveland adds CC0 museum images, NASA covers space
+    // and Earth science, and Iconify is the fallback for concepts the others do
+    // not cover. A rate-limited provider is skipped automatically.
+    providers: (process.env['ASSET_PROVIDERS'] ?? 'openmoji,wikimedia,cleveland,nasa,iconify')
       .split(',')
       .map((provider) => provider.trim().toLowerCase())
       .filter((provider) => provider.length > 0),

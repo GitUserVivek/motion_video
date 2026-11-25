@@ -17,8 +17,8 @@ import { logInfo, logStep, logSuccess, logWarn } from '../logger.js';
  *
  * Rules this module follows:
  *  - only public, keyless sources with an open licence (Iconify, OpenMoji,
- *    Wikimedia Commons); unDraw / LottieFiles have no public search API and are
- *    deliberately NOT scraped;
+ *    Wikimedia Commons, Cleveland Museum of Art, NASA); unDraw / LottieFiles
+ *    have no public search API and are deliberately NOT scraped;
  *  - downloads are cached by content hash and search results are cached on disk
  *    for a week, so a repeated topic costs nothing;
  *  - SVGs are sanitised (no scripts, no event handlers, no external references)
@@ -81,7 +81,12 @@ export function retryDelayMs(
 }
 
 export type AssetFormat = 'svg' | 'png' | 'jpg' | 'webp';
-export type AssetProviderId = 'iconify' | 'openmoji' | 'wikimedia';
+export type AssetProviderId =
+  | 'iconify'
+  | 'openmoji'
+  | 'wikimedia'
+  | 'cleveland'
+  | 'nasa';
 
 export interface AssetLicense {
   name: string;
@@ -151,6 +156,35 @@ interface WikimediaResponse {
   };
 }
 
+interface ClevelandArtwork {
+  id?: number;
+  title?: string;
+  creation_date?: string;
+  share_license_status?: string;
+  creators?: Array<{ description?: string }>;
+  images?: { web?: { url?: string } };
+}
+
+interface ClevelandResponse {
+  data?: ClevelandArtwork[];
+}
+
+interface NasaSearchItem {
+  href?: string;
+  data?: Array<{
+    title?: string;
+    description?: string;
+    nasa_id?: string;
+    keywords?: string[];
+    secondary_creator?: string;
+  }>;
+  links?: Array<{ href?: string }>;
+}
+
+interface NasaResponse {
+  collection?: { items?: NasaSearchItem[] };
+}
+
 interface IconifyCollection {
   info?: {
     name?: string;
@@ -177,6 +211,38 @@ const OPENMOJI_LICENSE: AssetLicense = {
   name: 'CC BY-SA 4.0',
   url: 'https://creativecommons.org/licenses/by-sa/4.0/',
   attribution: 'OpenMoji (HfG Schwäbisch Gmünd)',
+};
+
+/** NASA media is public domain for educational use; a named creator is credited. */
+const NASA_LICENSE: AssetLicense = {
+  name: 'NASA public domain',
+  url: 'https://www.nasa.gov/nasa-brand-center/images-and-media/',
+  attribution: 'NASA',
+};
+
+/**
+ * NASA publishes four renditions of every image (`~thumb`, `~small`,
+ * `~medium`, `~orig`). The original upload is often tens of megabytes — too slow
+ * and over the download limit — so pick the smallest web-sized rendition and
+ * rewrite any other form of the same path.
+ */
+export function nasaPreviewUrl(hrefs: string[]): string | null {
+  const jpegs = hrefs.filter((href) => /^https?:/i.test(href) && /\.jpe?g$/i.test(href));
+  const rendition = (tag: string): string | undefined =>
+    jpegs.find((href) => new RegExp(`~${tag}\\.jpe?g$`, 'i').test(href));
+
+  const preview = rendition('small') ?? rendition('medium') ?? rendition('thumb');
+  if (preview) return preview;
+
+  const original = rendition('orig');
+  return original ? original.replace(/~orig\.jpe?g$/i, '~small.jpg') : null;
+}
+
+/** The museum's open-access programme publishes its images under CC0 only. */
+const CLEVELAND_LICENSE: AssetLicense = {
+  name: 'CC0 1.0',
+  url: 'https://creativecommons.org/publicdomain/zero/1.0/',
+  attribution: 'Cleveland Museum of Art',
 };
 
 /** True only for a URL that points at a generated thumbnail, not an original. */
@@ -247,6 +313,19 @@ const FALLBACK_ICON_COLOR = '%23FFB703';
 
 /** A provider that only matched part of a multi-word query is not conclusive. */
 const CONFIDENT_ASSET_SCORE = 0.9;
+
+/**
+ * How much a provider's artwork is trusted at equal relevance. Colour-first
+ * sources win, a real photograph beats a white outline icon, and exact matches
+ * still decide the ranking.
+ */
+const PROVIDER_WEIGHT: Record<AssetProviderId, number> = {
+  openmoji: 1.08,
+  nasa: 1.04,
+  wikimedia: 1.02,
+  cleveland: 1.0,
+  iconify: 0.95,
+};
 
 /** Query words that describe grammar rather than a thing to draw. */
 const GENERIC_QUERY_WORDS = new Set([
@@ -551,8 +630,7 @@ export function scoreAssetCandidate(
     if (coversToken(tokens, token)) matched++;
   }
 
-  const providerWeight =
-    candidate.provider === 'openmoji' ? 1.08 : candidate.provider === 'wikimedia' ? 1.02 : 0.95;
+  const providerWeight = PROVIDER_WEIGHT[candidate.provider] ?? 0.95;
   const exact = candidate.name.toLowerCase().trim() === query.toLowerCase().trim() ? 0.2 : 0;
   const colorBonus = candidate.colorful ? 0.08 : 0;
 
@@ -709,6 +787,8 @@ class AssetDiscoveryService {
       if (provider === 'iconify') candidates = await this.searchIconify(query);
       else if (provider === 'openmoji') candidates = await this.searchOpenMoji(query);
       else if (provider === 'wikimedia') candidates = await this.searchWikimedia(query);
+      else if (provider === 'cleveland') candidates = await this.searchCleveland(query);
+      else if (provider === 'nasa') candidates = await this.searchNasa(query);
 
       const confident = candidates.filter((candidate) => isConfidentCandidate(candidate, query));
       if (confident.length === 0) continue;
@@ -970,6 +1050,108 @@ class AssetDiscoveryService {
       };
 
       candidates.push({ ...base, score: scoreAssetCandidate(base, query) });
+    }
+
+    return candidates;
+  }
+
+  /**
+   * The Cleveland Museum of Art publishes high-resolution images of its
+   * collection as CC0, with a searchable title and date. It is the only source
+   * here that returns real artwork for a humanities or history scene.
+   *
+   * Its search API answers in under two seconds, unlike the Openverse API which
+   * took 15–24s per query on every cold search and so always lost to the asset
+   * timeout.
+   */
+  private async searchCleveland(query: string): Promise<AssetCandidate[]> {
+    const data = await this.fetchJson<ClevelandResponse>(
+      'https://openaccess-api.clevelandart.org/api/artworks/' +
+        `?q=${encodeURIComponent(query)}&has_image=1&limit=12`,
+    );
+    const artworks = Array.isArray(data?.data) ? data.data : [];
+    const candidates: AssetCandidate[] = [];
+
+    for (const artwork of artworks.slice(0, 10)) {
+      // Anything outside the open-access programme cannot be shown.
+      if (artwork.share_license_status !== 'CC0') continue;
+
+      const title = stripHtml(artwork.title ?? '').trim();
+      const url = artwork.images?.web?.url;
+      if (!title || typeof url !== 'string' || !/^https?:/i.test(url)) continue;
+
+      const format: AssetFormat | null = /\.png$/i.test(url)
+        ? 'png'
+        : /\.jpe?g$/i.test(url)
+          ? 'jpg'
+          : null;
+      if (!format) continue;
+
+      const dated = stripHtml(artwork.creation_date ?? '').trim();
+      const creators = (artwork.creators ?? [])
+        .map((creator) => stripHtml(creator.description ?? ''))
+        .filter(Boolean);
+
+      const base: Omit<AssetCandidate, 'score'> = {
+        provider: 'cleveland',
+        id: String(artwork.id ?? title),
+        name: title,
+        tags: [title, dated, ...creators],
+        format,
+        colorful: true,
+        url,
+        license: {
+          ...CLEVELAND_LICENSE,
+          ...(creators[0] ? { attribution: creators[0] } : {}),
+        },
+      };
+
+      const score = scoreAssetCandidate(base, query);
+      if (score > 0) candidates.push({ ...base, score });
+    }
+
+    return candidates;
+  }
+
+  /**
+   * NASA's image library is public domain and describes its own subjects, which
+   * makes it the best source for space, Earth-science and spacecraft scenes.
+   */
+  private async searchNasa(query: string): Promise<AssetCandidate[]> {
+    const data = await this.fetchJson<NasaResponse>(
+      'https://images-api.nasa.gov/search' +
+        `?q=${encodeURIComponent(query)}&media_type=image&page_size=12`,
+    );
+    const items = data?.collection?.items ?? [];
+    const candidates: AssetCandidate[] = [];
+
+    for (const item of items.slice(0, 10)) {
+      const info = item.data?.[0];
+      const title = stripHtml(info?.title ?? '').trim();
+      const url = nasaPreviewUrl(
+        (Array.isArray(item.links) ? item.links : [])
+          .map((link) => link.href ?? '')
+          .filter(Boolean),
+      );
+      if (!title || !url) continue;
+
+      const description = stripHtml(info?.description ?? '').slice(0, 500);
+      const keywords = (info?.keywords ?? []).map((keyword) => stripHtml(keyword)).filter(Boolean);
+      const creator = stripHtml(info?.secondary_creator ?? '').trim();
+
+      const base: Omit<AssetCandidate, 'score'> = {
+        provider: 'nasa',
+        id: info?.nasa_id ?? title,
+        name: title,
+        tags: [title, description, ...keywords],
+        format: 'jpg',
+        colorful: true,
+        url,
+        license: { ...NASA_LICENSE, ...(creator ? { attribution: creator } : {}) },
+      };
+
+      const score = scoreAssetCandidate(base, query);
+      if (score > 0) candidates.push({ ...base, score });
     }
 
     return candidates;

@@ -272,6 +272,39 @@ describe('scene director text hierarchy', () => {
     expect(directed.children?.some((child) => child.component === 'ComparisonChart')).toBe(false);
   });
 
+  /** Every string a component would paint, however deeply it is nested. */
+  function paintedText(value: unknown, found: string[] = []): string[] {
+    if (typeof value === 'string') found.push(value);
+    else if (Array.isArray(value)) value.forEach((item) => paintedText(item, found));
+    else if (value && typeof value === 'object') {
+      Object.values(value).forEach((item) => paintedText(item, found));
+    }
+    return found;
+  }
+
+  it('never shows an ellipsis in text a viewer reads', () => {
+    const narrations = [
+      'Do you know why the sky is blue in the day and turns red at sunset?',
+      'First the plant absorbs sunlight through its leaves, then it turns water into sugar, and finally it releases oxygen into the air.',
+      'Surface area grew from 12% in 2020 to 45% in 2021, while volume stayed flat at 3% in both years.',
+      'The cube is called a polyhedron because every face is a flat square, and every edge joins two faces.',
+    ];
+
+    for (const narration of narrations) {
+      for (const purpose of ['hook', 'process', 'summary', 'definition', 'data']) {
+        const directed = directedScene(
+          [{ component: 'EducationalObject', props: { type: 'book' } }, subtitle(narration)],
+          { purpose },
+        );
+
+        const clipped = paintedText(directed.children ?? []).filter((text) =>
+          /…$|\.\.\.$/.test(text.trim()),
+        );
+        expect({ purpose, clipped }).toEqual({ purpose, clipped: [] });
+      }
+    }
+  });
+
   it('does not stack a deterministic composition on top of another primary visual', () => {
     const directed = directedScene([
       {
