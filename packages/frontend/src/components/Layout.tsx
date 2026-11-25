@@ -12,7 +12,7 @@ export function Layout({ children }: { children: React.ReactNode }): React.React
   return (
     <div className="app-root">
       <nav className="app-nav" aria-label="Main navigation">
-        <Link to="/" className="app-brand">🎬 EduMotion</Link>
+        <Link to="/" className="app-brand">🎬 Anupam Classes</Link>
         <div className="app-nav-links">
           {NAV_LINKS.map((link) => (
             <NavLink

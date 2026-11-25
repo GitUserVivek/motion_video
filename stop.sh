@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# EduMotion AI — Stop Services
+# Anupam Classes — Stop Services
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_DIR="$SCRIPT_DIR/.pids"
 
 echo ""
-echo "Stopping EduMotion AI services..."
+echo "Stopping Anupam Classes services..."
 
 # Kill by saved PID files
 for name in backend frontend; do

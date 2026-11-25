@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EduMotion AI — One-Time Setup (Linux / macOS)
+# Anupam Classes — One-Time Setup (Linux / macOS)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +14,7 @@ ERRORS=0
 
 echo ""
 echo "============================================"
-echo " EduMotion AI — One-Time Setup"
+echo " Anupam Classes — One-Time Setup"
 echo "============================================"
 echo ""
 

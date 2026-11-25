@@ -268,7 +268,7 @@ export function sanitizeProps(component: ComponentName, raw: Props): Props | nul
         ...raw,
         title: str(raw['title'] ?? raw['text'], 'Thanks for Watching!'),
         subtitle: str(raw['subtitle'], 'Subscribe for more educational videos'),
-        logoText: str(raw['logoText'], 'EduMotion'),
+        logoText: str(raw['logoText'], 'Anupam Classes'),
         showConfetti: bool(raw['showConfetti'], false),
       };
 

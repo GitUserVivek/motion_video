@@ -71,7 +71,7 @@ class ResearchService {
         signal: controller.signal,
         headers: {
           Accept: 'application/json',
-          'User-Agent': 'EduMotion/2.0 (local educational video generator)',
+          'User-Agent': 'Anupam Classes/2.0 (local educational video generator)',
         },
       });
       if (!response.ok) return null;

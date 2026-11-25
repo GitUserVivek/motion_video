@@ -1009,7 +1009,7 @@ export function directStoryboard(
           : narration
             ? `In short: ${semanticTitle(narration, 9)
               || (narration.split(/[.;!?]/)[0] ?? narration).trim()}`
-            : 'Keep exploring with EduMotion',
+            : 'Keep exploring with Anupam Classes',
         showConfetti: existing?.props['showConfetti'] ?? true,
         startFrame: existing?.props['startFrame'] ?? 10,
       };

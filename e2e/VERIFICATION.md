@@ -1,4 +1,4 @@
-# EduMotion AI — End-to-End Verification
+# Anupam Classes — End-to-End Verification
 
 > **Last Updated**: 2026-11-23
 > **Plan**: [`update_phases.md`](../update_phases.md)

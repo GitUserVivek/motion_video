@@ -1,6 +1,6 @@
 # Resource Artwork
 
-> **Enhanced for EduMotion AI 2.0**
+> **Enhanced for Anupam Classes 2.0**
 > Drop any `.svg`, `.png`, `.jpg`, `.jpeg`, `.webp` or `.gif` file here (or in `../assets/backgrounds`, `../assets/characters`) and the pipeline will automatically place it on matching tiles of auto-generated concept diagrams.
 
 ---
@@ -294,7 +294,7 @@ console.log('Loaded assets:', assets.length);
 
 ## 🎉 Summary
 
-The **asset system** in EduMotion AI 2.0 has been **significantly enhanced** with:
+The **asset system** in Anupam Classes 2.0 has been **significantly enhanced** with:
 - ✅ **9 new SVG assets** (5 characters + 4 backgrounds)
 - ✅ **32 object types** (was 19)
 - ✅ **Semantic matching** (context-aware selection)

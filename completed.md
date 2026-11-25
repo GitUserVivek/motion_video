@@ -1,4 +1,4 @@
-# EduMotion AI — Completed State
+# Anupam Classes — Completed State
 
 > Snapshot: **2026-11-25** · Branch `master`
 > Every statement below was read from the code in this checkout or measured on this machine.

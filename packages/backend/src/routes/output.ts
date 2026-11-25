@@ -230,7 +230,7 @@ function renderListing(prefix: string, urlPath: string, entries: DirEntry[]): st
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)} — EduMotion output</title>
+  <title>${escapeHtml(title)} — Anupam Classes output</title>
   <style>${BASE_CSS}</style>
 </head>
 <body>
@@ -251,7 +251,7 @@ function errorPage(message: string, prefix: string): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(message)} — EduMotion output</title>
+  <title>${escapeHtml(message)} — Anupam Classes output</title>
   <style>${BASE_CSS}</style>
 </head>
 <body>

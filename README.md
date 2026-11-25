@@ -1,4 +1,4 @@
-# EduMotion AI — Professional Educational Video Generator
+# Anupam Classes — Professional Educational Video Generator
 
 > **🎉 Version 2.0 - Enhanced Edition**
 > Local AI-powered educational video generator. Enter a topic, get a **professional** playable MP4 — no cloud required.
@@ -7,7 +7,7 @@
 
 ## 🚀 What's New in Version 2.0
 
-**EduMotion AI 2.0** is a **major upgrade** that transforms the system from a basic video generator to a **professional educational explainer platform**!
+**Anupam Classes 2.0** is a **major upgrade** that transforms the system from a basic video generator to a **professional educational explainer platform**!
 
 ### ✅ Key Improvements
 - **🎯 Professional Scripts**: Hooks, examples, progressive explanations, WHY/HOW focus
@@ -215,7 +215,7 @@ compressed in the browser, stored with the script, and analyzed once when the
 storyboard is planned. An image is only placed in a scene when its caption or
 keywords match that scene; unrelated uploads are left unused.
 
-Image recognition is optional. Without `VISION_API_URL`/`VISION_MODEL`, EduMotion
+Image recognition is optional. Without `VISION_API_URL`/`VISION_MODEL`, Anupam Classes
 uses the filename and any local metadata. Point it at any OpenAI-compatible free
 or self-hosted vision endpoint (for example a local Qwen2.5-VL server) to enable
 automatic captioning and keyword extraction.
@@ -570,7 +570,7 @@ cd packages/shared && npm run build
 
 ## 🎉 Conclusion
 
-**EduMotion AI 2.0** is a **major upgrade** that transforms the system into a **professional educational video generator**.
+**Anupam Classes 2.0** is a **major upgrade** that transforms the system into a **professional educational video generator**.
 
 ### ✅ What's Working
 - Professional script generation with hooks and examples

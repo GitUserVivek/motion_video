@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-title EduMotion AI — Setup
+title Anupam Classes — Setup
 
 echo.
 echo ============================================
-echo  EduMotion AI — One-Time Setup
+echo  Anupam Classes — One-Time Setup
 echo ============================================
 echo.
 

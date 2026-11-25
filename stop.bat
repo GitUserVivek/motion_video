@@ -1,8 +1,8 @@
 @echo off
-title EduMotion AI — Stop
+title Anupam Classes — Stop
 
 echo.
-echo Stopping EduMotion AI services...
+echo Stopping Anupam Classes services...
 echo.
 
 :: Kill backend (node process on port 3001)

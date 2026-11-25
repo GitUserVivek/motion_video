@@ -110,7 +110,7 @@ const PREVIEW_STORYBOARD: StoryboardPlan = {
           component: 'EndScreen',
           props: {
             title: 'Now you know Photosynthesis!',
-            subtitle: 'Keep learning with EduMotion',
+            subtitle: 'Keep learning with Anupam Classes',
             startFrame: 1010,
           },
         },

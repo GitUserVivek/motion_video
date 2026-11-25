@@ -263,7 +263,7 @@ export function FrameMeter({ scenes, totalFrames }: FrameMeterProps): React.Reac
           textTransform: 'uppercase',
         }}
       >
-        <span>EduMotion / Field Notes</span>
+        <span>Anupam Classes / Field Notes</span>
         <span>
           {timecode(frame, fps)} · {width} × {height} · {fps} FPS
         </span>

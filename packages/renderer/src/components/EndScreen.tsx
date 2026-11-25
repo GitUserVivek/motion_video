@@ -37,7 +37,7 @@ export function EndScreen({
   subtitle = 'Subscribe for more educational videos',
   accentColor = accentAt(1),
   startFrame = 0,
-  logoText = 'EduMotion',
+  logoText = 'Anupam Classes',
   chips = [],
   kicker = 'RECAP',
 }: EndScreenProps): React.ReactElement {

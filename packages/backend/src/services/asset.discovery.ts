@@ -27,7 +27,7 @@ import { logInfo, logStep, logSuccess, logWarn } from '../logger.js';
  *    glyphs instead of waiting on a provider.
  */
 
-const USER_AGENT = 'EduMotion/1.0 (local educational video generator)';
+const USER_AGENT = 'Anupam Classes/1.0 (local educational video generator)';
 const SEARCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COLLECTION_LICENSE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Bump when cached search results gain fields, so old entries are ignored. */
@@ -1308,7 +1308,7 @@ class AssetDiscoveryService {
     if (manifest.length === 0) return;
 
     const lines = [
-      'EduMotion — downloaded artwork credits',
+      'Anupam Classes — downloaded artwork credits',
       '',
       'Downloaded automatically for use inside generated videos.',
       'Reused files are listed once; keep this file with the assets.',

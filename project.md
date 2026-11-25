@@ -1,4 +1,4 @@
-# EduMotion AI — Project Documentation & Current Status
+# Anupam Classes — Project Documentation & Current Status
 
 > **Local AI-Powered Educational Video Generator**
 > **Version**: 2.0 (Enhanced)  
@@ -9,7 +9,7 @@
 
 ## 🎯 PROJECT OVERVIEW
 
-**EduMotion AI** is a **professional educational explainer video generation system** that transforms text topics into high-quality animated videos using local AI models. No cloud required — everything runs on your machine.
+**Anupam Classes** is a **professional educational explainer video generation system** that transforms text topics into high-quality animated videos using local AI models. No cloud required — everything runs on your machine.
 
 ### 🚀 What's New in Version 2.0
 
@@ -556,7 +556,7 @@ For issues, questions, or feedback:
 
 ## 🎉 CONCLUSION
 
-**EduMotion AI 2.0** represents a **major upgrade** from the original version, transforming it from a basic video generator to a **professional educational explainer system**.
+**Anupam Classes 2.0** represents a **major upgrade** from the original version, transforming it from a basic video generator to a **professional educational explainer system**.
 
 ### Key Achievements
 ✅ **85% Complete** (Base: 100%, Enhancements: 73%)

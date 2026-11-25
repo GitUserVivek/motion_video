@@ -30,7 +30,7 @@ function TestWrapper({ children }: { children: React.ReactNode }): React.ReactEl
 describe('Dashboard', () => {
   it('renders without crashing', () => {
     render(<TestWrapper><Dashboard /></TestWrapper>);
-    expect(screen.getByText(/EduMotion AI/i)).toBeTruthy();
+    expect(screen.getByText(/Anupam Classes/i)).toBeTruthy();
   });
 
   it('shows quick start section', () => {

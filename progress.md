@@ -1,4 +1,4 @@
-# EduMotion AI — Progress Tracker
+# Anupam Classes — Progress Tracker
 
 > Last updated: 2026-11-23
 > Plan: [`update_phases.md`](./update_phases.md) · Request: [`Update_Instructions.md`](./Update_Instructions.md)

@@ -105,7 +105,7 @@ async function bootstrap(): Promise<void> {
   app.use(errorHandler);
 
   const server = app.listen(config.port, () => {
-    console.log(`[Server] EduMotion backend running on http://localhost:${config.port}`);
+    console.log(`[Server] Anupam Classes backend running on http://localhost:${config.port}`);
     console.log(`[Server] Environment: ${config.nodeEnv}`);
     console.log(`[Server] DB: ${config.storage.dataDir}/db/ (JSON store)`);
     console.log(`[Server] Model: ${config.localLlm.modelName} (${config.localLlm.modelsDir})`);

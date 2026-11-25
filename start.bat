@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-title EduMotion AI
+title Anupam Classes
 
 echo.
 echo ============================================
-echo  EduMotion AI — Starting Services
+echo  Anupam Classes — Starting Services
 echo ============================================
 echo.
 
@@ -31,7 +31,7 @@ echo   OK: Ready
 :: ---------- 2. Start backend ----------
 echo [2/3] Starting backend server (port 3001)...
 if not exist logs mkdir logs
-start "EduMotion Backend" /b cmd /c "node --env-file-if-exists=.env packages\backend\dist\index.js >> logs\backend.log 2>&1"
+start "Anupam Classes Backend" /b cmd /c "node --env-file-if-exists=.env packages\backend\dist\index.js >> logs\backend.log 2>&1"
 
 echo   Waiting for backend...
 :wait_backend
@@ -42,13 +42,13 @@ echo   OK: Backend ready
 
 :: ---------- 3. Start frontend ----------
 echo [3/3] Starting frontend dev server (port 5173)...
-start "EduMotion Frontend" /b cmd /c "npm run dev --workspace=packages/frontend >> logs\frontend.log 2>&1"
+start "Anupam Classes Frontend" /b cmd /c "npm run dev --workspace=packages/frontend >> logs\frontend.log 2>&1"
 timeout /t 3 /nobreak >nul
 
 :: ---------- Open browser ----------
 echo.
 echo ============================================
-echo  EduMotion AI is running!
+echo  Anupam Classes is running!
 echo  Frontend: http://localhost:5173
 echo  Backend:  http://localhost:3001/api/health
 echo  Logs:     .\logs\

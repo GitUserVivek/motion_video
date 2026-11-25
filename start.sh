@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EduMotion AI — Start Services (Linux / macOS)
+# Anupam Classes — Start Services (Linux / macOS)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,7 +34,7 @@ fi
 
 echo ""
 echo "============================================"
-echo " EduMotion AI — Starting Services"
+echo " Anupam Classes — Starting Services"
 echo "============================================"
 echo ""
 
@@ -96,7 +96,7 @@ done
 
 echo ""
 echo "============================================"
-echo -e " ${GREEN}EduMotion AI is running!${NC}"
+echo -e " ${GREEN}Anupam Classes is running!${NC}"
 echo "  Frontend: http://localhost:5173"
 echo "  Backend:  http://localhost:3001/api/health"
 echo "  Logs:     ./logs/"

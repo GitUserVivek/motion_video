@@ -48,7 +48,7 @@ export function Dashboard(): React.ReactElement {
   return (
     <div>
       <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8, color: '#fff' }}>
-        🎬 EduMotion AI
+        🎬 Anupam Classes
       </h1>
       <p style={{ color: '#888', marginBottom: 32 }}>
         Local AI-powered educational video generator
