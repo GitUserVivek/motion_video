@@ -192,6 +192,35 @@ function normalizeProps(
   return props;
 }
 
+/**
+ * A scene-local camera move.
+ *
+ * A diagram that has finished animating leaves the frame pixel-identical for
+ * seconds, which ffmpeg's freezedetect reports as "frozen picture" and the
+ * quality gate rejects once it covers a third of the video. A slow push, pull
+ * or pan keeps every frame alive without changing the composition. `static`
+ * still gets a minimal push: a motionless frame is a defect, not a style.
+ */
+function cameraStyle(scene: SceneInstruction, frame: number): React.CSSProperties {
+  const duration = Math.max(1, scene.endFrame - scene.startFrame);
+  const progress = Math.min(1, Math.max(0, (frame - scene.startFrame) / duration));
+  const movement = scene.cameraMovement ?? 'zoomIn';
+
+  switch (movement) {
+    case 'zoomOut':
+      return { transform: `scale(${1.045 - progress * 0.045})` };
+    case 'panLeft':
+      return { transform: `scale(1.045) translateX(${(0.5 - progress) * 26}px)` };
+    case 'panRight':
+      return { transform: `scale(1.045) translateX(${(progress - 0.5) * 26}px)` };
+    case 'static':
+      return { transform: `scale(${1 + progress * 0.015})` };
+    case 'zoomIn':
+    default:
+      return { transform: `scale(${1 + progress * 0.045})` };
+  }
+}
+
 function SceneRenderer({
   scene,
   index,
@@ -215,15 +244,19 @@ function SceneRenderer({
 
   return (
     <AbsoluteFill style={{ overflow: 'hidden' }}>
-      <AbsoluteFill>
-        {renderComponent(scene.component, { ...scene.props, _sceneStartFrame: start }, `${scene.id}-root`)
-          ?? renderComponent('BackgroundScene', { palette, pattern: 'grid' }, `${scene.id}-fallback`)}
-      </AbsoluteFill>
+      {/* The camera moves the framed content only, so captions and the wipe
+          stay pixel-aligned. */}
+      <AbsoluteFill style={{ ...cameraStyle(scene, frame), transformOrigin: '50% 45%' }}>
+        <AbsoluteFill>
+          {renderComponent(scene.component, { ...scene.props, _sceneStartFrame: start }, `${scene.id}-root`)
+            ?? renderComponent('BackgroundScene', { palette, pattern: 'grid' }, `${scene.id}-fallback`)}
+        </AbsoluteFill>
 
-      <AbsoluteFill>
-        {visuals.map((child, i) =>
-          renderComponent(child.component, normalizeProps(scene, child), `${scene.id}-v-${i}`),
-        )}
+        <AbsoluteFill>
+          {visuals.map((child, i) =>
+            renderComponent(child.component, normalizeProps(scene, child), `${scene.id}-v-${i}`),
+          )}
+        </AbsoluteFill>
       </AbsoluteFill>
 
       {/* Captions are outside the visual layer so no camera or diagram transform

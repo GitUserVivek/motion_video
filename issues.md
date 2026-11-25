@@ -13,6 +13,33 @@ Reviewed and fixed on 2026-11-25. Both jobs were produced **before** the Marathi
 
 **Method:** `validation-report.json`, `quality-report.json`, `content-analysis.json`, `storyboard.json`, `subtitles.json`, `subtitle-report.json`, `timing-report.json` and `assets.json` were read for both jobs; WAV durations were measured; four sampled frames of Job B were inspected. The audio was **not** listened to, so pronunciation is still unverified.
 
+---
+
+## Follow-up review — jobs `90a6cfd5` (English) and `a3c62997` (Marathi)
+
+Both reports were re-read on 2026-11-25 after the fixes above. Neither failure was caused by the content fixes; one was a false positive introduced by the new math check, the other was the new freeze gate correctly rejecting a slideshow.
+
+| | `90a6cfd5-66b2-4a67-bfac-5581e4786340` | `a3c62997-9015-444d-a9fd-918964d9fda6` |
+|---|---|---|
+| Topic / language | How a car runs internally / English | photosynthesis / Marathi |
+| Status | rendered, then **rejected by quality** | **failed** at `validation_failed`, no `video.mp4` |
+| Failure | `15.8 s of frozen picture is more than 30% of the video` (30.7% of 51.5 s, 9 segments) | blocking `math`: `Displayed chemical equation is not balanced: … CO2 + H2O → glucose + O2` |
+| Editorial | `passed: true`, 8 warnings | not reached |
+
+### 12. Math check read planning prose — fixed
+
+The blocking message came from **`scene-4.visualBrief`**, not from a displayed prop: `"Animated equation showing CO2 + H2O → glucose + O2"`. `validateMath()` walked every string in the scene, so a drawing instruction was judged as an on-screen formula. Only `scene.props` and child `props` are now scanned; planning fields (`visualBrief`, `keyTerms`, `assetQueries`, `animationIntent`, …) and narration are not. A genuine displayed equation is still checked and still blocks.
+
+The storyboard prompt example was itself an unbalanced word equation (`CO2 + H2O -> glucose + O2`), so the model was copying an invalid template. It is now `2H2 + O2 -> 2H2O`, with a note that displayed equations must balance and use symbols.
+
+Test: `content.test.ts` — a `visualBrief` containing an unbalanced equation produces no math issue.
+
+### 13. Frozen picture in diagram scenes — fixed in code, not re-rendered
+
+`ffmpeg` freeze detection segments matched the static scenes: scenes 9–11 are `ConceptDiagram` only and hold still for ~15 s once the entrance animation ends; the background shape drift is too small to register. `EduVideo.tsx` now applies a scene-local camera move (`cameraMovement` is honoured: `zoomIn`, `zoomOut`, `panLeft`, `panRight`; absent or `static` gets a minimal push-in) around the backdrop and visual layers. Captions, the progress meter and the scene wipe stay outside the transform, so text is never scaled or blurred.
+
+**Not verified:** the renderer needs headless Chrome, which this environment does not have, so the new motion was not measured against `freezedetect`. If a re-render still reports frozen time, the next lever is the drift amount, not the quality gate.
+
 ## Status summary
 
 | # | Issue | Status |
@@ -101,7 +128,7 @@ Tests: `text.language.test.ts` and `storyboard.repair.test.ts`.
 ### 6. English label and wrong equation — fixed
 
 - The hard-coded `THE SHAPE EQUATION` was removed from `AnimatedDiagram.tsx`.
-- `math.check.ts` has `isBalancedChemicalEquation()`, which parses elements and rejects word formulas and unbalanced equations.
+- `math.check.ts` has `isBalancedChemicalEquation()`, which parses elements and rejects word formulas and unbalanced equations **that are actually displayed** (planning prose is no longer scanned — see issue 12).
 - `storyboard.repair.ts` drops an invalid chemical equation instead of showing it; `validateMath()` reports it.
 - Process-flow step icons with unknown ids are removed so the renderer uses a valid glyph.
 - The label wording fixes from issue 5 apply to titles, labels and process steps; captions are injected after this pass.
@@ -142,7 +169,7 @@ Tests: `timing.test.ts` end-card extension.
 - **fails above 30%** (Job B's 4.73 s of 14.93 s is 32%, so it would now fail);
 - requires editorial `passed` as well as technical checks for the overall `passed`.
 
-No automated test covers the ffmpeg freeze path in this environment.
+No automated test covers the ffmpeg freeze path in this environment. The gate stays at 30%; the fix for the jobs it rejected is motion in the renderer (see issue 13), not a looser threshold.
 
 ### 11. Asset audit counts unrendered images — open
 
@@ -157,10 +184,10 @@ The canal-lock/DNA/sucrose selections from Job B are now unlikely because of the
 Run on 2026-11-25:
 
 - `npm run build` — exit 0 (shared, backend, renderer, frontend).
-- `npm test` — backend 109/109 in 14 files; frontend 2/2; renderer `--passWithNoTests`.
-- New regression tests cover: Marathi duplicate title/bubble, Marathi long-caption split, scene-boundary snap, one-word sliver, empty diagrams, invalid icons, unbalanced equations, end-card extension, Marathi label wording, and cross-language validation.
+- `npm test` — backend 110/110 in 14 files; frontend 2/2; renderer `--passWithNoTests`.
+- New regression tests cover: Marathi duplicate title/bubble, Marathi long-caption split, scene-boundary snap, one-word sliver, empty diagrams, invalid icons, unbalanced equations, a planning brief containing an equation, end-card extension, Marathi label wording, and cross-language validation.
 
-**Not verified:** real Marathi model output, TTS pronunciation, and the ffmpeg freeze threshold. No headless Chrome or `edge-tts` is available here, and the reviewed jobs run on a remote server; only their HTTP outputs were accessible.
+**Not verified:** real Marathi model output, TTS pronunciation, and the ffmpeg freeze threshold after the camera change. No headless Chrome or `edge-tts` is available here, and the reviewed jobs run on a remote server; only their HTTP outputs were accessible.
 
 ## What looks good
 

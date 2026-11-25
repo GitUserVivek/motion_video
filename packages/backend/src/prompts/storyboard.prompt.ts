@@ -83,7 +83,7 @@ ${availableComponents.join(', ')}
 COMPONENT PROP CONTRACTS (use exactly these shapes):
 - SplitScreenComparison: { "left": { "content": "...", "label": "..." }, "right": { "content": "...", "label": "..." }, "comparisonLabel": "vs" }
 - ProcessFlow: { "steps": [{ "label": "..." }], "direction": "vertical" }
-- AnimatedDiagram: { "items": [{ "icon": "leaf", "label": "...", "position": { "x": 0, "y": 0 } }] } or { "equation": "CO2 + H2O -> glucose + O2" }
+- AnimatedDiagram: { "items": [{ "icon": "leaf", "label": "...", "position": { "x": 0, "y": 0 } }] } or { "equation": "2H2 + O2 -> 2H2O" } (a displayed equation must be balanced and use symbols, not compound names)
 - EndScreen: { "title": "...", "subtitle": "..." }
 - ConceptDiagram: { "items": [{ "icon": "leaf", "label": "..." }] }
 - AnimatedText: { "text": "...", "animation": "words" }

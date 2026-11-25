@@ -239,13 +239,28 @@ export interface MathIssue {
   message: string;
 }
 
+/**
+ * Strings that actually reach the screen: the scene's own props and its
+ * children's props.
+ *
+ * Scene-level planning fields are excluded. A brief such as "Animated equation
+ * showing CO2 + H2O → glucose + O2" describes what to draw; it is never
+ * displayed, so treating it as a rendered formula blocked whole jobs.
+ */
+function collectDisplayedStrings(scene: StoryboardPlan['scenes'][number]): string[] {
+  return [
+    ...collectStrings(scene.props),
+    ...(scene.children ?? []).flatMap((child) => collectStrings(child.props)),
+  ];
+}
+
 /** Check equations and numeric targets in a storyboard. */
 export function validateMath(storyboard: StoryboardPlan): MathIssue[] {
   const issues: MathIssue[] = [];
 
   for (const scene of storyboard.scenes) {
     const texts = collectStrings(scene);
-    for (const text of texts) {
+    for (const text of collectDisplayedStrings(scene)) {
       if (isBalancedChemicalEquation(text) === false) {
         issues.push({
           sceneId: scene.id,

@@ -214,6 +214,32 @@ describe('chemical equations', () => {
       expect.objectContaining({ sceneId: 'scene-1', message: expect.stringContaining('not balanced') }),
     ]);
   });
+
+  it('ignores an equation that only appears in the scene plan', () => {
+    // A real Marathi job was blocked because its visualBrief read
+    // "Animated equation showing CO2 + H2O → glucose + O2": a drawing
+    // instruction, never displayed on screen.
+    const storyboard: StoryboardPlan = {
+      jobId: 'job-1',
+      totalFrames: 100,
+      fps: 30,
+      audioDurationMs: 3000,
+      scenes: [{
+        id: 'scene-1',
+        startFrame: 0,
+        endFrame: 100,
+        component: 'BackgroundScene',
+        props: {},
+        visualBrief: 'Animated equation showing CO2 + H2O → glucose + O2',
+        animationIntent: 'draw the arrow, then label the products',
+        keyTerms: ['प्रकाशसंश्लेषण'],
+        assetQueries: ['photosynthesis diagram'],
+        children: [{ component: 'AnimatedText', props: { text: 'प्रकाशसंश्लेषण' } }],
+      }],
+    };
+
+    expect(validateMath(storyboard)).toEqual([]);
+  });
 });
 
 describe('validateMath', () => {
