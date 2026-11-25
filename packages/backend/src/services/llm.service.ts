@@ -1,5 +1,13 @@
 import fs from 'fs';
-import { getLlama, LlamaChatSession, type Llama, type LlamaModel, type LlamaContext } from 'node-llama-cpp';
+import {
+  getLlama,
+  JinjaTemplateChatWrapper,
+  LlamaChatSession,
+  type ChatWrapper,
+  type Llama,
+  type LlamaModel,
+  type LlamaContext,
+} from 'node-llama-cpp';
 import { config } from '../config.js';
 import { resolveModelPath, downloadModel } from './llm.downloader.js';
 
@@ -29,9 +37,41 @@ export function looksUndecodable(text: string): boolean {
   return lettersOrDigits < Math.max(1, Math.ceil(trimmed.length * 0.15));
 }
 
+/**
+ * A chat wrapper that renders the model's own template with reasoning turned
+ * off.
+ *
+ * Qwen3 and its relatives think by default, and `LlamaChatSession.prompt`
+ * returns only the visible text: the ` thinking` segment is kept aside. A short
+ * generation — the asset judge asks for 120 tokens, the claim rewrite for 1024 —
+ * can therefore spend its entire budget inside the reasoning block and come back
+ * as an empty string, which looks exactly like a dead model. Every prompt in
+ * this project wants the answer, never the deliberation.
+ */
+function noReasoningWrapper(model: LlamaModel): ChatWrapper | null {
+  try {
+    // GGUF stores the template as `tokenizer.chat_template`; the typed accessor
+    // varies between releases, so read it defensively rather than cast the model.
+    const insights = model.fileInsights as
+      | { metadata?: { tokenizer?: { chat_template?: unknown } } }
+      | undefined;
+    const template = insights?.metadata?.tokenizer?.chat_template;
+    if (typeof template !== 'string' || !template.trim()) return null;
+    return new JinjaTemplateChatWrapper({ template, reasoning: false });
+  } catch (err) {
+    console.warn(
+      '[LLM] Could not disable model reasoning, using the default chat template: ' +
+        (err instanceof Error ? err.message : String(err)),
+    );
+    return null;
+  }
+}
+
 class LlmService {
   private llama: Llama | null = null;
   private model: LlamaModel | null = null;
+  /** Set once the model's template is rendered without its reasoning segment. */
+  private chatWrapper: ChatWrapper | null = null;
   private context: LlamaContext | null = null;
   private initialized = false;
   private initializing: Promise<void> | null = null;
@@ -124,6 +164,11 @@ class LlmService {
 
     console.log(`[LLM] Offloaded layers: ${this.model.gpuLayers}`);
 
+    this.chatWrapper = noReasoningWrapper(this.model);
+    if (this.chatWrapper) {
+      console.log('[LLM] Reasoning disabled in the chat template (answers, no  thinking block)');
+    }
+
     this.context = await this.model.createContext({
       contextSize: config.localLlm.contextSize,
     });
@@ -132,16 +177,19 @@ class LlmService {
     console.log('[LLM] Model loaded and ready');
   }  async chat(messages: LlmMessage[], options?: LlmChatOptions): Promise<string> {
     const run = async (): Promise<string> => {
-      const reject = (reply: string): void => {
+      /** "empty" and "garbage" fail the same check but mean opposite things. */
+      const reject = (reply: string): 'empty' | 'garbage' => {
+        const kind = reply.trim() ? 'garbage' : 'empty';
         console.warn(
-          `[LLM] Reply had no letters or digits (${reply.length} chars, ` +
-            `start ${JSON.stringify(reply.slice(0, 40))})`,
+          `[LLM] Reply ${kind === 'empty' ? 'was empty' : 'had no letters or digits'} ` +
+            `(${reply.length} chars, start ${JSON.stringify(reply.slice(0, 40))})`,
         );
+        return kind;
       };
 
       const first = await this.runChat(messages, options);
       if (!looksUndecodable(first)) return first;
-      reject(first);
+      const kind = reject(first);
 
       // One greedy retry on the same backend first. A single degenerate stop —
       // an immediate EOS, a sampler hiccup — looks exactly like a broken GPU
@@ -151,8 +199,12 @@ class LlmService {
       if (!looksUndecodable(retry)) return retry;
       reject(retry);
 
-      // A backend that fails twice is treated as broken: reload on CPU.
-      if (this.llama?.gpu && !this.gpuDisabled) {
+      // An empty reply is not a broken kernel: the model either stopped at once
+      // or spent its whole budget inside a reasoning block, which LlamaChatSession
+      // keeps out of the returned text. Reloading on CPU costs minutes per call
+      // and cannot fix that, so only genuinely undecodable text — a run of `?` —
+      // downgrades the backend.
+      if (kind === 'garbage' && this.llama?.gpu && !this.gpuDisabled) {
         await this.reloadOnCpu();
         const cpuReply = await this.runChat(messages, { ...options, temperature: 0.05 });
         if (!looksUndecodable(cpuReply)) return cpuReply;
@@ -160,9 +212,13 @@ class LlmService {
       }
 
       throw new Error(
-        'LLM produced undecodable text (no letters or digits in the reply). ' +
-          'The model file is probably corrupt or its tokenizer does not match ' +
-          'node-llama-cpp; delete it so the downloader fetches it again.',
+        kind === 'empty'
+          ? 'LLM returned no visible text: the reply was empty. The model most '
+            + 'likely spent the whole token budget on hidden reasoning or stopped '
+            + 'at once; retry the call with a larger num_predict.'
+          : 'LLM produced undecodable text (no letters or digits in the reply). '
+            + 'The model file is probably corrupt or its tokenizer does not match '
+            + 'node-llama-cpp; delete it so the downloader fetches it again.',
       );
     };
 
@@ -202,7 +258,10 @@ class LlmService {
     // treats it as a continuation and stops at once, producing an empty reply
     // that looks exactly like a broken GPU.
     await sequence.clearHistory();
-    const session = new LlamaChatSession({ contextSequence: sequence });
+    const session = new LlamaChatSession({
+      contextSequence: sequence,
+      ...(this.chatWrapper ? { chatWrapper: this.chatWrapper } : {}),
+    });
 
     try {
       const systemMsg = messages.find((m) => m.role === 'system')?.content ?? '';
@@ -300,6 +359,7 @@ class LlmService {
     if (this.model) await this.model.dispose();
     if (this.llama) await this.llama.dispose();
     this.context = null;
+    this.chatWrapper = null;
     this.model = null;
     this.llama = null;
     this.initialized = false;
