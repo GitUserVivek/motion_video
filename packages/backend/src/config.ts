@@ -144,11 +144,14 @@ export const config = {
     // A provider being down must never stop a video from rendering, so every
     // failure is logged and the built-in SVG glyphs take over.
     discoveryEnabled: !/^(0|false|no|off)$/i.test(process.env['ASSET_DISCOVERY'] ?? ''),
-    // Colour-first, in order of preference: OpenMoji and Wikimedia return
-    // full-colour artwork, Cleveland adds CC0 museum images, NASA covers space
-    // and Earth science, and Iconify is the fallback for concepts the others do
-    // not cover. A rate-limited provider is skipped automatically.
-    providers: (process.env['ASSET_PROVIDERS'] ?? 'openmoji,wikimedia,cleveland,nasa,iconify')
+    // Colour-first, in order of preference: OpenMoji and Iconify return tinted
+    // vector artwork (best for a 150px tile), Wikimedia and Openverse add real
+    // photos and diagrams, the Met and Cleveland add CC0 museum images, and NASA
+    // covers space and Earth science. A rate-limited provider is skipped
+    // automatically. Iconify sits second because a diagram tile is illustrated
+    // far better by an exact vector glyph than by a stock photograph whose file
+    // name happens to share a word with the scene.
+    providers: (process.env['ASSET_PROVIDERS'] ?? 'openmoji,iconify,wikimedia,openverse,met,cleveland,nasa')
       .split(',')
       .map((provider) => provider.trim().toLowerCase())
       .filter((provider) => provider.length > 0),
@@ -172,6 +175,16 @@ export const config = {
       // Judgements are cached by a hash of the scene vocabulary + candidate, so
       // a repeated topic never pays for the same model call twice.
       cachePath: path.join(ROOT_DIR, 'data', 'assets', 'verify-cache.json'),
+      // When a vision endpoint is configured (VISION_API_URL/VISION_MODEL) the
+      // artwork itself — not just its file name — is checked against what the
+      // scene needs. Disable to keep verification text-only.
+      vision: !/^(0|false|no|off)$/i.test(process.env['ASSET_VERIFY_VISION'] ?? ''),
+      // A rejection is not a dead end: the next-best candidate is offered to the
+      // verifier before the tile falls back to its built-in glyph.
+      maxCandidates: Math.max(
+        1,
+        parseInt(process.env['ASSET_MAX_CANDIDATES'] ?? '4', 10) || 4,
+      ),
     },
   },
 

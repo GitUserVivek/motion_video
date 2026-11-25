@@ -5,7 +5,11 @@ import { storyboardService } from '../services/storyboard.service.js';
 import { attachSceneArtwork } from '../services/storyboard.visuals.js';
 import { renderService } from '../services/render.service.js';
 import { qualityService } from '../services/quality.service.js';
-import { assetDiscovery, buildSceneAssetQueries } from '../services/asset.discovery.js';
+import {
+  assetDiscovery,
+  buildSceneAssetQueries,
+  isPartTerm,
+} from '../services/asset.discovery.js';
 import { contentAnalysisService } from '../services/content.analysis.js';
 import { validateVideo } from '../services/content.validation.js';
 import { resetAssetCache } from '../services/asset.library.js';
@@ -192,8 +196,16 @@ async function processJob(job: JobRow): Promise<void> {
   // deliberately after planning: a whole-script keyword list used to download
   // generic icons that had nothing to do with the scene.
   updateJob(job.id, 'processing', 34, 'discovering_scene_assets');
+  // The video's own subject anchors part words such as "faces" and "edges" to
+  // what they are parts of, so the search names "cube faces" rather than the
+  // human faces and platform edges those words find on their own.
+  const assetAnchor = planned.storyboard.scenes
+    .flatMap((scene) => scene.keyTerms ?? [])
+    .map((term) => term.trim().toLowerCase())
+    .find((term) => term.length > 1 && !isPartTerm(term)) ?? '';
+  if (assetAnchor) logInfo('Assets', `Job ${job.id}: scene searches anchored on "${assetAnchor}"`);
   const sceneQueries = planned.storyboard.scenes.flatMap((scene) =>
-    buildSceneAssetQueries(scene, 2),
+    buildSceneAssetQueries(scene, 2, assetAnchor),
   );
   logStep('Worker', `Job ${job.id} [5/8] scene artwork discovery (${sceneQueries.length} queries)`, '🖼️');
   logInfo(

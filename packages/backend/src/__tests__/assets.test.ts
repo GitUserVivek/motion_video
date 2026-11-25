@@ -3,7 +3,9 @@ import type { SceneInstruction } from '@edumotion/shared';
 import {
   buildAssetQueries,
   buildSceneAssetQueries,
+  compactQuery,
   isConfidentCandidate,
+  isUsableQuery,
   nasaPreviewUrl,
   parseRetryAfterMs,
   retryDelayMs,
@@ -79,7 +81,7 @@ describe('buildSceneAssetQueries', () => {
     expect(queries.length).toBeLessThanOrEqual(3);
   });
 
-  it('keeps explicit scene queries first', () => {
+  it('keeps both the scene key terms and its own short queries', () => {
     const queries = buildSceneAssetQueries(
       {
         ...captionScene,
@@ -88,7 +90,67 @@ describe('buildSceneAssetQueries', () => {
       } as SceneInstruction,
       3,
     );
-    expect(queries[0]).toBe('solar panel');
+    // Key terms lead because they are what the verifier matches candidates
+    // against; the model's own search is kept rather than dropped.
+    expect(queries).toContain('renewable energy');
+    expect(queries).toContain('solar panel');
+  });
+
+  it('anchors a part word to the video subject so the search names the whole', () => {
+    const scene = {
+      ...captionScene,
+      keyTerms: ['faces', 'edges', 'vertices'],
+    } as SceneInstruction;
+
+    expect(buildSceneAssetQueries(scene, 2, 'cube')).toEqual(['cube faces', 'cube edges']);
+    // Without an anchor the bare part words are still searched.
+    expect(buildSceneAssetQueries(scene, 2)).toEqual(['faces', 'edges']);
+  });
+
+  it('does not anchor a term that already names its whole', () => {
+    const scene = {
+      ...captionScene,
+      keyTerms: ['cube faces'],
+    } as SceneInstruction;
+
+    expect(buildSceneAssetQueries(scene, 2, 'cube')[0]).toBe('cube faces');
+  });
+
+  it('does not let a verbose model query crowd out the scene key terms', () => {
+    const queries = buildSceneAssetQueries(
+      {
+        ...captionScene,
+        assetQueries: ['3D cube transforming into box animation', 'geometric shape transformation'],
+        keyTerms: ['cube', 'box'],
+      } as SceneInstruction,
+      2,
+    );
+
+    expect(queries).toEqual(['cube', 'box']);
+  });
+});
+
+describe('compactQuery', () => {
+  it('keeps the nouns a provider can match', () => {
+    expect(compactQuery('3D cube transforming into box animation')).toBe('cube box');
+    expect(compactQuery('annotated 3D cube diagram')).toBe('cube');
+    expect(compactQuery("teacher demonstrating Rubik's cube")).toBe('rubik cube');
+    expect(compactQuery('animated numbers showing cube/box component counts'))
+      .toBe('cube box');
+  });
+
+  it('leaves a search that is already a subject alone', () => {
+    expect(compactQuery('solar panel')).toBe('solar panel');
+    expect(compactQuery('photosynthesis')).toBe('photosynthesis');
+  });
+});
+
+describe('isUsableQuery', () => {
+  it('accepts short concrete nouns and rejects sentence fragments', () => {
+    expect(isUsableQuery('cube')).toBe(true);
+    expect(isUsableQuery('box')).toBe(true);
+    expect(isUsableQuery('counting')).toBe(false);
+    expect(isUsableQuery('touch sides')).toBe(false);
   });
 });
 

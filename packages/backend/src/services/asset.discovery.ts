@@ -17,8 +17,9 @@ import { logInfo, logStep, logSuccess, logWarn } from '../logger.js';
  *
  * Rules this module follows:
  *  - only public, keyless sources with an open licence (Iconify, OpenMoji,
- *    Wikimedia Commons, Cleveland Museum of Art, NASA); unDraw / LottieFiles
- *    have no public search API and are deliberately NOT scraped;
+ *    Wikimedia Commons, Openverse, the Met's Open Access collection, Cleveland
+ *    Museum of Art, NASA); unDraw / LottieFiles have no public search API and
+ *    are deliberately NOT scraped;
  *  - downloads are cached by content hash and search results are cached on disk
  *    for a week, so a repeated topic costs nothing;
  *  - SVGs are sanitised (no scripts, no event handlers, no external references)
@@ -85,6 +86,8 @@ export type AssetProviderId =
   | 'iconify'
   | 'openmoji'
   | 'wikimedia'
+  | 'openverse'
+  | 'met'
   | 'cleveland'
   | 'nasa';
 
@@ -154,6 +157,44 @@ interface WikimediaResponse {
   query?: {
     pages?: Record<string, { title?: string; imageinfo?: WikimediaImageInfo[] }>;
   };
+}
+
+interface OpenverseImage {
+  id?: string;
+  title?: string;
+  url?: string;
+  creator?: string;
+  license?: string;
+  license_version?: string;
+  license_url?: string;
+  mature?: boolean;
+  tags?: Array<{ name?: string }>;
+  foreign_landing_url?: string;
+}
+
+interface OpenverseResponse {
+  results?: OpenverseImage[];
+}
+
+interface MetSearchResponse {
+  total?: number;
+  objectIDs?: number[];
+}
+
+interface MetObject {
+  objectID?: number;
+  title?: string;
+  isPublicDomain?: boolean;
+  primaryImage?: string;
+  primaryImageSmall?: string;
+  objectName?: string;
+  department?: string;
+  culture?: string;
+  period?: string;
+  dynasty?: string;
+  medium?: string;
+  artistDisplayName?: string;
+  tags?: Array<{ term?: string }>;
 }
 
 interface ClevelandArtwork {
@@ -323,9 +364,31 @@ const PROVIDER_WEIGHT: Record<AssetProviderId, number> = {
   openmoji: 1.08,
   nasa: 1.04,
   wikimedia: 1.02,
+  openverse: 1.0,
+  met: 0.99,
   cleveland: 1.0,
   iconify: 0.95,
 };
+
+/**
+ * Words that describe how a picture is used rather than what it shows. They are
+ * stripped from a scene search before it reaches a provider: "3D cube
+ * transforming into box animation" searches far worse than "cube box".
+ */
+const QUERY_MODIFIERS = new Set([
+  '3d', '2d', 'animated', 'animation', 'moving', 'motion', 'morph', 'morphing',
+  'transforming', 'transformation', 'transform', 'demonstrating', 'showing',
+  'holding', 'display', 'displayed', 'process', 'steps', 'step', 'stage',
+  'stages', 'diagram', 'illustration', 'illustrated', 'infographic', 'visual',
+  'visuals', 'picture', 'pictures', 'photo', 'photos', 'image', 'images', 'clip',
+  'style', 'styled', 'concept', 'conceptual', 'basic', 'simple',
+  'detailed', 'educational', 'classroom', 'explainer', 'explanation', 'overview',
+  'summary', 'comparison', 'compare', 'compared', 'versus', 'split', 'screen',
+  'annotated', 'labelled', 'labeled', 'components', 'component', 'parts', 'part',
+  'types', 'type', 'counts', 'count', 'sizes', 'size', 'examples', 'example',
+  'numbers', 'number', 'teacher', 'student', 'students', 'child', 'children',
+  'kid', 'kids', 'person', 'people', 'boy', 'girl', 'man', 'woman',
+]);
 
 /** Query words that describe grammar rather than a thing to draw. */
 const GENERIC_QUERY_WORDS = new Set([
@@ -395,15 +458,44 @@ const QUERY_FRAGMENT_LEAD = new Set([
 
 /**
  * A search has to name a thing. One substantial word is fine
- * ("photosynthesis"); a phrase must be short and must not open with a verb
- * ("touch sides" and "becomes pyramid" only return unrelated photos).
+ * ("photosynthesis", and short nouns such as "cube" or "box"); a phrase must be
+ * short and must not open with a verb ("touch sides" and "becomes pyramid" only
+ * return unrelated photos).
  */
 export function isUsableQuery(query: string): boolean {
   const words = tokenizeText(query);
   const first = words[0] ?? '';
   if (!first || QUERY_FRAGMENT_LEAD.has(first)) return false;
-  if (words.length === 1) return first.length >= 4;
+  if (words.length === 1) return first.length >= 3;
   return words.length <= 4;
+}
+
+/**
+ * Reduce a scene's search phrase to the nouns a provider can actually match.
+ *
+ * Storyboard models write searches as descriptions ("teacher demonstrating
+ * Rubik's cube", "animated numbers showing cube/box component counts"). Those
+ * phrases are poor provider queries: every modifier is another word a result can
+ * fail to match, so a four-word query mostly returns stock photos that share one
+ * generic word. Keeping the content nouns is what makes "cube" find a cube icon
+ * instead of "the corner of a…" museum painting.
+ */
+export function compactQuery(query: string): string {
+  const withoutPossessive = query.replace(/['\u2019]s\b/gi, ' ');
+  const words = withoutPossessive
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const content = words.filter((word) =>
+    !QUERY_MODIFIERS.has(word) &&
+    !GENERIC_QUERY_WORDS.has(word) &&
+    !/^\d+$/.test(word),
+  );
+  const core = (content.length > 0 ? content : words.filter((word) => !/^\d+$/.test(word)))
+    .slice(0, 2);
+  return core.join(' ');
 }
 
 function message(err: unknown): string {
@@ -529,7 +621,27 @@ export function buildAssetQueries(script: string, max = 5): string[] {
  * and visual brief so the scene still gets artwork about what it is saying,
  * rather than a generic topic icon.
  */
-export function buildSceneAssetQueries(scene: SceneInstruction, max = 3): string[] {
+/**
+ * Words that name a part of a figure rather than a thing to search on its own.
+ * On its own, "faces" searches human faces and "edges" searches the edge of a
+ * platform; combined with the video's subject ("cube faces") both find the
+ * labelled diagram that was actually wanted.
+ */
+const PART_TERMS = new Set([
+  'face', 'faces', 'edge', 'edges', 'vertex', 'vertices', 'corner', 'corners',
+  'side', 'sides', 'angle', 'angles', 'surface', 'surfaces', 'base', 'bases',
+]);
+
+export function isPartTerm(term: string): boolean {
+  return PART_TERMS.has(term.trim().toLowerCase());
+}
+
+export function buildSceneAssetQueries(
+  scene: SceneInstruction,
+  max = 3,
+  /** The video's own subject, e.g. "cube"; anchors part words like "faces". */
+  anchor = '',
+): string[] {
   const caption = (scene.children ?? [])
     .flatMap((child) => {
       const entries = child.props['entries'];
@@ -544,23 +656,41 @@ export function buildSceneAssetQueries(scene: SceneInstruction, max = 3): string
     .join(' ')
     .trim();
 
-  const explicit = (scene.assetQueries ?? [])
-    .map((query) => query.trim())
-    .filter(Boolean);
-  const keyTerms = (scene.keyTerms ?? [])
-    .map((query) => query.trim())
-    .filter(Boolean);
+  const clean = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+    // A short search the model wrote on purpose ("solar panel", "number line")
+    // is left alone; only a descriptive phrase needs its nouns extracted.
+    if (trimmed.split(/\s+/).length <= 3) return trimmed;
+    return compactQuery(trimmed) || trimmed;
+  };
+
+  const explicit = (scene.assetQueries ?? []).map(clean).filter(Boolean);
+  const keyTerms = (scene.keyTerms ?? []).map(clean).filter(Boolean);
   const derived = buildAssetQueries(
     `${scene.visualBrief ?? ''} ${caption}`.trim(),
     Math.max(max, 4),
   );
 
-  // The plan's own searches come first, then the scene's key terms: both name
-  // the subject the narration is about. Salvaging words out of the caption is
-  // the last resort, and its fragments are dropped rather than downloaded.
+  // The scene's key terms come first: they are the concrete nouns the narration
+  // is about, and the same list the verifier judges candidates against. A part
+  // word is anchored to the video's subject so the search names both the whole
+  // and its part. The model's descriptive searches follow, then words salvaged
+  // from the caption as a last resort — this ordering means a verbose query can
+  // no longer consume the whole per-scene budget and lock out "cube"/"box".
+  const subject = anchor.trim().toLowerCase();
+  const planned = [
+    ...keyTerms.map((term) =>
+      subject && isPartTerm(term) && !term.toLowerCase().includes(subject)
+        ? `${subject} ${term}`
+        : term,
+    ),
+    ...explicit,
+  ];
+
   const queries: string[] = [];
   const seen = new Set<string>();
-  for (const query of [...explicit, ...keyTerms, ...derived]) {
+  for (const query of [...planned, ...derived]) {
     if (!isUsableQuery(query)) continue;
     const slug = slugify(query);
     if (!slug || seen.has(slug)) continue;
@@ -787,6 +917,8 @@ class AssetDiscoveryService {
       if (provider === 'iconify') candidates = await this.searchIconify(query);
       else if (provider === 'openmoji') candidates = await this.searchOpenMoji(query);
       else if (provider === 'wikimedia') candidates = await this.searchWikimedia(query);
+      else if (provider === 'openverse') candidates = await this.searchOpenverse(query);
+      else if (provider === 'met') candidates = await this.searchMet(query);
       else if (provider === 'cleveland') candidates = await this.searchCleveland(query);
       else if (provider === 'nasa') candidates = await this.searchNasa(query);
 
@@ -1050,6 +1182,152 @@ class AssetDiscoveryService {
       };
 
       candidates.push({ ...base, score: scoreAssetCandidate(base, query) });
+    }
+
+    return candidates;
+  }
+
+  /**
+   * Openverse aggregates CC-licensed images from Flickr, museums and archives,
+   * which is the broadest keyless pool outside Wikimedia. Its anonymous search
+   * endpoint answers in well under the asset timeout, unlike the older
+   * 15–24s responses that made it lose every race.
+   *
+   * Results are photos of the subject rather than icons, so they rank beside
+   * Wikimedia and are verified by the asset judge like any other candidate.
+   */
+  private async searchOpenverse(query: string): Promise<AssetCandidate[]> {
+    const params = new URLSearchParams({
+      q: query,
+      page_size: '12',
+      mature: 'false',
+      license: 'cc0,by,by-sa',
+    });
+    const data = await this.fetchJson<OpenverseResponse>(
+      `https://api.openverse.org/v1/images/?${params.toString()}`,
+    );
+    const results = Array.isArray(data?.results) ? data.results : [];
+    const candidates: AssetCandidate[] = [];
+
+    for (const image of results.slice(0, 10)) {
+      // Openverse carries a mature flag; adult artwork must never reach a
+      // classroom video, whatever the query matched.
+      if (image.mature) continue;
+
+      const url = typeof image.url === 'string' ? image.url : '';
+      if (!/^https?:/i.test(url)) continue;
+
+      const format: AssetFormat | null = /\.png(\?|$)/i.test(url)
+        ? 'png'
+        : /\.jpe?g(\?|$)/i.test(url)
+          ? 'jpg'
+          : /\.webp(\?|$)/i.test(url)
+            ? 'webp'
+            : null;
+      if (!format) continue;
+
+      const title = stripHtml(image.title ?? '').trim();
+      const tags = (image.tags ?? [])
+        .map((tag) => stripHtml(tag.name ?? ''))
+        .filter(Boolean);
+      const code = (image.license ?? '').trim().toLowerCase();
+      const version = stripHtml(image.license_version ?? '').trim();
+      const licenseName = code === 'cc0'
+        ? 'CC0 1.0'
+        : code === 'pdm'
+          ? 'Public domain'
+          : code
+            ? `CC ${code.toUpperCase()}${version ? ` ${version}` : ''}`
+            : 'See Openverse';
+      const creator = stripHtml(image.creator ?? '').trim();
+
+      const base: Omit<AssetCandidate, 'score'> = {
+        provider: 'openverse',
+        id: image.id ?? title,
+        name: title || stripHtml(image.id ?? '').trim() || 'openverse image',
+        tags: [title, ...tags],
+        format,
+        colorful: true,
+        url,
+        license: {
+          name: licenseName,
+          ...(image.license_url ? { url: image.license_url } : {}),
+          ...(creator ? { attribution: creator } : {}),
+        },
+      };
+
+      const score = scoreAssetCandidate(base, query);
+      if (score > 0) candidates.push({ ...base, score });
+    }
+
+    return candidates;
+  }
+
+  /**
+   * The Metropolitan Museum of Art's Open Access collection (CC0) opens with a
+   * cheap id-only search; each candidate then costs one object lookup, which is
+   * why only the first few ids are fetched.
+   */
+  private async searchMet(query: string): Promise<AssetCandidate[]> {
+    const search = await this.fetchJson<MetSearchResponse>(
+      'https://collectionapi.metmuseum.org/public/collection/v1.1/search' +
+        `?q=${encodeURIComponent(query)}&hasImages=true&limit=8`,
+    );
+    const ids = (Array.isArray(search?.objectIDs) ? search.objectIDs : []).slice(0, 4);
+    if (ids.length === 0) return [];
+
+    const objects = await Promise.all(
+      ids.map((id) =>
+        this.fetchJson<MetObject>(
+          `https://collectionapi.metmuseum.org/public/collection/v1/objects/${encodeURIComponent(String(id))}`,
+        ),
+      ),
+    );
+
+    const candidates: AssetCandidate[] = [];
+    for (const object of objects) {
+      if (!object || object.isPublicDomain !== true) continue;
+
+      const title = stripHtml(object.title ?? '').trim();
+      const url = object.primaryImageSmall || object.primaryImage || '';
+      if (!title || !/^https?:/i.test(url)) continue;
+
+      const format: AssetFormat | null = /\.png(\?|$)/i.test(url)
+        ? 'png'
+        : /\.jpe?g(\?|$)/i.test(url)
+          ? 'jpg'
+          : null;
+      if (!format) continue;
+
+      const artist = stripHtml(object.artistDisplayName ?? '').trim();
+      const tags = [
+        stripHtml(object.objectName ?? ''),
+        stripHtml(object.department ?? ''),
+        stripHtml(object.culture ?? ''),
+        stripHtml(object.period ?? ''),
+        stripHtml(object.dynasty ?? ''),
+        stripHtml(object.medium ?? ''),
+        artist,
+        ...(object.tags ?? []).map((tag) => stripHtml(tag.term ?? '')),
+      ].filter(Boolean);
+
+      const base: Omit<AssetCandidate, 'score'> = {
+        provider: 'met',
+        id: String(object.objectID ?? title),
+        name: title,
+        tags: [title, ...tags],
+        format,
+        colorful: true,
+        url,
+        license: {
+          name: 'CC0 1.0',
+          url: 'https://creativecommons.org/publicdomain/zero/1.0/',
+          attribution: artist || 'The Metropolitan Museum of Art',
+        },
+      };
+
+      const score = scoreAssetCandidate(base, query);
+      if (score > 0) candidates.push({ ...base, score });
     }
 
     return candidates;

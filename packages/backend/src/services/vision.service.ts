@@ -84,6 +84,16 @@ function isConfigured(): boolean {
   return Boolean(config.vision.apiUrl && config.vision.model);
 }
 
+/** True when a separate vision model is available to look at downloaded artwork. */
+export function isVisionConfigured(): boolean {
+  return isConfigured();
+}
+
+/** Identity of the auditing model, part of the asset-verification cache key. */
+export function visionModelName(): string {
+  return config.vision.model || 'vision';
+}
+
 function endpoint(): string {
   const url = config.vision.apiUrl.replace(/\/+$/, '');
   if (/\/chat\/completions$/i.test(url)) return url;
@@ -139,8 +149,49 @@ function parseVisionJson(content: unknown): { caption?: string; keywords?: strin
   }
 }
 
+/** What a vision model saw in one candidate image. */
+export interface ImageAudit {
+  match: boolean;
+  reason: string;
+}
+
+function parseAuditJson(content: unknown): ImageAudit | null {
+  const text = typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content
+        .map((part) => {
+          if (typeof part === 'string') return part;
+          if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
+            return (part as { text: string }).text;
+          }
+          return '';
+        })
+        .join(' ')
+      : '';
+
+  const match = /\{[\s\S]*\}/.exec(text);
+  if (!match) return null;
+
+  try {
+    const parsed = JSON.parse(match[0]) as { match?: unknown; reason?: unknown };
+    if (typeof parsed.match !== 'boolean') return null;
+    const reason = typeof parsed.reason === 'string' && parsed.reason.trim()
+      ? parsed.reason.trim().slice(0, 160)
+      : parsed.match
+        ? 'the image shows the element'
+        : 'the image shows something else';
+    return { match: parsed.match, reason };
+  } catch {
+    return null;
+  }
+}
+
 class VisionService {
   private warnedMissingConfig = false;
+  /** Stop calling a broken endpoint after a few failures in the same run. */
+  private auditFailures = 0;
+  private auditDisabled = false;
 
   /**
    * Describe an image and return searchable metadata. Never throws: a failed
@@ -213,6 +264,99 @@ class VisionService {
           (err instanceof Error ? err.message : String(err)),
       );
       return fallback;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Ask the vision model whether this exact picture illustrates the element the
+   * scene needs.
+   *
+   * Filename and tag checks cannot see that a museum painting titled "…the
+   * corner of a…" is not a cube; a model looking at the pixels can. Returns null
+   * whenever the endpoint is unset, unreachable or answers unusably, so the
+   * deterministic and text-verification paths still decide.
+   */
+  async audit(
+    dataUrl: string,
+    need: { label: string; keyTerms?: string[]; narration?: string },
+  ): Promise<ImageAudit | null> {
+    if (!isConfigured() || this.auditDisabled) return null;
+    // OpenAI-compatible endpoints accept raster images, not SVG. Vector icons
+    // are also the artwork whose name describes it most reliably, so skipping
+    // them costs little and keeps a 400 from disabling the audit for the run.
+    if (!/^data:image\/(?:png|jpe?g|webp)[;,]/i.test(dataUrl)) return null;
+
+    const label = need.label.replace(/\s+/g, ' ').trim().slice(0, 120);
+    const terms = [...new Set(need.keyTerms ?? [])].slice(0, 12).join(', ');
+    const narration = (need.narration ?? '').replace(/\s+/g, ' ').trim().slice(0, 240);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), config.vision.timeoutMs);
+    try {
+      const response = await fetch(endpoint(), {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(config.vision.apiKey ? { Authorization: `Bearer ${config.vision.apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: config.vision.model,
+          temperature: 0,
+          max_tokens: 160,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: [
+                    'You check artwork for an educational video. Look at the image only.',
+                    `It would illustrate: "${label}".`,
+                    terms ? `Scene concept words: ${terms}.` : '',
+                    narration ? `Scene narration: "${narration}".` : '',
+                    'Answer whether the image itself shows that concept. A shared word is',
+                    'not enough: a photo of a spacecraft called "Mars Cube One" is not a',
+                    'geometric cube, a painting that merely mentions a corner is not a',
+                    'geometry diagram, and a decorative picture with no clear subject of',
+                    'the concept is not usable.',
+                    'Return only JSON: {"match": true|false, "reason": "max 20 words"}',
+                  ].filter(Boolean).join('\n'),
+                },
+                { type: 'image_url', image_url: { url: dataUrl } },
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const payload = (await response.json()) as {
+        choices?: Array<{ message?: { content?: unknown } }>;
+      };
+      const audit = parseAuditJson(payload.choices?.[0]?.message?.content);
+      if (!audit) throw new Error('reply was not JSON');
+
+      this.auditFailures = 0;
+      return audit;
+    } catch (err) {
+      // A brief network blip should not lose the audit for the whole job, but a
+      // persistently broken endpoint must stop adding a timeout to every tile.
+      this.auditFailures++;
+      if (this.auditFailures >= 3) {
+        this.auditDisabled = true;
+        console.warn(
+          '[Vision] Asset auditing disabled for this run after repeated failures; ' +
+            'falling back to filename/LLM verification.',
+        );
+      }
+      console.warn(
+        `[Vision] Could not audit artwork: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
     } finally {
       clearTimeout(timer);
     }

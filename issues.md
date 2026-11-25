@@ -179,13 +179,61 @@ The canal-lock/DNA/sucrose selections from Job B are now unlikely because of the
 
 ---
 
+## Follow-up review — job `1c112276` (artwork)
+
+Report read on 2026-11-25: `https://cover-ended-growing.ngrok-free.dev/output/1c112276-ddf2-4960-a62b-0f7f7ac45c36/`. The job itself **passed** — validation `passed: true`, quality `passed: true` (47.7 s, 1080×1920, 0 frozen, 0 black) — so the complaint is the artwork, not the render.
+
+`assets.json` and the editorial tally show the real problem: **0 downloaded, 0 library, 0 user, 32 built-in glyphs**. Every tile in the video is a vector glyph. The seven files that were downloaded and offered were all rejected by the verifier:
+
+| Query | File it picked | Why it was wrong |
+|---|---|---|
+| `3D shape differences` | `human-ne-cells-exhibit-species-specific-differences-in-cell-shape.jpg` | a cell-biology micrograph |
+| `corner edges` | NASA `The Inner Rings` | a Saturn photo |
+| `understanding parts` | NASA `Snowman` | a Pluto photo |
+| `face corner` | Cleveland `First a pool of water, then a prostitute…` | an Odilon Redon painting |
+| `matter` | OpenMoji brain | an emoji, not the scene's idea |
+| `geometric shape transformation` | `Geometric enhancements.JPG` | a study figure about shape perception |
+
+Two causes, both in the pipeline rather than in that one job:
+
+1. the searches were descriptions of the *slide* (`3D cube transforming into box animation`, `step-by-step counting process`, `face corner`, `matter`), and because the model's own queries came first they consumed the two-per-scene budget, so the scene's concrete nouns (`cube`, `box`, `faces`) were never searched;
+2. the verifier judged file names and tags only, and a rejection was final — the tile fell straight back to its glyph even when a better file was already on disk.
+
+### 14. Artwork sources, searching and verification — fixed
+
+**More sources.** Two keyless providers were added to `asset.discovery.ts`, both tested live from this machine before wiring them in:
+
+- **Openverse** (`api.openverse.org`) — the broadest CC-licensed pool outside Wikimedia, filtered to `mature=false` and `cc0,by,by-sa`;
+- **Metropolitan Museum Open Access** (`collectionapi.metmuseum.org/public/collection/v1.1`) — CC0 only, for humanities scenes. The old `v1` search was retired upstream on 2026-10-01, so the code uses `v1.1`.
+
+Default provider order is now `openmoji,iconify,wikimedia,openverse,met,cleveland,nasa`. Iconify moved to second place because a diagram tile is better illustrated by an exact vector glyph than by a stock photo that shares one word with the scene.
+
+**Searches name things, not slides.** `compactQuery()` reduces a descriptive phrase to its content nouns (`3D cube transforming into box animation` → `cube box`), the scene's key terms come before the model's phrases, and a part word is anchored to the video's subject (`faces` → `cube faces`, `edges` → `cube edges`). Without the anchor, `edges` found a photo of stones at a bus station; with it, Wikimedia returns `Parallelohedron edges cube.png` and Rubik's-cube edge diagrams.
+
+**A separate model checks the picture.** `vision.service.ts` gained `audit()`: when `VISION_API_URL`/`VISION_MODEL` is configured, each accepted candidate's actual image is sent to that model with the element being illustrated (`label`, scene key terms, narration), and it answers `{match, reason}`. The verdict is cached like the text verdict and is *not* used on `ASSET_VERIFY=tags`. With no vision endpoint configured the existing local chat judge still runs, so behaviour is unchanged there — the audit is the upgrade, not a new requirement. A guard was added to the deterministic verifier as well: emoji sets are searched first, and `grinning face` was being attached to a geometry tile called `Face` on the shared word; facial-expression markers are now their own semantic field, so an emoji face is rejected in a geometry scene.
+
+**Rejected is not final.** `matchAssetImages()` returns the ranked candidates instead of one best file. `pickVerifiedMatch()` in `storyboard.visuals.ts` verifies them in order (up to `ASSET_MAX_CANDIDATES`, default 4) and keeps the first that passes; every rejection is written to `assets.json` as `candidate`/`reason`, plus `tried` for the alternatives. A tile only falls back to its glyph when nothing in the pool passes.
+
+**Verified offline** by replaying this job's real `storyboard.json` through the compiled services:
+
+- searches are now `cube, box, cube faces, cube edges, rubik cube, cube vertices, shape, …` instead of `3D cube transforming into box animation`, `face corner`, `matter`;
+- 13 files downloaded from the new source list, 9 tiles took real artwork (was 0), and every previously attached mistake is now rejected with a reason (emoji `grinning face`, stones at a bus station, a war memorial, a Comet-marked cube figure);
+- 23 tiles still fall back to their glyph because their labels are abstract parts (`Vertex`, `Sides`, `Lines`) or caption fragments and no candidate passed.
+
+**Not verified:** a re-render of the job (no `video.mp4` produced here — bundled Chrome is missing `libnspr4` and there is no `ffmpeg`), and the vision audits themselves, because no `VISION_API_URL` is configured in this environment; the replay ran the text verifier.
+
+**Remaining, separate issue:** several diagram labels are caption fragments (`scene-7` tiles `and`, `For example, imagine holding a cube`). That is `buildConceptItems()` wording, not artwork selection, and it is not changed here.
+
+---
+
 ## Verification
 
 Run on 2026-11-25:
 
 - `npm run build` — exit 0 (shared, backend, renderer, frontend).
-- `npm test` — backend 110/110 in 14 files; frontend 2/2; renderer `--passWithNoTests`.
-- New regression tests cover: Marathi duplicate title/bubble, Marathi long-caption split, scene-boundary snap, one-word sliver, empty diagrams, invalid icons, unbalanced equations, a planning brief containing an equation, end-card extension, Marathi label wording, and cross-language validation.
+- `npm test` — backend 124/124 in 15 files; frontend 2/2; renderer `--passWithNoTests`.
+- Artwork replay against `output/1c112276…/storyboard.json` (see issue 14): 9 tiles with real artwork, 0 wrong files accepted, all rejections recorded with a reason.
+- New regression tests cover: Marathi duplicate title/bubble, Marathi long-caption split, scene-boundary snap, one-word sliver, empty diagrams, invalid icons, unbalanced equations, a planning brief containing an equation, end-card extension, Marathi label wording, cross-language validation, query compaction and part-word anchoring, the vision verdict (accept/reject/cache/fallback), and trying the next candidate after a rejection.
 
 **Not verified:** real Marathi model output, TTS pronunciation, and the ffmpeg freeze threshold after the camera change. No headless Chrome or `edge-tts` is available here, and the reviewed jobs run on a remote server; only their HTTP outputs were accessible.
 

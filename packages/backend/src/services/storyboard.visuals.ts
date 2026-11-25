@@ -4,7 +4,8 @@ import type {
   SceneInstruction,
   StoryboardPlan,
 } from '@edumotion/shared';
-import { assetSource, matchAssetImage } from './asset.library.js';
+import { config } from '../config.js';
+import { assetSource, matchAssetImages, type MatchedAsset } from './asset.library.js';
 import { hasDevanagari, mappedTokens, marathiObjectType } from './text.language.js';
 import { assetJudge } from './asset.judge.js';
 import { pickUserAsset } from './user.asset.match.js';
@@ -120,8 +121,10 @@ export interface SceneAssetUse {
   source: 'downloaded' | 'library' | 'builtin' | 'user';
   /** Candidate that was considered, even when it was rejected. */
   candidate?: string;
-  /** Why a candidate was rejected, written to assets.json for the audit. */
+  /** Why that candidate was rejected, written to assets.json for the audit. */
   reason?: string;
+  /** Every other candidate tried before the tile fell back to a glyph. */
+  tried?: string[];
 }
 
 export type AssetPick = Omit<SceneAssetUse, 'sceneIndex'>;
@@ -443,6 +446,45 @@ function pickDistinctIcon(
 }
 
 /**
+ * The first candidate the verifier accepts, trying the ranked list in order.
+ *
+ * A top-scoring file can still be wrong for the scene (a museum painting titled
+ * after a word, a spacecraft called a cube), so a rejection moves on to the
+ * next-best artwork instead of abandoning the tile.
+ */
+export async function pickVerifiedMatch(
+  matches: MatchedAsset[],
+  context: { label: string; keyTerms: string[]; narration: string; sceneId?: string },
+  judge: { verify: typeof assetJudge.verify } = assetJudge,
+): Promise<{ match: MatchedAsset | null; rejections: Array<{ asset: string; reason: string }> }> {
+  const rejections: Array<{ asset: string; reason: string }> = [];
+  for (const candidate of matches) {
+    const verdict = await judge.verify(candidate, context);
+    if (verdict.accepted) return { match: candidate, rejections };
+    console.warn(`[Assets] Rejected ${candidate.id} for "${context.label}": ${verdict.reason}`);
+    rejections.push({ asset: candidate.id, reason: verdict.reason });
+  }
+  return { match: null, rejections };
+}
+
+/** Record a tile's artwork, including why every tried candidate was rejected. */
+function recordPick(
+  record: AssetRecorder | undefined,
+  tile: { icon: string; label: string },
+  match: MatchedAsset | null,
+  rejections: Array<{ asset: string; reason: string }> = [],
+): void {
+  const [first] = rejections;
+  record?.({
+    ...describePick(tile, match?.id ?? null),
+    ...(first ? { candidate: first.asset, reason: first.reason } : {}),
+    ...(rejections.length > 1
+      ? { tried: rejections.slice(1).map((item) => `${item.asset} (${item.reason})`) }
+      : {}),
+  });
+}
+
+/**
  * Give every tile the artwork from resources/ or assets/ that matches its icon
  * or its label. A tile without a match keeps its built-in SVG glyph, and one
  * file is never placed on two tiles of the same diagram.
@@ -457,33 +499,21 @@ async function attachImages<T extends { icon: string; label: string; image?: str
   const used = new Set<string>();
   for (const tile of tiles) {
     if (tile.image) continue;
-    const match = matchAssetImage({
-      icon: tile.icon,
+    const matches = matchAssetImages(
+      { icon: tile.icon, label: tile.label, narration, keyTerms, exclude: used },
+      config.assets.verify.maxCandidates,
+    );
+    const { match, rejections } = await pickVerifiedMatch(matches, {
       label: tile.label,
-      narration,
       keyTerms,
-      exclude: used,
+      narration,
+      ...(sceneId ? { sceneId } : {}),
     });
     if (match) {
-      const verdict = await assetJudge.verify(match, {
-        label: tile.label,
-        keyTerms,
-        narration,
-        ...(sceneId ? { sceneId } : {}),
-      });
-      if (!verdict.accepted) {
-        console.warn(`[Assets] Rejected ${match.id}: ${verdict.reason}`);
-        record?.({
-          ...describePick(tile, null),
-          candidate: match.id,
-          reason: verdict.reason,
-        });
-        continue;
-      }
       tile.image = match.dataUrl;
       used.add(match.id);
     }
-    record?.(describePick(tile, match?.id ?? null));
+    recordPick(record, tile, match, rejections);
   }
   return tiles;
 }
@@ -524,39 +554,25 @@ async function attachDiagramImages(
     }
 
     const label = typeof item.label === 'string' ? item.label : '';
-    const match = matchAssetImage({
-      icon: item.icon,
-      label,
-      narration,
+    const matches = matchAssetImages(
+      { icon: item.icon, label, narration, keyTerms, exclude: used },
+      config.assets.verify.maxCandidates,
+    );
+    const { match, rejections } = await pickVerifiedMatch(matches, {
+      label: label || item.icon,
       keyTerms,
-      exclude: used,
-    });
-    const verdict = match
-      ? await assetJudge.verify(match, {
-          label: label || item.icon,
-          keyTerms,
-          narration,
-          ...(sceneId ? { sceneId } : {}),
-        })
-      : null;
-    const accepted = verdict?.accepted ?? false;
-    if (match && verdict && !verdict.accepted) {
-      console.warn(
-        `[Assets] Rejected diagram image ${match.id} for "${String(item.label)}": ${verdict.reason}`,
-      );
-    }
-
-    record?.({
-      label: typeof item.label === 'string' && item.label ? item.label : item.icon,
-      icon: item.icon,
-      asset: accepted ? match?.id ?? null : null,
-      source: accepted && match ? assetSource(match.id) : 'builtin',
-      ...(match && verdict && !verdict.accepted
-        ? { candidate: match.id, reason: verdict.reason }
-        : {}),
+      narration,
+      ...(sceneId ? { sceneId } : {}),
     });
 
-    if (!match || !accepted) {
+    recordPick(
+      record,
+      { label: label || item.icon, icon: item.icon },
+      match,
+      rejections,
+    );
+
+    if (!match) {
       next.push(raw);
       continue;
     }
@@ -594,30 +610,23 @@ async function verifiedArtwork(options: {
   sceneId?: string;
 }): Promise<VerifiedArtwork | null> {
   const { label, icon, narration, keyTerms, used, record, fallback = 'book', sceneId } = options;
-  const match = matchAssetImage({
-    icon,
-    label,
-    narration,
-    keyTerms,
-    exclude: used,
-  });
-  if (!match) {
+  const matches = matchAssetImages(
+    { icon, label, narration, keyTerms, exclude: used },
+    config.assets.verify.maxCandidates,
+  );
+  if (matches.length === 0) {
     record?.({ label, icon, asset: null, source: 'builtin' });
     return null;
   }
 
-  const verdict = await assetJudge.verify(match, { label, keyTerms, narration, sceneId });
-  record?.({
+  const { match, rejections } = await pickVerifiedMatch(matches, {
     label,
-    icon,
-    asset: verdict.accepted ? match.id : null,
-    source: verdict.accepted ? assetSource(match.id) : 'builtin',
-    ...(verdict.accepted ? {} : { candidate: match.id, reason: verdict.reason }),
+    keyTerms,
+    narration,
+    ...(sceneId ? { sceneId } : {}),
   });
-  if (!verdict.accepted) {
-    console.warn(`[Assets] Rejected image ${match.id} for "${label}": ${verdict.reason}`);
-    return null;
-  }
+  recordPick(record, { label, icon }, match, rejections);
+  if (!match) return null;
 
   used.add(match.id);
   return {
@@ -1311,31 +1320,27 @@ export async function ensureSceneVisuals(
         continue;
       }
       const type = typeof child.props['type'] === 'string' ? child.props['type'] : fallback;
-      const match = matchAssetImage({
-        icon: type,
-        label: type,
-        narration: `${brief} ${narration}`,
-        keyTerms,
-      });
-      if (!match) {
+      const matches = matchAssetImages(
+        {
+          icon: type,
+          label: type,
+          narration: `${brief} ${narration}`,
+          keyTerms,
+        },
+        config.assets.verify.maxCandidates,
+      );
+      if (matches.length === 0) {
         enriched.push(child);
         continue;
       }
-      const verdict = await assetJudge.verify(match, {
+      const { match, rejections } = await pickVerifiedMatch(matches, {
         label: type,
         keyTerms,
         narration: `${brief} ${narration}`,
         sceneId: scene.id,
       });
-      record?.({
-        label: type,
-        icon: type,
-        asset: verdict.accepted ? match.id : null,
-        source: verdict.accepted ? assetSource(match.id) : 'builtin',
-        ...(verdict.accepted ? {} : { candidate: match.id, reason: verdict.reason }),
-      });
-      if (!verdict.accepted) {
-        console.warn(`[Assets] Rejected object image ${match.id}: ${verdict.reason}`);
+      recordPick(record, { label: type, icon: type }, match, rejections);
+      if (!match) {
         enriched.push(child);
         continue;
       }

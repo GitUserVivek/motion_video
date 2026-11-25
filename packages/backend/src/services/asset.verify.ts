@@ -102,6 +102,14 @@ const SEMANTIC_FIELDS: Record<string, readonly string[]> = {
     'river', 'mountain', 'climate', 'geography', 'region', 'atmosphere', 'earth',
     'weather', 'soil', 'landscape', 'terrain',
   ],
+  // A human face, not the flat surface of a solid. Emoji sets are searched
+  // first and their "grinning face" otherwise matches a geometry tile called
+  // "Face" on the shared word alone.
+  emotion: [
+    'grinning', 'smile', 'smiley', 'smiling', 'laughing', 'wink', 'winking',
+    'tongue', 'smirk', 'blushing', 'pensive', 'confounded', 'scowling',
+    'unamused', 'facepalm', 'kissing', 'expressionless', 'frowning', 'weary',
+  ],
 };
 
 function tokenize(text: string): string[] {

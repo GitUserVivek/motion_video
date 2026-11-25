@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { config, type AssetVerifyMode } from '../config.js';
 import { llmService, type LlmMessage } from './llm.service.js';
+import { isVisionConfigured, visionModelName, visionService } from './vision.service.js';
 import type { MatchedAsset } from './asset.library.js';
 import {
   isConfidentVerdict,
@@ -11,31 +12,41 @@ import {
 } from './asset.verify.js';
 
 /**
- * Optional semantic judge for artwork selection.
+ * Artwork verification in front of the built-in glyph fallback.
  *
- * The deterministic verifier is intentionally strict and cheap, but it cannot
- * tell a geometric "cube" from a spacecraft called "Mars Cube One" using words
- * alone when the shared word is the whole name. This judge asks the local model
- * only for the cases the rules mark ambiguous (or for every accepted candidate
- * when explicitly configured), and caches each verdict by a content hash so a
- * repeated topic never pays for the same call twice.
+ * Two checks can run, in this order:
+ *  1. a vision model (`VISION_API_URL`/`VISION_MODEL`) that looks at the image
+ *     itself and answers whether it shows what the scene needs — this is the
+ *     only check that catches a museum painting whose title happens to contain
+ *     "corner" when the scene needs a cube;
+ *  2. the local chat model, used when no vision endpoint is configured (or it
+ *     is unreachable) and the filename/tag rules find the match ambiguous.
+ *
+ * The deterministic verifier still runs first and its rejections are final
+ * (backdrop, no scene term, generic-only file, conflicting subject field): no
+ * model can talk the pipeline into attaching a satellite to a geometry lesson.
  *
  * Modes (`ASSET_VERIFY`):
- *  - `auto` (default): deterministic rules; LLM only for ambiguous accepts.
- *  - `llm`: ask the model for every accepted candidate; deterministic fallback.
- *  - `tags`: deterministic rules only; never loads the model.
+ *  - `auto` (default): deterministic rules, then a model for the accepted cases
+ *    the rules cannot settle by themselves.
+ *  - `llm`: ask a model about every accepted candidate; deterministic fallback.
+ *  - `tags`: deterministic rules only; never loads a model.
  *
- * Deterministic rejections (backdrop, no scene term, generic-only file,
- * conflicting subject field) are final in every mode: a model cannot talk the
- * pipeline into attaching a satellite to a geometry lesson.
+ * Verdicts are cached by a content hash that includes the judging model, so a
+ * repeated topic never pays for the same call twice.
  */
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const MAX_CACHE_ENTRIES = 2000;
 /** Stop paying for unusable replies once the model has clearly missed the format. */
 const MAX_UNUSABLE_REPLIES = 3;
 
-export type JudgeSource = 'tags' | 'llm' | 'cache';
+export type JudgeSource = 'tags' | 'llm' | 'vision' | 'cache';
+
+export type AssetAudit = (
+  dataUrl: string,
+  need: { label: string; keyTerms: string[]; narration?: string },
+) => Promise<{ match: boolean; reason: string } | null>;
 
 export interface JudgeVerdict extends AssetVerdict {
   source: JudgeSource;
@@ -62,6 +73,10 @@ export interface AssetJudgeOptions {
   modelAvailable?: () => boolean;
   /** Test seam; defaults to `llmService.chat`. */
   chat?: AssetJudgeChat;
+  /** Test seam; defaults to the configured vision model. */
+  audit?: AssetAudit;
+  /** Test seam; defaults to "a vision endpoint is configured and enabled". */
+  visionAvailable?: () => boolean;
 }
 
 interface CacheEntry {
@@ -161,6 +176,8 @@ export class AssetJudge {
   private readonly cachePath: string;
   private readonly modelAvailable: () => boolean;
   private readonly chat: AssetJudgeChat;
+  private readonly audit: AssetAudit;
+  private readonly visionAvailable: () => boolean;
   private cache: Record<string, CacheEntry> | null = null;
   private unusableReplies = 0;
   private judgeDisabled = false;
@@ -170,6 +187,9 @@ export class AssetJudge {
     this.cachePath = options.cachePath ?? config.assets.verify.cachePath;
     this.modelAvailable = options.modelAvailable ?? (() => llmService.isModelAvailable());
     this.chat = options.chat ?? ((messages, chatOptions) => llmService.chat(messages, chatOptions));
+    this.audit = options.audit ?? ((dataUrl, need) => visionService.audit(dataUrl, need));
+    this.visionAvailable = options.visionAvailable
+      ?? (() => config.assets.verify.vision && isVisionConfigured());
   }
 
   getMode(): AssetVerifyMode {
@@ -186,6 +206,11 @@ export class AssetJudge {
     // Deterministic rejections are final in every mode.
     if (!rule.accepted) return { ...rule, source: 'tags' };
     if (this.mode === 'tags') return { ...rule, source: 'tags' };
+
+    // The vision model looks at the picture, so it can judge every accepted
+    // candidate, including the ones whose file names look conclusive.
+    const watched = await this.auditImage(match, context, rule);
+    if (watched) return watched;
 
     const confident = isConfidentVerdict(rule, match, context.keyTerms);
     if (this.mode === 'auto' && confident) return { ...rule, source: 'tags' };
@@ -238,6 +263,41 @@ export class AssetJudge {
     this.unusableReplies = 0;
     this.write(key, judged);
     return { ...judged, source: 'llm' };
+  }
+
+  /**
+   * Vision verdict for one candidate, cached like the text judgement.
+   * Returns null when no vision model is configured or it cannot answer, so the
+   * caller falls through to the local model and the filename rules.
+   */
+  private async auditImage(
+    match: MatchedAsset,
+    context: AssetJudgeContext,
+    rule: AssetVerdict,
+  ): Promise<JudgeVerdict | null> {
+    if (!this.visionAvailable()) return null;
+
+    // A vision verdict and a text verdict are different judgements of the same
+    // pair, so the auditor's identity is part of the cache key.
+    const key = cacheKey({ ...match, id: `${match.id}#vision:${visionModelName()}` }, context);
+    const cached = this.read(key);
+    if (cached) return { ...cached.verdict, source: 'cache' };
+
+    const audit = await this.audit(match.dataUrl, {
+      label: context.label,
+      keyTerms: context.keyTerms,
+      ...(context.narration ? { narration: context.narration } : {}),
+    });
+    if (!audit) return null;
+
+    const verdict: AssetVerdict = {
+      accepted: audit.match,
+      reason: `${audit.match ? 'Vision accepted' : 'Vision rejected'}: ${audit.reason}`,
+      matchedTerms: rule.matchedTerms,
+      conflicts: rule.conflicts,
+    };
+    this.write(key, verdict);
+    return { ...verdict, source: 'vision' };
   }
 
   private read(key: string): CacheEntry | null {

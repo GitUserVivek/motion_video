@@ -236,22 +236,30 @@ function hasToken(tokens: Set<string>, token: string): boolean {
 }
 
 /**
- * Find the artwork that best describes one diagram tile.
+ * Ranked artwork for one diagram tile, best first.
  *
  * Scoring is deliberately strict — a tile only takes an image when the file is
  * named after the icon it replaces (3 points) or after a word in the tile's own
  * label (2 points). A shared word with the narration alone is not enough: an
  * unrelated `rocket.png` must never land on a photosynthesis diagram.
+ *
+ * The whole ranking is returned because a candidate can still be wrong for the
+ * scene (a museum painting named after a word, a spacecraft called a cube). The
+ * caller verifies each in order and keeps the first that passes, instead of
+ * losing the tile when the top-scoring file is unusable.
  */
-export function matchAssetImage(options: {
-  icon: string;
-  label: string;
-  narration?: string;
-  keyTerms?: string[];
-  exclude?: Set<string>;
-}): MatchedAsset | null {
+export function matchAssetImages(
+  options: {
+    icon: string;
+    label: string;
+    narration?: string;
+    keyTerms?: string[];
+    exclude?: Set<string>;
+  },
+  limit = 4,
+): MatchedAsset[] {
   const pool = assets();
-  if (pool.length === 0) return null;
+  if (pool.length === 0) return [];
 
   const iconTokens = new Set([options.icon, ...(ICON_TOKENS[options.icon] ?? [])]);
   const labelTokens = textTokens(options.label);
@@ -261,8 +269,7 @@ export function matchAssetImage(options: {
   );
   const exclude = options.exclude ?? new Set<string>();
 
-  let best: ImageAsset | null = null;
-  let bestScore = 0;
+  const ranked: Array<{ asset: ImageAsset; score: number; priority: number }> = [];
 
   for (const asset of pool) {
     if (exclude.has(asset.id)) continue;
@@ -292,15 +299,28 @@ export function matchAssetImage(options: {
     const minScore = asset.id.startsWith('auto/') ? 2 : 1;
     if (score < minScore) continue;
 
-    const priority = EXT_PRIORITY[asset.ext] ?? 9;
-    const bestPriority = best ? (EXT_PRIORITY[best.ext] ?? 9) : 9;
-    if (score > bestScore || (score === bestScore && priority < bestPriority)) {
-      best = asset;
-      bestScore = score;
-    }
+    ranked.push({ asset, score, priority: EXT_PRIORITY[asset.ext] ?? 9 });
   }
 
-  if (!best) return null;
-  const dataUrl = embed(best);
-  return dataUrl ? { id: best.id, dataUrl, tokens: best.tokens } : null;
+  ranked.sort((a, b) => b.score - a.score || a.priority - b.priority || a.asset.id.localeCompare(b.asset.id));
+
+  const matches: MatchedAsset[] = [];
+  for (const { asset } of ranked) {
+    if (matches.length >= Math.max(1, limit)) break;
+    const dataUrl = embed(asset);
+    if (!dataUrl) continue;
+    matches.push({ id: asset.id, dataUrl, tokens: asset.tokens });
+  }
+  return matches;
+}
+
+/** The single best artwork for one tile; see `matchAssetImages` for the ranking. */
+export function matchAssetImage(options: {
+  icon: string;
+  label: string;
+  narration?: string;
+  keyTerms?: string[];
+  exclude?: Set<string>;
+}): MatchedAsset | null {
+  return matchAssetImages(options, 1)[0] ?? null;
 }
