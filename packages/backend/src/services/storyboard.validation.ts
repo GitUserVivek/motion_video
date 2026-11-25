@@ -70,7 +70,9 @@ const CONCEPT_ALIASES: Record<string, string[]> = {
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9% ]+/g, ' ')
+    // Unicode letters keep Devanagari (and other non-Latin) captions comparable
+    // to the words the visuals put on screen.
+    .replace(/[^\p{L}\p{M}\p{N}%]+/gu, ' ')
     .split(/\s+/)
     .filter((word) => word.length > 2 && !STOPWORDS.has(word));
 }

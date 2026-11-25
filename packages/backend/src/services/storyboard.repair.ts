@@ -4,6 +4,8 @@ import type {
   SceneInstruction,
   StoryboardPlan,
 } from '@edumotion/shared';
+import { isBalancedChemicalEquation } from './math.check.js';
+import { fixMarathiWording } from './text.language.js';
 
 /**
  * Deterministic prop repair for model-authored storyboards.
@@ -16,6 +18,28 @@ import type {
  */
 
 type Props = Record<string, unknown>;
+
+/** Glyphs the renderer actually implements; an unknown id becomes a book. */
+const KNOWN_ICONS = new Set([
+  'book', 'apple', 'globe', 'atom', 'lightbulb', 'calculator', 'pencil', 'star',
+  'leaf', 'plant', 'sun', 'water', 'cloud', 'rocket', 'heart', 'cell', 'microscope',
+  'cube', 'pyramid', 'square', 'edge', 'vertex',
+]);
+
+function knownIcon(value: unknown): string {
+  return typeof value === 'string' && KNOWN_ICONS.has(value) ? value : 'book';
+}
+
+/** Fix label-level Marathi wording; captions are injected after this pass. */
+function localizeText(value: unknown, depth = 0): unknown {
+  if (depth > 5) return value;
+  if (typeof value === 'string') return fixMarathiWording(value);
+  if (Array.isArray(value)) return value.map((item) => localizeText(item, depth + 1));
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, localizeText(item, depth + 1)]),
+  );
+}
 
 function isRecord(value: unknown): value is Props {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -85,7 +109,12 @@ function repairProps(component: ComponentName, raw: Props): Props | null {
               if (typeof step === 'string') return { label: step.trim() };
               if (!isRecord(step)) return null;
               const label = str(step['label'] ?? step['text'] ?? step['title']);
-              return label ? { ...step, label } : null;
+              if (!label) return null;
+              const next: Props = { ...step, label };
+              if (typeof step['iconName'] === 'string' && !KNOWN_ICONS.has(step['iconName'])) {
+                delete next['iconName'];
+              }
+              return next;
             })
             .filter((step): step is Props => step !== null)
         : [];
@@ -105,6 +134,18 @@ function repairProps(component: ComponentName, raw: Props): Props | null {
       };
     }
 
+    case 'ConceptDiagram': {
+      const items = Array.isArray(raw['items'])
+        ? raw['items']
+            .filter((item): item is Props => (
+              isRecord(item) && str(item['label']).length > 0
+            ))
+            .map((item) => ({ ...item, icon: knownIcon(item['icon']) }))
+        : [];
+      if (items.length === 0) return null;
+      return { ...raw, items };
+    }
+
     case 'AnimatedDiagram': {
       const items = Array.isArray(raw['items'])
         ? raw['items']
@@ -115,7 +156,7 @@ function repairProps(component: ComponentName, raw: Props): Props | null {
               const position = isRecord(item['position']) ? item['position'] : {};
               return {
                 ...item,
-                icon: str(item['icon'], 'book') || 'book',
+                icon: knownIcon(item['icon']),
                 label,
                 position: {
                   x: num(position['x'], 0),
@@ -126,12 +167,15 @@ function repairProps(component: ComponentName, raw: Props): Props | null {
             .filter((item): item is Props => item !== null)
         : [];
       const equation = str(raw['equation'] ?? raw['formula']);
-      if (items.length === 0 && !equation) return null;
+      // A displayed formula is a factual claim. Drop one that mixes words with
+      // formulas or has unequal element counts instead of rendering it.
+      const equationIsSafe = !equation || isBalancedChemicalEquation(equation) !== false;
+      if (items.length === 0 && (!equation || !equationIsSafe)) return null;
 
       return {
         ...raw,
         items,
-        ...(equation ? { equation } : {}),
+        ...(equation && equationIsSafe ? { equation } : {}),
       };
     }
 
@@ -263,7 +307,7 @@ export function repairStoryboardProps(plan: StoryboardPlan): StoryboardRepairRep
         continue;
       }
       if (props !== child.props) repaired++;
-      children.push({ ...child, props });
+      children.push({ ...child, props: localizeText(props) as Props });
     }
 
     const rootProps = repairProps(scene.component, scene.props);
@@ -280,7 +324,7 @@ export function repairStoryboardProps(plan: StoryboardPlan): StoryboardRepairRep
       ...scene,
       ...(visualBrief ? { visualBrief } : {}),
       ...(keyTerms && keyTerms.length > 0 ? { keyTerms } : { keyTerms: undefined }),
-      ...(rootProps ? { props: rootProps } : {}),
+      ...(rootProps ? { props: localizeText(rootProps) as Props } : {}),
       children,
     };
   });

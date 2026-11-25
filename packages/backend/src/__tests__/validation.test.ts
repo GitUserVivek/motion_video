@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { StoryboardPlan } from '@edumotion/shared';
+import type { ContentAnalysis, StoryboardPlan, VideoConfig } from '@edumotion/shared';
 import { validateLayout } from '../services/layout.validation.js';
+import { validateVideo } from '../services/content.validation.js';
 import { validateSubtitles } from '../services/subtitle.validation.js';
 import { storyboardValidator } from '../services/storyboard.validation.js';
 
@@ -44,6 +45,59 @@ describe('validateLayout', () => {
       1920,
     );
     expect(issues).toEqual([]);
+  });
+});
+
+describe('cross-language validation', () => {
+  it('does not call a Marathi narration weakly related to an English analysis', () => {
+    const script = 'वनस्पती सूर्यप्रकाश, पाणी आणि कार्बन डायऑक्साइड वापरून ग्लूकोज तयार करतात.';
+    const analysis: ContentAnalysis = {
+      topic: 'photosynthesis in plants',
+      domain: 'biology',
+      subtopics: [],
+      audience: 'students',
+      learningObjectives: [],
+      keyTerms: [],
+      claims: [],
+      visualStyle: 'clean illustration',
+      exampleIdeas: [],
+      researchNeeded: false,
+      researchNotes: [],
+      sources: [],
+      confidence: 0.8,
+    };
+    const config: VideoConfig = {
+      duration: 40,
+      aspectRatio: '9:16',
+      language: 'mr',
+      voice: 'mr-IN-female-1',
+      animationTheme: 'educational',
+      subtitles: true,
+      backgroundMusic: false,
+      fps: 30,
+      width: 1080,
+      height: 1920,
+    };
+
+    const report = validateVideo({
+      storyboard: storyboard([
+        { component: 'AnimatedText', props: { text: 'प्रकाशसंश्लेषण', top: '10%' } },
+        {
+          component: 'ConceptDiagram',
+          props: { items: [{ icon: 'leaf', label: 'पान' }, { icon: 'sun', label: 'सूर्यप्रकाश' }] },
+        },
+        {
+          component: 'Subtitle',
+          props: { entries: [{ index: 0, startMs: 0, endMs: 3000, text: script }] },
+        },
+      ]),
+      script,
+      analysis,
+      config,
+      audioDurationMs: 3000,
+    });
+
+    expect(report.warnings.some((warning) => /weakly represented/.test(warning.message))).toBe(false);
   });
 });
 

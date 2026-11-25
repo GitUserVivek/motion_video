@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config.js';
+import { mappedTokens } from './text.language.js';
 
 /**
  * Artwork the local `resources/` (and `assets/`) folders ship with, indexed by
@@ -206,7 +207,12 @@ function embed(asset: ImageAsset): string | null {
 
 /** Token set of a piece of narration/label, used for weaker matches. */
 function textTokens(text: string): Set<string> {
-  return new Set(tokenize(text.replace(/[^A-Za-z0-9]+/g, ' ')));
+  // Marathi labels are mapped to the English asset vocabulary in addition to
+  // the literal tokens, so `पान` can match a leaf drawing instead of falling
+  // through to an arbitrary download.
+  const literal = tokenize(text.replace(/[^A-Za-z0-9]+/g, ' '));
+  const mapped = mappedTokens(text).filter((token) => /^[a-z0-9]+$/.test(token));
+  return new Set([...literal, ...mapped]);
 }
 
 function wordVariants(token: string): string[] {
@@ -280,11 +286,11 @@ export function matchAssetImage(options: {
       else if (hasToken(labelTokens, token)) score = Math.max(score, 2);
       else if (hasToken(narrationTokens, token) && token.length >= 4) score = Math.max(score, 1);
     }
-    // Allow a weak (narration-only) match as a fallback so a downloaded or
-    // hand-placed file that is named after a word the scene actually says is
-    // still used instead of the built-in glyph. A strong match (score >= 2)
-    // always wins because it is preferred first by the score comparison below.
-    if (score < 1) continue;
+    // A downloaded file must match the tile's icon or label (score 2), not just
+    // share a word with the scene's English visual brief. Narration-only
+    // matches are what put a CO₂ molecule on a leaf tile.
+    const minScore = asset.id.startsWith('auto/') ? 2 : 1;
+    if (score < minScore) continue;
 
     const priority = EXT_PRIORITY[asset.ext] ?? 9;
     const bestPriority = best ? (EXT_PRIORITY[best.ext] ?? 9) : 9;

@@ -52,6 +52,22 @@ function subtitle(...texts: string[]): SceneChild {
 const caption = 'Have you ever wondered how to figure out the surface area of a cube?';
 
 describe('editorial layout validation', () => {
+  it('detects a duplicate Marathi title and caption', () => {
+    const text = 'काय आहे जे तुम्ही खाल्लेले खाद्य नाही?';
+    const issues = validateLayout(
+      plan([
+        scene('scene-1', [
+          { component: 'AnimatedText', props: { text, top: '10%', fontSize: 58 } },
+          subtitle(text),
+        ]),
+      ]),
+      WIDTH,
+      HEIGHT,
+    );
+
+    expect(issues.some((issue) => issue.severity === 'blocking' && /repeats/.test(issue.message))).toBe(true);
+  });
+
   it('blocks a title, bubble and caption that say the same sentence', () => {
     const issues = validateLayout(
       plan([
@@ -230,6 +246,31 @@ describe('scene director text hierarchy', () => {
     expect(typeof title?.props['text']).toBe('string');
     expect(title?.props['text']).not.toMatch(/…$/);
     expect(directed.children?.some((child) => child.component === 'SpeechBubble')).toBe(false);
+  });
+
+  it('removes a duplicate Marathi speech bubble instead of failing the render', () => {
+    const text = 'काय आपण विचार करतायचे?';
+    const result = directStoryboard(
+      plan([
+        scene('scene-1', [
+          { component: 'AnimatedText', props: { text, top: '10%' } },
+          { component: 'SpeechBubble', props: { text, top: '12%' } },
+          { component: 'ImageScene', props: {} },
+          subtitle(text),
+        ], { purpose: 'hook' }),
+        scene('scene-2', [{ component: 'EndScreen', props: {} }], {
+          startFrame: 192,
+          endFrame: 384,
+          component: 'EndScreen',
+        }),
+      ]),
+      'प्रकाशसंश्लेषण कसे होते ते पाहूया.',
+      'mr-IN-female-1',
+      'mr',
+    );
+
+    const directed = result.storyboard.scenes[0];
+    expect(directed?.children?.some((child) => child.component === 'SpeechBubble')).toBe(false);
   });
 
   it('removes a title that repeats a later caption cue', () => {

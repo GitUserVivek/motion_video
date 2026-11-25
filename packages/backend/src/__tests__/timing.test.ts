@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { StoryboardPlan } from '@edumotion/shared';
-import { normalizeStoryboardTiming, validateTiming } from '../services/timing.service.js';
+import {
+  ensureEndScreenDuration,
+  normalizeStoryboardTiming,
+  validateTiming,
+} from '../services/timing.service.js';
 
 function plan(overrides: Partial<StoryboardPlan> = {}): StoryboardPlan {
   return {
@@ -43,6 +47,26 @@ function plan(overrides: Partial<StoryboardPlan> = {}): StoryboardPlan {
     ...overrides,
   };
 }
+
+describe('ensureEndScreenDuration', () => {
+  it('lengthens a very short closing card by borrowing from the previous scene', () => {
+    const short = plan();
+    const last = short.scenes[2];
+    const previous = short.scenes[1];
+    if (last) {
+      last.startFrame = 862;
+      last.children = [{ component: 'EndScreen', props: {} }];
+    }
+    if (previous) previous.endFrame = 862;
+
+    const { storyboard, extendedFrames } = ensureEndScreenDuration(short, 75);
+    const closing = storyboard.scenes.at(-1);
+    expect(extendedFrames).toBe(75 - 38);
+    expect(closing?.endFrame).toBe(900);
+    expect((closing?.endFrame ?? 0) - (closing?.startFrame ?? 0)).toBe(75);
+    expect(storyboard.scenes[1]?.endFrame).toBe(closing?.startFrame);
+  });
+});
 
 describe('normalizeStoryboardTiming', () => {
   it('keeps scene-relative values and computes the absolute frame', () => {

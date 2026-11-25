@@ -10,6 +10,7 @@ import { validateMath } from './math.check.js';
 import { validateLayout, type LayoutIssue } from './layout.validation.js';
 import { validateSubtitles, type SubtitleIssue } from './subtitle.validation.js';
 import { validateTiming } from './timing.service.js';
+import { hasDevanagari } from './text.language.js';
 
 export interface ValidationIssue {
   sceneId?: string;
@@ -38,7 +39,9 @@ function tokens(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/data:image\/[^\s]+/g, ' ')
-    .replace(/[^a-z0-9% ]+/g, ' ')
+    // Keep letters from every script: the old ASCII-only class made every
+    // Marathi word invisible to the cross-checks.
+    .replace(/[^\p{L}\p{M}\p{N}%]+/gu, ' ')
     .split(/\s+/)
     .filter((word) => word.length > 2 && !STOPWORDS.has(word));
 }
@@ -123,7 +126,12 @@ function validateContent(
   const topicTokens = new Set(tokens(`${analysis.topic} ${analysis.domain}`));
   const scriptTokens = new Set(tokens(script));
   const topicHits = [...topicTokens].filter((token) => scriptTokens.has(token)).length;
-  if (topicTokens.size > 0 && topicHits / topicTokens.size < 0.2) {
+  // The analysis is intentionally allowed to stay in English while the script
+  // is Marathi; comparing those token sets directly produced a false "topic not
+  // represented" warning on every Marathi job.
+  const crossLanguage = hasDevanagari(script)
+    && !hasDevanagari(`${analysis.topic} ${analysis.domain}`);
+  if (!crossLanguage && topicTokens.size > 0 && topicHits / topicTokens.size < 0.2) {
     issues.push({
       source: 'content',
       severity: 'warning',
@@ -248,6 +256,18 @@ export function validateVideo(input: {
   const structure = storyboardValidator.validate(storyboard, script);
   for (const message of structure.overallIssues) {
     issues.push({ source: 'structure', severity: 'warning', message });
+  }
+
+  const requestedMs = Number(config.duration) * 1000;
+  if (Number.isFinite(requestedMs) && requestedMs > 0 && audioDurationMs < requestedMs * 0.7) {
+    issues.push({
+      source: 'structure',
+      severity: 'warning',
+      message:
+        `The narration is ${(audioDurationMs / 1000).toFixed(1)}s, ` +
+        `well under the requested ${(requestedMs / 1000).toFixed(0)}s. ` +
+        'The video will be much shorter than selected.',
+    });
   }
 
   const blocking = issues.filter((issue) => issue.severity === 'blocking');

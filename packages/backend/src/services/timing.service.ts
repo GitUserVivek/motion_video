@@ -106,6 +106,44 @@ export function validateTiming(storyboard: StoryboardPlan): string[] {
   return issues;
 }
 
+/**
+ * The closing card needs enough time to be read. A short final scene (Job A's
+ * end card was 1.27 s) is usually an artefact of the audio ending mid-scene.
+ * Borrow frames from the previous scene without moving any later boundary.
+ */
+export function ensureEndScreenDuration(
+  storyboard: StoryboardPlan,
+  minFrames = 75,
+): { storyboard: StoryboardPlan; extendedFrames: number } {
+  const scenes = [...storyboard.scenes];
+  const last = scenes[scenes.length - 1];
+  const previous = scenes[scenes.length - 2];
+  if (!last || !previous) return { storyboard, extendedFrames: 0 };
+
+  const hasEndScreen = last.component === 'EndScreen'
+    || (last.children ?? []).some((child) => child.component === 'EndScreen');
+  if (!hasEndScreen) return { storyboard, extendedFrames: 0 };
+
+  const duration = last.endFrame - last.startFrame;
+  if (duration >= minFrames) return { storyboard, extendedFrames: 0 };
+
+  const minPreviousFrames = 60;
+  const newStart = Math.max(
+    previous.startFrame + minPreviousFrames,
+    last.endFrame - minFrames,
+  );
+  if (newStart >= last.startFrame) return { storyboard, extendedFrames: 0 };
+
+  const extended = last.startFrame - newStart;
+  previous.endFrame = newStart;
+  last.startFrame = newStart;
+
+  return {
+    storyboard: { ...storyboard, scenes },
+    extendedFrames: extended,
+  };
+}
+
 export function normalizeStoryboardTiming(storyboard: StoryboardPlan): {
   storyboard: StoryboardPlan;
   report: TimingReport;

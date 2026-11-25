@@ -175,7 +175,6 @@ export function AnimatedDiagram({
         >
           <CodePanel
             lines={[formula]}
-            title="THE SHAPE EQUATION"
             accent={accentAt(2)}
             showLineNumbers={false}
             fontSize={Math.max(26, Math.min(36, Math.round(panelWidth * 0.038)))}

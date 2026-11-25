@@ -7,6 +7,7 @@ import {
   type SceneChild,
   type StoryboardPlan,
 } from '@edumotion/shared';
+import { normalizeForComparison } from './text.language.js';
 
 /**
  * Pre-render editorial layout checks.
@@ -25,15 +26,27 @@ export interface LayoutIssue {
 
 const CONJUNCTION_START =
   /^(and|but|so|because|or|nor|yet|which|while|that|where|when|who|whom|whose)\b/i;
+const MARATHI_CONJUNCTION_START =
+  /^(?:आणि|व|पण|परंतु|म्हणून|कारण|तसेच|जे|जी|जेथे|तर)\s/u;
 const DANGLING_END =
   /(?:[,;:\-–—]|\b(?:and|but|so|because|which|while|that|by|in|at|to|of|the|a|an|with|for|from|as))$/i;
+const DANGLING_END_MR =
+  /(?:[,;:\-–—]|(?:आणि|व|पण|परंतु|म्हणून|कारण|म्हणजे|की|जे|जी|ते|त्या|हे|ही|या|असलेले|असलेला|असलेली|चा|ची|चे|ला|ली|ने|मध्ये))$/u;
+const TERMINAL_PUNCTUATION = /[.!?।॥]["')\]]?\s*$/u;
+
+/** Glyphs the renderer actually has; anything else silently becomes a book. */
+const KNOWN_ICONS = new Set([
+  'book', 'apple', 'globe', 'atom', 'lightbulb', 'calculator', 'pencil', 'star',
+  'leaf', 'plant', 'sun', 'water', 'cloud', 'rocket', 'heart', 'cell', 'microscope',
+  'cube', 'pyramid', 'square', 'edge', 'vertex',
+]);
 
 function numberValue(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function normalize(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9%]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return normalizeForComparison(text);
 }
 
 /** Same sentence, or a truncated prefix of it. */
@@ -223,10 +236,21 @@ function checkDiagram(sceneId: string, child: SceneChild): LayoutIssue[] {
   if (items.length === 0 && !equation) {
     issues.push({
       sceneId,
-      severity: 'warning',
+      severity: 'blocking',
       message: 'AnimatedDiagram has no items and no equation, so the panel renders empty.',
     });
     return issues;
+  }
+
+  for (const item of items) {
+    const icon = item['icon'];
+    if (typeof icon === 'string' && icon && !KNOWN_ICONS.has(icon)) {
+      issues.push({
+        sceneId,
+        severity: 'warning',
+        message: `Diagram icon "${icon}" is not rendered and falls back to a book.`,
+      });
+    }
   }
 
   const labels = items
@@ -281,6 +305,72 @@ function checkDiagram(sceneId: string, child: SceneChild): LayoutIssue[] {
   return issues;
 }
 
+function checkEmptyVisual(sceneId: string, child: SceneChild): LayoutIssue[] {
+  const issues: LayoutIssue[] = [];
+
+  if (child.component === 'SplitScreenComparison') {
+    const left = child.props['left'];
+    const right = child.props['right'];
+    const hasSide = (side: unknown): boolean =>
+      typeof side === 'object' && side !== null
+      && typeof (side as { content?: unknown }).content === 'string'
+      && (side as { content: string }).content.trim().length > 0;
+    if (!hasSide(left) || !hasSide(right)) {
+      issues.push({
+        sceneId,
+        severity: 'blocking',
+        message: 'SplitScreenComparison has an empty side, so it renders a blank panel.',
+      });
+    }
+  }
+
+  if (child.component === 'ConceptDiagram') {
+    const items = Array.isArray(child.props['items']) ? child.props['items'] : [];
+    if (items.length === 0) {
+      issues.push({
+        sceneId,
+        severity: 'blocking',
+        message: 'ConceptDiagram has no items.',
+      });
+    }
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const icon = (item as Record<string, unknown>)['icon'];
+      if (typeof icon === 'string' && icon && !KNOWN_ICONS.has(icon)) {
+        issues.push({
+          sceneId,
+          severity: 'warning',
+          message: `Diagram icon "${icon}" is not rendered and falls back to a book.`,
+        });
+      }
+    }
+  }
+
+  if (child.component === 'ProcessFlow') {
+    const steps = Array.isArray(child.props['steps']) ? child.props['steps'] : [];
+    if (steps.length === 0) {
+      issues.push({
+        sceneId,
+        severity: 'blocking',
+        message: 'ProcessFlow has no steps.',
+      });
+    }
+    for (const step of steps) {
+      if (!step || typeof step !== 'object') continue;
+      const icon = (step as Record<string, unknown>)['iconName'];
+      if (typeof icon === 'string' && icon && !KNOWN_ICONS.has(icon)) {
+        issues.push({
+          sceneId,
+          severity: 'warning',
+          message: `Process step icon "${icon}" is not rendered and falls back to a book.`,
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
 function checkTitle(sceneId: string, child: SceneChild): LayoutIssue[] {
   if (child.component !== 'AnimatedText') return [];
   const text = typeof child.props['text'] === 'string' ? child.props['text'].trim() : '';
@@ -293,7 +383,7 @@ function checkTitle(sceneId: string, child: SceneChild): LayoutIssue[] {
       message: `Title is truncated with an ellipsis: "${text.slice(0, 48)}"`,
     }];
   }
-  if (DANGLING_END.test(text)) {
+  if (DANGLING_END.test(text) || DANGLING_END_MR.test(text)) {
     return [{
       sceneId,
       severity: 'blocking',
@@ -311,11 +401,22 @@ function checkCaptionFragments(sceneId: string, children: SceneChild[]): LayoutI
 
   // Only the first visible cue of a scene can look like a continuation; later
   // cues inside the same sentence are normal.
-  if (CONJUNCTION_START.test(first.trim())) {
+  if (CONJUNCTION_START.test(first.trim()) || MARATHI_CONJUNCTION_START.test(first.trim())) {
     issues.push({
       sceneId,
       severity: 'warning',
       message: `Caption starts with a conjunction, so the scene boundary split a sentence: "${first.slice(0, 48)}"`,
+    });
+  }
+
+  // The last visible cue of a scene is what the viewer is left reading. If it
+  // has no terminal punctuation it was cut at the scene boundary mid-sentence.
+  const last = cues[cues.length - 1];
+  if (last && !TERMINAL_PUNCTUATION.test(last.trim())) {
+    issues.push({
+      sceneId,
+      severity: 'warning',
+      message: `Caption ends mid-sentence at the scene boundary: "${last.slice(-48)}"`,
     });
   }
   return issues;
@@ -410,6 +511,7 @@ export function validateLayout(
 
       issues.push(...checkTitle(scene.id, child));
       issues.push(...checkDiagram(scene.id, child));
+      issues.push(...checkEmptyVisual(scene.id, child));
 
       if (child.component === 'ProcessFlow') {
         const steps = Array.isArray(child.props['steps']) ? child.props['steps'] : [];

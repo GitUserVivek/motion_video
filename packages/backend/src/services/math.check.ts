@@ -115,6 +115,125 @@ export function evaluateExpression(expression: string): number | null {
   return new Parser(tokens).parse();
 }
 
+const CHEMICAL_ARROW = /(?:->|→|=>)/;
+const REACTION_CONDITIONS = /^(?:light|sunlight|chlorophyll|heat|energy|catalyst|electricity|hv)$/i;
+
+/** Element symbols, so `ATP`/`Pi` are not mistaken for a balanceable formula. */
+const ELEMENTS = new Set<string>(
+  'H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr ' +
+  'Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu ' +
+  'Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr ' +
+  'Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og'.split(' '),
+);
+
+/** A word such as `glucose` is not a formula; the equation cannot be trusted. */
+function containsWordTerm(side: string): boolean {
+  for (const raw of side.split('+')) {
+    let term = raw.trim().replace(/\s+/g, '');
+    if (!term || REACTION_CONDITIONS.test(term)) continue;
+    term = term.replace(/(?:\((?:aq|s|l|g)\))$/i, '');
+    const coefficient = term.match(/^(\d+(?:\.\d+)?)/)?.[1];
+    const formula = coefficient ? term.slice(coefficient.length) : term;
+    if (/[a-z]{2,}/.test(formula.replace(/[A-Z][a-z]?/g, ''))) return true;
+  }
+  return false;
+}
+
+/** Count each element in one side of a chemical equation. */
+function elementCounts(side: string): Map<string, number> | null {
+  const counts = new Map<string, number>();
+
+  const add = (element: string, amount: number): void => {
+    counts.set(element, (counts.get(element) ?? 0) + amount);
+  };
+
+  const parseGroup = (text: string, start: number): { at: number; parsed: Map<string, number> } | null => {
+    const parsed = new Map<string, number>();
+    let index = start;
+
+    while (index < text.length && text[index] !== ')') {
+      const char = text[index] as string;
+      if (char === '(') {
+        const nested = parseGroup(text, index + 1);
+        if (!nested) return null;
+        let multiplier = 1;
+        let cursor = nested.at;
+        if (text[cursor] === ')') cursor++;
+        const digits = text.slice(cursor).match(/^\d+/)?.[0];
+        if (digits) {
+          multiplier = Number(digits);
+          cursor += digits.length;
+        }
+        for (const [element, amount] of nested.parsed) {
+          parsed.set(element, (parsed.get(element) ?? 0) + amount * multiplier);
+        }
+        index = cursor;
+        continue;
+      }
+      if (!/[A-Z]/.test(char)) return null;
+
+      let element = char;
+      index++;
+      if (index < text.length && /[a-z]/.test(text[index] as string)) {
+        element += text[index];
+        index++;
+      }
+      if (!ELEMENTS.has(element)) return null;
+      const digits = text.slice(index).match(/^\d+/)?.[0];
+      const amount = digits ? Number(digits) : 1;
+      if (digits) index += digits.length;
+      parsed.set(element, (parsed.get(element) ?? 0) + amount);
+    }
+
+    return { at: index, parsed };
+  };
+
+  for (const raw of side.split('+')) {
+    let term = raw.trim().replace(/\s+/g, '');
+    if (!term) return null;
+    if (REACTION_CONDITIONS.test(term)) continue;
+    // State symbols are not part of the element count.
+    term = term.replace(/(?:\((?:aq|s|l|g)\))$/i, '');
+    const coefficient = term.match(/^(\d+(?:\.\d+)?)/)?.[1];
+    const coefficientValue = coefficient ? Number(coefficient) : 1;
+    const formula = coefficient ? term.slice(coefficient.length) : term;
+    if (!formula) return null;
+
+    // `glucose`, `sugar` and other words are not formulas; an equation that
+    // mixes them with symbols cannot be checked and should not be shown as fact.
+    if (/[a-z]{2,}/.test(formula.replace(/[A-Z][a-z]?/g, ''))) return null;
+
+    const parsed = parseGroup(formula, 0);
+    if (!parsed || parsed.at !== formula.length || parsed.parsed.size === 0) return null;
+    for (const [element, amount] of parsed.parsed) {
+      add(element, amount * coefficientValue);
+    }
+  }
+
+  return counts.size > 0 ? counts : null;
+}
+
+/**
+ * True when a chemical equation is balanced, false when it is demonstrably
+ * wrong, null when the string is not a chemical equation we can parse.
+ */
+export function isBalancedChemicalEquation(equation: string): boolean | null {
+  if (!CHEMICAL_ARROW.test(equation)) return null;
+  const sides = equation.split(CHEMICAL_ARROW);
+  if (sides.length !== 2) return false;
+  if (containsWordTerm(sides[0] ?? '') || containsWordTerm(sides[1] ?? '')) return false;
+  const left = elementCounts(sides[0] ?? '');
+  const right = elementCounts(sides[1] ?? '');
+  // Unparseable symbols (e.g. a captioned reaction notation) are not a proven
+  // error, so they are left to the math/equation checks instead of blocking.
+  if (!left || !right) return null;
+  if (left.size !== right.size) return false;
+  for (const [element, amount] of left) {
+    if (right.get(element) !== amount) return false;
+  }
+  return true;
+}
+
 export interface MathIssue {
   sceneId?: string;
   message: string;
@@ -127,6 +246,12 @@ export function validateMath(storyboard: StoryboardPlan): MathIssue[] {
   for (const scene of storyboard.scenes) {
     const texts = collectStrings(scene);
     for (const text of texts) {
+      if (isBalancedChemicalEquation(text) === false) {
+        issues.push({
+          sceneId: scene.id,
+          message: `Displayed chemical equation is not balanced: ${text}`,
+        });
+      }
       for (const match of text.matchAll(/([\d()+\-*/. ]+)=([\d().+\-* ]+)/g)) {
         const leftRaw = match[1]?.trim();
         const rightRaw = match[2]?.trim();

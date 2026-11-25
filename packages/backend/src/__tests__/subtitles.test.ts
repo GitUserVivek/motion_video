@@ -21,12 +21,11 @@ describe('subtitleService.alignToScenes', () => {
 
     expect(first).toHaveLength(0);
     expect(second).toHaveLength(1);
-    expect(third).toHaveLength(1);
     expect(second[0]?.startMs).toBe(1000);
     expect(second[0]?.endMs).toBe(2000);
-    expect(third[0]?.startMs).toBe(2000);
-    expect(second[0]?.text).not.toBe(third[0]?.text);
-    expect([...first, ...second, ...third].map((cue) => cue.text).join(' ')).toContain('one');
+    // The remaining one-word sliver at 2000 ms is dropped instead of flashing
+    // on screen for 100 ms.
+    expect(third).toHaveLength(0);
     const allText = [...first, ...second, ...third].map((cue) => cue.text).join(' ');
     expect(allText.match(/one/g)?.length ?? 0).toBe(1);
   });
@@ -70,6 +69,39 @@ describe('subtitleService.alignToScenes', () => {
     expect(normalized.every((cue, index) =>
       index === 0 || cue.startMs >= (normalized[index - 1]?.endMs ?? 0) - 1,
     )).toBe(true);
+  });
+
+  it('splits a long Marathi sentence into readable cues without dropping words', () => {
+    const sentence = 'प्रकाशसंश्लेषण हे पाणी, कार्बन डायऑक्साइड आणि सूर्यप्रकाश यांचा वापर करून वनस्पती आपले भोजन तयार करण्याची प्रक्रिया आहे.';
+    const cues = subtitleService.splitLongCues([
+      { index: 0, startMs: 0, endMs: 12_000, text: sentence },
+    ]);
+
+    expect(cues.length).toBeGreaterThan(1);
+    expect(cues.every((cue) => cue.text.split(/\s+/).length <= 7)).toBe(true);
+    expect(cues.every((cue) => cue.endMs > cue.startMs)).toBe(true);
+    expect(cues.map((cue) => cue.text).join(' ').replace(/\s+/g, ' ')).toBe(sentence);
+    for (const cue of cues.slice(0, -1)) {
+      expect(cue.text.trim()).not.toMatch(/(?:आणि|व|पण|म्हणून|कारण)$/u);
+    }
+  });
+
+  it('moves a scene boundary onto a nearby caption edge', () => {
+    const shifted = subtitleService.snapSceneBoundaries(
+      [
+        { id: 'scene-1', startFrame: 0, endFrame: 120, component: 'BackgroundScene', props: {} },
+        { id: 'scene-2', startFrame: 120, endFrame: 240, component: 'BackgroundScene', props: {} },
+      ],
+      [
+        { index: 0, startMs: 100, endMs: 5350, text: 'first cue' },
+        { index: 1, startMs: 5350, endMs: 9500, text: 'second cue' },
+      ],
+      30,
+    );
+
+    expect(shifted.shifted).toBe(1);
+    expect(shifted.scenes[0]?.endFrame).toBe(161);
+    expect(shifted.scenes[1]?.startFrame).toBe(161);
   });
 
   it('leaves a cue wholly inside one scene untouched', () => {

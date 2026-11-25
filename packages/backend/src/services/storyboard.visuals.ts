@@ -5,6 +5,7 @@ import type {
   StoryboardPlan,
 } from '@edumotion/shared';
 import { assetSource, matchAssetImage } from './asset.library.js';
+import { hasDevanagari, mappedTokens, marathiObjectType } from './text.language.js';
 import { assetJudge } from './asset.judge.js';
 import { pickUserAsset } from './user.asset.match.js';
 import type { UserAsset } from './user.asset.service.js';
@@ -292,13 +293,24 @@ function attachUserArtwork(child: SceneChild, context: UserImageContext): SceneC
 const MAX_CONCEPT_ITEMS = 5;
 
 /** Last-resort labels so a diagram never collapses to a single shape. */
-const CONCEPT_FILLERS: Array<[TopicObjectType, string]> = [
+const CONCEPT_FILLERS_EN: Array<[TopicObjectType, string]> = [
   ['lightbulb', 'key idea'],
   ['star', 'takeaway'],
   ['book', 'lesson'],
 ];
+const CONCEPT_FILLERS_MR: Array<[TopicObjectType, string]> = [
+  ['lightbulb', 'मुख्य कल्पना'],
+  ['star', 'महत्त्वाचा मुद्दा'],
+  ['book', 'धडा'],
+];
+
+function conceptFillers(text: string): Array<[TopicObjectType, string]> {
+  return hasDevanagari(text) ? CONCEPT_FILLERS_MR : CONCEPT_FILLERS_EN;
+}
 
 export function pickTopicObject(text: string, fallback: TopicObjectType = 'book'): TopicObjectType {
+  const marathi = marathiObjectType(text);
+  if (marathi) return marathi as TopicObjectType;
   for (const [type, pattern] of TOPIC_KEYWORDS) {
     if (pattern.test(text)) return type;
   }
@@ -314,7 +326,9 @@ const KNOWN_OBJECT_TYPES: TopicObjectType[] = [
 
 /** Only return an object type when the text actually names that object. */
 export function explicitObjectType(text: string): TopicObjectType | null {
-  const tokens = new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  const marathi = marathiObjectType(text);
+  if (marathi) return marathi as TopicObjectType;
+  const tokens = new Set(mappedTokens(text));
   return KNOWN_OBJECT_TYPES.find((type) => tokens.has(type)) ?? null;
 }
 
@@ -355,8 +369,8 @@ export function alignObjectChild(child: SceneChild, narration: string): SceneChi
 function splitSegments(text: string): string[] {
   return text
     .replace(/\s+/g, ' ')
-    .split(/(?<=[.!?;:])\s+|\s+(?:and|but|so|because|then|which|while)\s+/i)
-    .map((segment) => segment.replace(/^[\s,;:.]+|[\s,;:.]+$/g, '').trim())
+    .split(/(?<=[.!?;:।॥])\s+|\s+(?:and|but|so|because|then|which|while|आणि|व|पण|म्हणून|कारण|तसेच)\s+/iu)
+    .map((segment) => segment.replace(/^[\s,;:.।॥]+|[\s,;:.।॥]+$/g, '').trim())
     .filter((segment) => segment.length > 0);
 }
 
@@ -364,7 +378,7 @@ function splitSegments(text: string): string[] {
 function contentWords(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9%\- ]/g, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}%\- ]+/gu, ' ')
     .split(/\s+/)
     .filter((word) => word.length > 2 && !STOPWORDS.has(word) && !/^[\d%.,-]+$/.test(word));
 }
@@ -388,7 +402,7 @@ function bestTerms(segment: string, blocked: Set<string>, limit = 2): string[] {
     const first = words[i];
     const second = words[i + 1];
     if (!first || !second) continue;
-    if (new RegExp(`\\b${first}\\s+${second}\\b`).test(lower)) pairs.push(`${first} ${second}`);
+    if (lower.includes(`${first} ${second}`)) pairs.push(`${first} ${second}`);
   }
 
   const candidates = [...pairs, ...words]
@@ -968,7 +982,7 @@ export async function buildConceptItems(
     splitSegments(script).forEach(addSegment);
   }
   if (items.length < 2) {
-    for (const [icon, label] of CONCEPT_FILLERS) push(icon, label);
+    for (const [icon, label] of conceptFillers(narration)) push(icon, label);
   }
 
   if (items.length >= 2) {

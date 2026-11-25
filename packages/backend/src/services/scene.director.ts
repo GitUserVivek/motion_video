@@ -9,6 +9,7 @@ import {
   type StoryboardPlan,
 } from '@edumotion/shared';
 import { pickTopicObject } from './storyboard.visuals.js';
+import { normalizeForComparison } from './text.language.js';
 
 /**
  * Deterministic visual direction applied *after* the model produced a
@@ -132,6 +133,8 @@ const BAD_TITLE_START =
   /^(and|but|so|because|which|that|these|those|they|them|it|its|this|where|when|while|who|whom|whose|as|if|then|than)\b/i;
 const DANGLING_END =
   /(?:[,;:\-–—]|\b(?:and|but|so|because|which|while|that|by|in|at|to|of|the|a|an|with|for|from|as))$/i;
+const DANGLING_END_MR =
+  /(?:[,;:\-–—]|(?:आणि|व|पण|परंतु|म्हणून|कारण|म्हणजे|की|जे|जी|ते|त्या|हे|ही|या|असलेले|असलेला|असलेली|चा|ची|चे|ला|ली|ने|मध्ये))$/u;
 
 const DIRECTOR_STOPWORDS = new Set<string>([
   'the', 'a', 'an', 'and', 'or', 'but', 'so', 'because', 'if', 'then', 'than', 'that', 'this',
@@ -548,11 +551,7 @@ export interface DirectedStoryboard {
 
 /** Comparison key for "is this the same sentence?" checks. */
 function normalizeText(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9%]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeForComparison(text);
 }
 
 /**
@@ -636,7 +635,7 @@ function isUsableTitle(text: string): boolean {
   const clean = text.replace(/\s+/g, ' ').trim();
   if (!clean || clean.endsWith('…')) return false;
   if (clean.length > 90) return false;
-  if (/[,;:\-–—]$/.test(clean)) return false;
+  if (/[,;:\-–—]$/.test(clean) || DANGLING_END_MR.test(clean)) return false;
   const words = clean.split(/\s+/).filter(Boolean);
   return words.length >= 2 && words.length <= 12;
 }
@@ -647,7 +646,7 @@ function isGoodTitle(text: string): boolean {
   if (!clean || clean.endsWith('…')) return false;
   if (clean.length > 64) return false;
   if (BAD_TITLE_START.test(clean)) return false;
-  if (DANGLING_END.test(clean)) return false;
+  if (DANGLING_END.test(clean) || DANGLING_END_MR.test(clean)) return false;
   const words = clean.split(/\s+/).filter(Boolean);
   return words.length >= 2 && words.length <= 9;
 }

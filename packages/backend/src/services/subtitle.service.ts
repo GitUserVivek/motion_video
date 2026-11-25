@@ -1,11 +1,19 @@
 import fs from 'fs';
 import path from 'path';
-import type { SubtitleEntry } from '@edumotion/shared';
+import type { SceneInstruction, SubtitleEntry } from '@edumotion/shared';
 import { WORDS_PER_SECOND } from '@edumotion/shared';
 
 /** Longest caption phrase we are willing to put on screen. */
 const MAX_CUE_WORDS = 7;
-const MAX_CUE_CHARS = 48;
+// Devanagari words are visually dense; 48 characters cut a phrase before its
+// natural comma. 64 keeps the phrase without making the line unreadable.
+const MAX_CUE_CHARS = 64;
+
+/** Words that must not be the last thing on screen in a cue. */
+const CUE_CONNECTORS = new Set([
+  'and', 'but', 'or', 'so', 'because', 'which', 'that', 'while', 'with', 'of', 'to', 'in', 'on', 'for',
+  'आणि', 'व', 'पण', 'परंतु', 'किंवा', 'म्हणून', 'कारण', 'म्हणजे', 'की', 'जे', 'जी', 'ते', 'त्या',
+]);
 
 class SubtitleService {
   /**
@@ -46,6 +54,110 @@ class SubtitleService {
     }
 
     return entries;
+  }
+
+  /**
+   * Split long cues (including sentence-level cues from an engine that does not
+   * expose word boundaries) into readable phrases. A 19-word Marathi sentence
+   * used to sit on screen for 12 seconds; the viewer had no chance to read it.
+   *
+   * Timing is distributed by word count. Punctuation is preferred as a break,
+   * and a chunk never ends on a connector such as `आणि` or `and`.
+   */
+  splitLongCues(entries: SubtitleEntry[]): SubtitleEntry[] {
+    const split: SubtitleEntry[] = [];
+
+    for (const cue of entries) {
+      const text = cue.text.replace(/\s+/g, ' ').trim();
+      const words = text.split(/\s+/).filter(Boolean);
+      if (
+        words.length <= MAX_CUE_WORDS
+        && text.length <= MAX_CUE_CHARS
+      ) {
+        split.push(cue);
+        continue;
+      }
+
+      const chunks: string[] = [];
+      let current: string[] = [];
+      let currentChars = 0;
+
+      const flush = (): void => {
+        if (current.length > 0) chunks.push(current.join(' '));
+        current = [];
+        currentChars = 0;
+      };
+
+      for (const word of words) {
+        const nextChars = currentChars + (current.length > 0 ? 1 : 0) + word.length;
+        const last = current[current.length - 1] ?? '';
+        const lastBare = last.replace(/[,;:.!?।॥—–]+$/u, '').toLowerCase();
+        const mayBreak = current.length > 0 && !CUE_CONNECTORS.has(lastBare);
+
+        if (
+          mayBreak
+          && (current.length + 1 > MAX_CUE_WORDS || nextChars > MAX_CUE_CHARS)
+        ) {
+          flush();
+        }
+
+        current.push(word);
+        currentChars = current.length === 1 ? word.length : currentChars + 1 + word.length;
+
+        // A sentence end is always a boundary; a comma or semicolon is used
+        // once the chunk has enough words to stand alone.
+        const isSentenceEnd = /[.!?।॥]$/u.test(word);
+        if (isSentenceEnd && word !== words[words.length - 1]) {
+          flush();
+        } else if (current.length >= 3 && /[,;:—–]$/u.test(word)) {
+          flush();
+        }
+      }
+      flush();
+
+      // A one-word tail is a flash, not a caption. Fold it into the previous
+      // chunk (the merged chunk stays within the 9-word ceiling in practice).
+      if (chunks.length > 1 && (chunks[chunks.length - 1] ?? '').split(/\s+/).filter(Boolean).length === 1) {
+        const tail = chunks.pop()!;
+        chunks[chunks.length - 1] = `${chunks[chunks.length - 1]} ${tail}`.trim();
+      }
+
+      if (chunks.length <= 1) {
+        split.push({ ...cue, text });
+        continue;
+      }
+
+      const totalWords = words.length || 1;
+      const sourceWords = cue.words ? [...cue.words] : undefined;
+      let cursor = cue.startMs;
+      chunks.forEach((chunk, index) => {
+        const chunkWords = chunk.split(/\s+/).filter(Boolean).length;
+        const isLast = index === chunks.length - 1;
+        const endMs = isLast
+          ? cue.endMs
+          : Math.min(cue.endMs, cursor + Math.round(((cue.endMs - cue.startMs) * chunkWords) / totalWords));
+
+        let chunkTimings: NonNullable<SubtitleEntry['words']> | undefined;
+        if (sourceWords && sourceWords.length > 0) {
+          // Use the engine's own word timings when they exist; otherwise the
+          // proportional estimate above keeps the captions in step.
+          chunkTimings = sourceWords.slice(0, chunkWords).map((word) => ({ ...word }));
+          sourceWords.splice(0, chunkWords);
+        }
+
+        split.push({
+          ...cue,
+          index: split.length,
+          startMs: cursor,
+          endMs,
+          text: chunk,
+          ...(chunkTimings && chunkTimings.length > 0 ? { words: chunkTimings } : { words: undefined }),
+        });
+        cursor = endMs;
+      });
+    }
+
+    return split.map((cue, index) => ({ ...cue, index }));
   }
 
   /**
@@ -163,6 +275,57 @@ class SubtitleService {
   }
 
   /**
+   * Move scene boundaries onto nearby caption edges, so a scene does not start
+   * or end in the middle of a spoken phrase. This is what makes the caption
+   * chunks usable: the edit is only accepted when both neighbouring scenes keep
+   * a minimum duration.
+   */
+  snapSceneBoundaries(
+    scenes: SceneInstruction[],
+    cues: SubtitleEntry[],
+    fps: number,
+    maxShiftMs = 1500,
+    // A one-second scene is allowed here; the snap must be able to reach the
+    // last caption edge in a short closing scene.
+    minFrames = 30,
+  ): { scenes: SceneInstruction[]; shifted: number } {
+    if (scenes.length < 2 || cues.length === 0) return { scenes, shifted: 0 };
+    const maxShift = (maxShiftMs / 1000) * fps;
+    const edges = [...new Set(
+      cues.flatMap((cue) => [cue.startMs, cue.endMs])
+        .map((ms) => Math.round((ms / 1000) * fps)),
+    )].sort((a, b) => a - b);
+
+    const next = scenes.map((scene) => ({ ...scene }));
+    let shifted = 0;
+
+    for (let index = 0; index < next.length - 1; index++) {
+      const current = next[index];
+      const following = next[index + 1];
+      if (!current || !following) continue;
+
+      const boundary = current.endFrame;
+      const candidates = edges.filter((frame) =>
+        Math.abs(frame - boundary) <= maxShift
+        && frame - current.startFrame >= minFrames
+        && following.endFrame - frame >= minFrames,
+      );
+      if (candidates.length === 0) continue;
+
+      const chosen = candidates.reduce((best, frame) =>
+        Math.abs(frame - boundary) < Math.abs(best - boundary) ? frame : best,
+      );
+      if (chosen === boundary) continue;
+
+      current.endFrame = chosen;
+      following.startFrame = chosen;
+      shifted++;
+    }
+
+    return { scenes: next, shifted };
+  }
+
+  /**
    * Distribute subtitle entries across scenes proportionally.
    * Returns a map of sceneId -> SubtitleEntry[]
    */
@@ -226,6 +389,7 @@ class SubtitleService {
           endMs: Math.min(word.endMs, endMs),
         }))
         .filter((word) => word.endMs > word.startMs);
+      if (keptWords.length === 1 && words.length >= 5) return null;
       const text = keptWords.map((word) => word.text).join(' ');
       if (!text.trim()) return null;
       return {
@@ -259,6 +423,10 @@ class SubtitleService {
       return midpoint >= startMs && midpoint < endMs;
     });
 
+    // A one-word sliver is a flash, not a caption. When the rest of the cue is
+    // substantial, leave that word to the neighbouring scene instead of
+    // flashing it for a few frames.
+    if (kept.length === 1 && words.length >= 5) return '';
     return kept.join(' ');
   }
 

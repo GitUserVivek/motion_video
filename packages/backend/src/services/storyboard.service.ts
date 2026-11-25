@@ -6,7 +6,7 @@ import { ensureSceneVisuals, type SceneAssetUse } from './storyboard.visuals.js'
 import { directStoryboard } from './scene.director.js';
 import { splitOversizedScenes } from './scene.balance.js';
 import { repairStoryboardProps } from './storyboard.repair.js';
-import { normalizeStoryboardTiming } from './timing.service.js';
+import { ensureEndScreenDuration, normalizeStoryboardTiming } from './timing.service.js';
 import { parseLooseJson } from './json.repair.js';
 import {
   StoryboardPlanSchema,
@@ -399,7 +399,14 @@ class StoryboardService {
       }
 
       const repairedFinal = repairStoryboardProps(directed).storyboard;
-      const { storyboard: timed, report: timing } = normalizeStoryboardTiming(repairedFinal);
+      const ending = ensureEndScreenDuration(repairedFinal);
+      if (ending.extendedFrames > 0) {
+        logWarn(
+          'Storyboard',
+          `Job ${jobId}: extended the closing card by ${ending.extendedFrames} frame(s)`,
+        );
+      }
+      const { storyboard: timed, report: timing } = normalizeStoryboardTiming(ending.storyboard);
       writeJobJson(jobId, jobFiles.timingReport(jobId), timing);
       if (timing.repaired > 0) {
         logWarn(
@@ -451,8 +458,9 @@ class StoryboardService {
     const directedFallback = repairStoryboardProps(
       directStoryboard(fallback, script, config.voice, config.language).storyboard,
     ).storyboard;
+    const endingFallback = ensureEndScreenDuration(directedFallback);
     const { storyboard: timedFallback, report: fallbackTiming } =
-      normalizeStoryboardTiming(directedFallback);
+      normalizeStoryboardTiming(endingFallback.storyboard);
     writeJobJson(jobId, jobFiles.timingReport(jobId), fallbackTiming);
     if (fallbackTiming.repaired > 0) {
       logWarn('Storyboard', `Job ${jobId}: fallback repaired ${fallbackTiming.repaired} child frame(s)`);
@@ -687,9 +695,23 @@ class StoryboardService {
     storyboard: StoryboardPlan,
     subtitles: SubtitleEntry[],
   ): StoryboardPlan {
+    // Keep a scene from starting in the middle of a caption phrase. The snap is
+    // bounded so it cannot swallow a scene or move the closing card.
+    const snapped = subtitleService.snapSceneBoundaries(
+      storyboard.scenes,
+      subtitles,
+      storyboard.fps,
+    );
+    if (snapped.shifted > 0) {
+      logInfo(
+        'Subtitles',
+        `Job ${storyboard.jobId}: moved ${snapped.shifted} scene boundary(ies) to caption edges`,
+      );
+    }
+
     const sceneMap = subtitleService.alignToScenes(
       subtitles,
-      storyboard.scenes.map((s) => ({
+      snapped.scenes.map((s) => ({
         id: s.id,
         startFrame: s.startFrame,
         endFrame: s.endFrame,
@@ -697,7 +719,7 @@ class StoryboardService {
       })),
     );
 
-    const updatedScenes: SceneInstruction[] = storyboard.scenes.map((scene) => {
+    const updatedScenes: SceneInstruction[] = snapped.scenes.map((scene) => {
       const sceneSubtitles = sceneMap.get(scene.id) ?? [];
 
       // Find existing Subtitle child and update, or add new one

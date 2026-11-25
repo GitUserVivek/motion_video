@@ -123,9 +123,13 @@ async function processJob(job: JobRow): Promise<void> {
     // keeping the per-word timings for caption highlighting.
     ? subtitleService.groupWordCues(measuredSubtitles)
     : subtitleService.generateSubtitles(script, durationMs);
+  // Split sentence-level or very long cues into readable phrases before they
+  // are clipped to scenes. Without this a 19-word Marathi sentence stays on
+  // screen for 12 seconds, and a scene boundary can reduce it to one word.
+  const readableCues = subtitleService.splitLongCues(subtitleCues);
   // Some engines emit phrase cues whose timestamps overlap by a few frames.
   // Resolve that before writing SRT or injecting scene captions.
-  const subtitles = subtitleService.normalizeCueTimeline(subtitleCues);
+  const subtitles = subtitleService.normalizeCueTimeline(readableCues);
   logSuccess(
     'Subtitles',
     `Job ${job.id}: ${subtitles.length} cue(s) from ${subtitleSource} timings`,
@@ -453,14 +457,17 @@ async function processJob(job: JobRow): Promise<void> {
 
   if (!report.passed) {
     // A deterministic re-render would fail the same way, so this is terminal.
+    const reasons = report.failures.length > 0
+      ? report.failures
+      : report.editorial.blocking;
     updateJob(
       job.id,
       'failed',
       0,
       'quality_failed',
-      `Quality checks failed: ${report.failures.join(' | ')} (report: ${report.reportPath})`,
+      `Quality checks failed: ${reasons.join(' | ')} (report: ${report.reportPath})`,
     );
-    logError('Quality', `Job ${job.id} rejected: ${report.failures.join(' | ')}`);
+    logError('Quality', `Job ${job.id} rejected: ${reasons.join(' | ')}`);
     return;
   }
 

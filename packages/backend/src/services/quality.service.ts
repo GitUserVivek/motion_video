@@ -243,9 +243,20 @@ class QualityService {
           `${blackDurationSec.toFixed(1)}s of black frames (limit ${blackLimit.toFixed(1)}s)`,
         );
       }
-      if (frozenDurationSec > durationSec * 0.5) {
+      // Job B passed with 4.73 s frozen out of 14.93 s (32%); a third of a
+      // "video" being a still image is a failure, not a warning.
+      if (frozenDurationSec > durationSec * 0.3) {
+        failures.push(
+          `${frozenDurationSec.toFixed(1)}s of frozen picture is more than 30% of the video`,
+        );
+      } else if (frozenDurationSec > durationSec * 0.12) {
+        // A technically playable MP4 can still be a slideshow. Report this even
+        // when it is below the hard limit; the old 50% threshold stayed silent
+        // on a 15 s video with 4.7 s of frozen picture.
         warnings.push(
-          `${frozenDurationSec.toFixed(1)}s of frozen picture — consider adding motion`,
+          `${frozenDurationSec.toFixed(1)}s of frozen picture (${Math.round(
+            (frozenDurationSec / durationSec) * 100,
+          )}%) — add motion to the static scenes`,
         );
       }
     }
@@ -331,7 +342,8 @@ class QualityService {
       jobId: options.jobId,
       videoPath: options.videoPath,
       checkedAt: new Date().toISOString(),
-      passed: failures.length === 0,
+      // A technically valid MP4 with a knowingly broken scene is not a pass.
+      passed: failures.length === 0 && editorial.passed,
       durationSec,
       width,
       height,

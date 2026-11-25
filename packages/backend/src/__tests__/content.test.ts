@@ -3,7 +3,7 @@ import type { StoryboardPlan } from '@edumotion/shared';
 import { deriveContentAnalysis } from '../services/content.analysis.js';
 import { verifyClaims } from '../services/fact.check.js';
 import { verifyAssetMatch } from '../services/asset.verify.js';
-import { validateMath } from '../services/math.check.js';
+import { isBalancedChemicalEquation, validateMath } from '../services/math.check.js';
 
 describe('deriveContentAnalysis', () => {
   it('uses the narration and does not turn one incidental word into the topic', () => {
@@ -180,6 +180,39 @@ describe('verifyAssetMatch', () => {
     );
     expect(verdict.accepted).toBe(true);
     expect(verdict.conflicts).toEqual([]);
+  });
+});
+
+describe('chemical equations', () => {
+  it('accepts a balanced formula and rejects a word or unbalanced one', () => {
+    expect(isBalancedChemicalEquation('6CO2 + 6H2O -> C6H12O6 + 6O2')).toBe(true);
+    expect(isBalancedChemicalEquation('CO2 + H2O -> glucose + O2')).toBe(false);
+    expect(isBalancedChemicalEquation('CO2 -> CO')).toBe(false);
+    expect(isBalancedChemicalEquation('12 + 8 = 20')).toBeNull();
+  });
+
+  it('flags an unbalanced equation on screen', () => {
+    const storyboard: StoryboardPlan = {
+      jobId: 'job-1',
+      totalFrames: 100,
+      fps: 30,
+      audioDurationMs: 3000,
+      scenes: [{
+        id: 'scene-1',
+        startFrame: 0,
+        endFrame: 100,
+        component: 'BackgroundScene',
+        props: {},
+        children: [{
+          component: 'AnimatedDiagram',
+          props: { equation: 'CO2 + H2O -> glucose + O2' },
+        }],
+      }],
+    };
+
+    expect(validateMath(storyboard)).toEqual([
+      expect.objectContaining({ sceneId: 'scene-1', message: expect.stringContaining('not balanced') }),
+    ]);
   });
 });
 

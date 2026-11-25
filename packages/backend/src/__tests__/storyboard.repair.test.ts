@@ -56,7 +56,7 @@ describe('repairStoryboardProps', () => {
     const repaired = repairStoryboardProps(plan([
       scene('scene-1', 0, 120, [
         { component: 'ProcessFlow', props: { steps: ['sunlight enters', 'chlorophyll absorbs'] } },
-        { component: 'AnimatedDiagram', props: { equation: 'CO2 + H2O -> glucose + O2' } },
+        { component: 'AnimatedDiagram', props: { equation: '6CO2 + 6H2O -> C6H12O6 + 6O2' } },
       ]),
     ])).storyboard;
 
@@ -68,8 +68,41 @@ describe('repairStoryboardProps', () => {
       { label: 'chlorophyll absorbs' },
     ]);
     expect(flow?.props['direction']).toBe('horizontal');
-    expect(diagram?.props['equation']).toBe('CO2 + H2O -> glucose + O2');
+    expect(diagram?.props['equation']).toBe('6CO2 + 6H2O -> C6H12O6 + 6O2');
     expect(diagram?.props['items']).toEqual([]);
+  });
+
+  it('drops a word-formula or unbalanced chemical equation instead of showing it', () => {
+    const repaired = repairStoryboardProps(plan([
+      scene('scene-1', 0, 120, [
+        { component: 'AnimatedDiagram', props: { equation: 'CO2 + H2O -> glucose + O2' } },
+        { component: 'AnimatedDiagram', props: { equation: 'CO2 -> CO' } },
+      ]),
+    ])).storyboard;
+
+    const diagrams = (repaired.scenes[0]?.children ?? [])
+      .filter((child) => child.component === 'AnimatedDiagram');
+    expect(diagrams).toHaveLength(0);
+  });
+
+  it('fixes Marathi label wording and unknown icon ids', () => {
+    const repaired = repairStoryboardProps(plan([
+      scene('scene-1', 0, 120, [
+        {
+          component: 'AnimatedDiagram',
+          props: {
+            items: [
+              { icon: 'air', label: 'सूर्याचे प्रकाश शोषण' },
+              { icon: 'water', label: 'पाणी वाहतुकी' },
+            ],
+          },
+        },
+      ]),
+    ])).storyboard;
+
+    const items = repaired.scenes[0]?.children?.[0]?.props['items'] as Array<Record<string, unknown>>;
+    expect(items?.[0]).toEqual(expect.objectContaining({ icon: 'book', label: 'सूर्यप्रकाशाचे शोषण' }));
+    expect(items?.[1]).toEqual(expect.objectContaining({ icon: 'water', label: 'पाण्याची वाहतूक' }));
   });
 
   it('maps EndScreen text to its title', () => {
