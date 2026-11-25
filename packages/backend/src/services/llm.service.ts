@@ -130,35 +130,41 @@ class LlmService {
 
     this.initialized = true;
     console.log('[LLM] Model loaded and ready');
-  }
-
-  async chat(messages: LlmMessage[], options?: LlmChatOptions): Promise<string> {
+  }  async chat(messages: LlmMessage[], options?: LlmChatOptions): Promise<string> {
     const run = async (): Promise<string> => {
-      const reply = await this.runChat(messages, options);
-      if (!looksUndecodable(reply)) return reply;
+      const reject = (reply: string): void => {
+        console.warn(
+          `[LLM] Reply had no letters or digits (${reply.length} chars, ` +
+            `start ${JSON.stringify(reply.slice(0, 40))})`,
+        );
+      };
 
-      console.warn(
-        `[LLM] Reply had no letters or digits (${reply.length} chars, ` +
-          `start ${JSON.stringify(reply.slice(0, 40))})`,
-      );
+      const first = await this.runChat(messages, options);
+      if (!looksUndecodable(first)) return first;
+      reject(first);
 
-      // A GPU whose kernels do not match the card returns valid-looking tokens
-      // that decode to nothing. Reload on CPU and try the same prompt there.
+      // One greedy retry on the same backend first. A single degenerate stop —
+      // an immediate EOS, a sampler hiccup — looks exactly like a broken GPU
+      // from here, and reloading on CPU costs minutes of every later call, so
+      // the cheap explanation is ruled out before the expensive one.
+      const retry = await this.runChat(messages, { ...options, temperature: 0.05 });
+      if (!looksUndecodable(retry)) return retry;
+      reject(retry);
+
+      // A backend that fails twice is treated as broken: reload on CPU.
       if (this.llama?.gpu && !this.gpuDisabled) {
         await this.reloadOnCpu();
         const cpuReply = await this.runChat(messages, { ...options, temperature: 0.05 });
         if (!looksUndecodable(cpuReply)) return cpuReply;
         console.warn('[LLM] CPU reply was also undecodable');
-      } else {
-        const retry = await this.runChat(messages, { ...options, temperature: 0.05 });
-        if (!looksUndecodable(retry)) return retry;
       }
 
       throw new Error(
         'LLM produced undecodable text (no letters or digits in the reply). ' +
           'The model file is probably corrupt or its tokenizer does not match ' +
           'node-llama-cpp; delete it so the downloader fetches it again.',
-      );    };
+      );
+    };
 
     const chained = this.chatQueue.then(run, run);
     // Keep the chain alive whether the run succeeds or fails.
@@ -190,6 +196,12 @@ class LlmService {
     // Each chat takes one context sequence and must always give it back —
     // otherwise the second request fails with "No sequences left".
     const sequence = context.getSequence();
+    // The pool hands the sequence back with the previous chat's tokens still in
+    // its KV cache, and LlamaChatSession does not clear them: without this, the
+    // next prompt is evaluated on top of a finished conversation. The model then
+    // treats it as a continuation and stops at once, producing an empty reply
+    // that looks exactly like a broken GPU.
+    await sequence.clearHistory();
     const session = new LlamaChatSession({ contextSequence: sequence });
 
     try {

@@ -6,7 +6,9 @@ build/
 # .env.local
 output/
 temp/
-data/
+/data/
+# renderer source lives in packages/renderer/src/data — keep it tracked
+!packages/renderer/src/data/
 assets/sounds/
 *.db
 *.db-shm
@@ -17,3 +19,4 @@ Thumbs.db
 logs/
 *lock.json
 *.mp4
+*tar.gz
