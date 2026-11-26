@@ -210,7 +210,7 @@ Default provider order is now `openmoji,iconify,wikimedia,openverse,met,clevelan
 
 **Searches name things, not slides.** `compactQuery()` reduces a descriptive phrase to its content nouns (`3D cube transforming into box animation` → `cube box`), the scene's key terms come before the model's phrases, and a part word is anchored to the video's subject (`faces` → `cube faces`, `edges` → `cube edges`). Without the anchor, `edges` found a photo of stones at a bus station; with it, Wikimedia returns `Parallelohedron edges cube.png` and Rubik's-cube edge diagrams.
 
-**A separate model checks the picture.** `vision.service.ts` gained `audit()`: when `VISION_API_URL`/`VISION_MODEL` is configured, each accepted candidate's actual image is sent to that model with the element being illustrated (`label`, scene key terms, narration), and it answers `{match, reason}`. The verdict is cached like the text verdict and is *not* used on `ASSET_VERIFY=tags`. With no vision endpoint configured the existing local chat judge still runs, so behaviour is unchanged there — the audit is the upgrade, not a new requirement. A guard was added to the deterministic verifier as well: emoji sets are searched first, and `grinning face` was being attached to a geometry tile called `Face` on the shared word; facial-expression markers are now their own semantic field, so an emoji face is rejected in a geometry scene.
+**A separate model checks the picture.** `vision.service.ts` gained `audit()`: when `VISION_API_URL`/`VISION_MODEL` is configured, each accepted candidate's actual image is sent to that model with the element being illustrated (`label`, scene key terms, narration), and it answers `{match, reason}`. The verdict is cached and is *not* used on `ASSET_VERIFY=tags`. Since the follow-up change described in the next section, the vision endpoint is the only model that judges artwork; the script model is not asked about images at all. A captioning model that answers with a description instead of JSON is handled by `captionVerdict()`, which accepts the picture when the model itself named a needed concept and rejects it when none appear. A guard was added to the deterministic verifier as well: emoji sets are searched first, and `grinning face` was being attached to a geometry tile called `Face` on the shared word; facial-expression markers are now their own semantic field, so an emoji face is rejected in a geometry scene.
 
 **Rejected is not final.** `matchAssetImages()` returns the ranked candidates instead of one best file. `pickVerifiedMatch()` in `storyboard.visuals.ts` verifies them in order (up to `ASSET_MAX_CANDIDATES`, default 4) and keeps the first that passes; every rejection is written to `assets.json` as `candidate`/`reason`, plus `tried` for the alternatives. A tile only falls back to its glyph when nothing in the pool passes.
 
@@ -234,20 +234,49 @@ Cause: the tile labels are Marathi words (`बाजू`, `त्रिकोण
 
 **Fixed:** the Marathi→artwork vocabulary in `text.language.ts` now covers geometry (`त्रिकोण`→triangle, `कोन`→angle, `कर्ण`→hypotenuse, `पिथागोरस`→pythagorean/theorem, `बाजू`→side, plus square/rectangle/circle/cube), and the semantic-judge prompt shows that English meaning next to a non-Latin label. Replaying the same storyboard now attaches **3 real diagrams** (`right-angled-triangle`, `triangle-right-circumscribed`) instead of 0, with the rest still glyphs because their labels are caption fragments (`लाडू दीवाळी`, `त्याची खालच्या`), not concepts.
 
-**Also fixed:** the semantic judge asked for `num_predict: 120`; on the reasoning model in that environment it came back empty three times and logged `Semantic judge disabled for this run … using deterministic tags from here on` (visible in the GTA job earlier the same day), so *no* asset was model-checked at all. The judge now has 512 tokens, enough for the hidden reasoning plus the one-line JSON answer.
+**The model call that used to fail is out of the artwork path.** The old semantic judge asked the script model for a verdict with `num_predict: 120`; on the reasoning build in that environment it came back empty three times and logged `Semantic judge disabled for this run … using deterministic tags from here on` (visible in the GTA job earlier the same day). Artwork is now judged by the vision endpoint (see below), so the script model's empty replies can no longer switch artwork verification off.
 
 **Still open:** the deployed server is running pre-`165287c` code — the job's logged searches are un-compacted (`triangle with labeled hypotenuse`) and there is no `scene searches anchored on …` line, so the restart happened before the artwork work. Rebuild and restart before judging these fixes. Diagram labels for Marathi scenes remain caption fragments (`buildConceptItems`), so most tiles still have no concept for any picture to match.
 
 ---
 
+## Two models, two jobs: artwork now verified by a vision endpoint
+
+The install runs two models side by side, and they no longer share work:
+
+- `LLM_*` (default `qwen3-8b-instruct-q4` via node-llama-cpp) writes the script and slides, unchanged;
+- `VISION_API_URL` / `VISION_MODEL` looks at artwork. It is the only model that judges whether a downloaded image shows what a scene needs.
+
+`asset.judge.ts` no longer imports `llm.service.ts` at all: the chat judge, its prompt, its 512-token budget and its three-strike disable are removed. `ASSET_VERIFY` is now `auto` (default), `vision` or `tags`; the legacy value `llm` is accepted and mapped to `vision` with a warning. With no vision endpoint configured the pipeline accepts artwork on the file-name rules alone and warns once — it never falls back to the script model. Deterministic rejections (backdrop, no scene term, generic-only file, conflicting subject field) remain final in every mode.
+
+Non-Latin tile labels are glossed before they reach the vision prompt (`कोन (angle)`), so a Marathi label is not an opaque string to the model.
+
+**Verified here with a real vision model.** Local Ollama, `moondream` (1.8B, 1.7 GB), configured through `.env` (`VISION_API_URL=http://127.0.0.1:11434/v1`, `VISION_MODEL=moondream`, `VISION_TIMEOUT_MS=120000`). Two generated test pictures, judged by the compiled `AssetJudge` against a Marathi geometry context (`कोन`, `त्रिकोण`, hypotenuse narration):
+
+- a right-triangle diagram with an angle marker and sides `a, b, c` → `source=vision`, **accepted**: “Vision accepted: it shows triangle …” (29.7 s);
+- a graffiti mural on a brick wall, filed as `right-angle-marker-mural-wall-art.png` so the file name passes the rules → `source=vision`, **rejected**: “Vision rejected: it shows something else …” (26.3 s);
+- the same two calls repeated from the cache: 5 ms each, same verdicts, no model call.
+
+Moondream is a captioning model: it ignores the JSON request and describes the picture. `captionVerdict()` accepts when that description contains one of the scene's concepts and rejects when it contains none, and the verdict text quotes what the model saw, so the reason is auditable.
+
+**Cost:** 26–30 s per image on this CPU-only box (1.8B model, 3.7 GB RAM). A GPU or a hosted vision endpoint is seconds. Verdicts are cached per model, and `ASSET_MAX_CANDIDATES=4` means a rejected tile can cost up to four audits.
+
+**Not verified:** job `c38e520b` itself could not be re-run — the ngrok server returned HTTP 502 for every report file during this session, so its storyboard and downloaded images were unavailable. The verifier was proven on real photographs/diagrams, not on that job's files.
+
 ## Verification
+
+Run on 2026-11-26:
+
+- `npm run build -w packages/backend` — exit 0.
+- `npm test -w packages/backend` — 124/124 in 16 files.
+- Artwork verification through the compiled judge against local Ollama `moondream`: one accept, one reject, both re-run from cache (see above).
 
 Run on 2026-11-25:
 
 - `npm run build` — exit 0 (shared, backend, renderer, frontend).
 - `npm test` — backend 125/125 in 15 files; frontend 2/2; renderer `--passWithNoTests`.
 - Artwork replay against `output/1c112276…/storyboard.json` (see issue 14): 9 tiles with real artwork, 0 wrong files accepted, all rejections recorded with a reason.
-- New regression tests cover: Marathi duplicate title/bubble, Marathi long-caption split, scene-boundary snap, one-word sliver, empty diagrams, invalid icons, unbalanced equations, a planning brief containing an equation, end-card extension, Marathi label wording, cross-language validation, query compaction and part-word anchoring, the vision verdict (accept/reject/cache/fallback), and trying the next candidate after a rejection.
+- New regression tests cover: Marathi duplicate title/bubble, Marathi long-caption split, scene-boundary snap, one-word sliver, empty diagrams, invalid icons, unbalanced equations, a planning brief containing an equation, end-card extension, Marathi label wording, cross-language validation, query compaction and part-word anchoring, the vision verdict (accept/reject/cache/no-endpoint fallback/never overriding a deterministic rejection), the legacy `llm` mode mapping, caption-style model replies, and trying the next candidate after a rejection.
 
 **Not verified:** real Marathi model output, TTS pronunciation, and the ffmpeg freeze threshold after the camera change. No headless Chrome or `edge-tts` is available here, and the reviewed jobs run on a remote server; only their HTTP outputs were accessible.
 

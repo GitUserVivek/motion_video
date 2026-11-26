@@ -2,36 +2,33 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { config, type AssetVerifyMode } from '../config.js';
-import { llmService, type LlmMessage } from './llm.service.js';
 import { isVisionConfigured, visionModelName, visionService } from './vision.service.js';
 import { mappedTokens } from './text.language.js';
 import type { MatchedAsset } from './asset.library.js';
-import {
-  isConfidentVerdict,
-  verifyAssetMatch,
-  type AssetVerdict,
-} from './asset.verify.js';
+import { verifyAssetMatch, type AssetVerdict } from './asset.verify.js';
 
 /**
  * Artwork verification in front of the built-in glyph fallback.
  *
- * Two checks can run, in this order:
- *  1. a vision model (`VISION_API_URL`/`VISION_MODEL`) that looks at the image
- *     itself and answers whether it shows what the scene needs — this is the
- *     only check that catches a museum painting whose title happens to contain
- *     "corner" when the scene needs a cube;
- *  2. the local chat model, used when no vision endpoint is configured (or it
- *     is unreachable) and the filename/tag rules find the match ambiguous.
+ * The install runs two models with separate jobs:
+ *  - the main local model (`LLM_MODEL_NAME`) writes the script and slides;
+ *  - the vision model (`VISION_API_URL`/`VISION_MODEL`) looks at artwork.
+ *
+ * Artwork is only ever judged by the vision model, because a file name cannot
+ * tell you that a museum painting titled "…the corner of a…" is not a cube. The
+ * main script model is deliberately not asked: it never sees the image, and
+ * using it here made verification a slow filename lookup on the same model that
+ * is busy writing scripts.
  *
  * The deterministic verifier still runs first and its rejections are final
  * (backdrop, no scene term, generic-only file, conflicting subject field): no
  * model can talk the pipeline into attaching a satellite to a geometry lesson.
  *
  * Modes (`ASSET_VERIFY`):
- *  - `auto` (default): deterministic rules, then a model for the accepted cases
- *    the rules cannot settle by themselves.
- *  - `llm`: ask a model about every accepted candidate; deterministic fallback.
- *  - `tags`: deterministic rules only; never loads a model.
+ *  - `auto` (default): deterministic rules, then the vision model for every
+ *    accepted candidate; falls back to the rules when no endpoint is set.
+ *  - `vision`: same as `auto` (the legacy `llm` value also maps here).
+ *  - `tags`: deterministic rules only; never calls a model.
  *
  * Verdicts are cached by a content hash that includes the judging model, so a
  * repeated topic never pays for the same call twice.
@@ -39,10 +36,8 @@ import {
 
 const CACHE_VERSION = 2;
 const MAX_CACHE_ENTRIES = 2000;
-/** Stop paying for unusable replies once the model has clearly missed the format. */
-const MAX_UNUSABLE_REPLIES = 3;
 
-export type JudgeSource = 'tags' | 'llm' | 'vision' | 'cache';
+export type JudgeSource = 'tags' | 'vision' | 'cache';
 
 export type AssetAudit = (
   dataUrl: string,
@@ -62,18 +57,9 @@ export interface AssetJudgeContext {
   sceneId?: string;
 }
 
-export type AssetJudgeChat = (
-  messages: LlmMessage[],
-  options?: { temperature?: number; num_predict?: number },
-) => Promise<string>;
-
 export interface AssetJudgeOptions {
   mode?: AssetVerifyMode;
   cachePath?: string;
-  /** Test seam; defaults to `llmService.isModelAvailable()`. */
-  modelAvailable?: () => boolean;
-  /** Test seam; defaults to `llmService.chat`. */
-  chat?: AssetJudgeChat;
   /** Test seam; defaults to the configured vision model. */
   audit?: AssetAudit;
   /** Test seam; defaults to "a vision endpoint is configured and enabled". */
@@ -94,11 +80,26 @@ function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * A Marathi/Hindi tile label is what the picture has to illustrate, but the
+ * vision prompt about artwork is in English. Add the known English meaning so
+ * the model compares meanings instead of reading an opaque script.
+ */
+function glossLabel(label: string): string {
+  if (/[a-z0-9]/i.test(label)) return label;
+  const english = mappedTokens(label)
+    .filter((token) => /^[a-z0-9]+$/.test(token))
+    .slice(0, 6)
+    .join(', ');
+  return english ? `${label} (${english})` : label;
+}
+
 function cacheKey(match: MatchedAsset, context: AssetJudgeContext): string {
   const payload = JSON.stringify({
     v: CACHE_VERSION,
-    // A different model may judge differently, so its name is part of the key.
-    model: config.localLlm.modelName,
+    // A different vision model may judge the same picture differently, so its
+    // name is part of the key.
+    model: visionModelName(),
     scene: [...new Set(context.keyTerms.map(normalize))].filter(Boolean).sort(),
     label: normalize(context.label),
     candidate: match.id,
@@ -107,96 +108,17 @@ function cacheKey(match: MatchedAsset, context: AssetJudgeContext): string {
   return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
-function buildPrompt(match: MatchedAsset, context: AssetJudgeContext): LlmMessage[] {
-  const terms = [...new Set(context.keyTerms)].slice(0, 20).join(', ');
-  const tokens = [...new Set(match.tokens)].slice(0, 20).join(', ');
-  const narration = (context.narration ?? '').replace(/\s+/g, ' ').trim().slice(0, 240);
-  // A Marathi/Hindi tile label is what the picture has to illustrate, but the
-  // image names and this prompt are English. Show the known English meaning so
-  // the judge can compare meanings instead of seeing an unreadable label.
-  const gloss = /[a-z0-9]/i.test(context.label)
-    ? ''
-    : mappedTokens(context.label)
-      .filter((token) => /^[a-z0-9]+$/.test(token))
-      .join(', ');
-  const element = gloss ? `"${context.label}" (${gloss})` : `"${context.label}"`;
-
-  return [
-    {
-      role: 'system',
-      content:
-        'You verify artwork for an educational video. Decide whether an image ' +
-        'depicts the element being illustrated in the scene\'s meaning. ' +
-        'Reply with one JSON object and nothing else.',
-    },
-    {
-      role: 'user',
-      content: [
-        `Scene concept words: ${terms || '(none)'}`,
-        `Element being illustrated: ${element}`,
-        `Image name: "${match.id}"`,
-        `Image words: ${tokens || '(none)'}`,
-        ...(narration ? [`Scene narration: "${narration}"`] : []),
-        '',
-        'A shared word is not enough: a spacecraft called "Mars Cube One" is not',
-        'a geometric cube, and a workplace "hierarchy of control" chart is not a',
-        'geometric pyramid. If the image is about a different subject, reject it.',
-        '',
-        'Reply exactly: {"match": true|false, "reason": "max 20 words"}',
-      ].join('\n'),
-    },
-  ];
-}
-
-/** Extract the first strict JSON object; returns null on any malformed reply. */
-function parseJudgeReply(
-  raw: string,
-  rule: AssetVerdict,
-): AssetVerdict | null {
-  const object = /\{[\s\S]*?\}/.exec(raw);
-  if (!object) return null;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(object[0]);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object') return null;
-
-  const record = parsed as { match?: unknown; reason?: unknown };
-  if (typeof record.match !== 'boolean') return null;
-
-  const reason = typeof record.reason === 'string' && record.reason.trim()
-    ? record.reason.trim().slice(0, 160)
-    : record.match
-      ? 'the image depicts the element'
-      : 'the image is about something else';
-
-  return {
-    accepted: record.match,
-    reason: `${record.match ? 'LLM accepted' : 'LLM rejected'}: ${reason}`,
-    matchedTerms: rule.matchedTerms,
-    conflicts: rule.conflicts,
-  };
-}
-
 export class AssetJudge {
   private readonly mode: AssetVerifyMode;
   private readonly cachePath: string;
-  private readonly modelAvailable: () => boolean;
-  private readonly chat: AssetJudgeChat;
   private readonly audit: AssetAudit;
   private readonly visionAvailable: () => boolean;
   private cache: Record<string, CacheEntry> | null = null;
-  private unusableReplies = 0;
-  private judgeDisabled = false;
+  private warnedNoVision = false;
 
   constructor(options: AssetJudgeOptions = {}) {
     this.mode = options.mode ?? config.assets.verify.mode;
     this.cachePath = options.cachePath ?? config.assets.verify.cachePath;
-    this.modelAvailable = options.modelAvailable ?? (() => llmService.isModelAvailable());
-    this.chat = options.chat ?? ((messages, chatOptions) => llmService.chat(messages, chatOptions));
     this.audit = options.audit ?? ((dataUrl, need) => visionService.audit(dataUrl, need));
     this.visionAvailable = options.visionAvailable
       ?? (() => config.assets.verify.vision && isVisionConfigured());
@@ -217,92 +139,31 @@ export class AssetJudge {
     if (!rule.accepted) return { ...rule, source: 'tags' };
     if (this.mode === 'tags') return { ...rule, source: 'tags' };
 
-    // The vision model looks at the picture, so it can judge every accepted
-    // candidate, including the ones whose file names look conclusive.
-    const watched = await this.auditImage(match, context, rule);
-    if (watched) return watched;
-
-    const confident = isConfidentVerdict(rule, match, context.keyTerms);
-    if (this.mode === 'auto' && confident) return { ...rule, source: 'tags' };
+    if (!this.visionAvailable()) {
+      if (!this.warnedNoVision) {
+        console.warn(
+          '[Assets] No vision endpoint configured (VISION_API_URL/VISION_MODEL); ' +
+            'artwork is accepted on file-name rules only. The script model is never ' +
+            'used to verify artwork.',
+        );
+        this.warnedNoVision = true;
+      }
+      return { ...rule, source: 'tags' };
+    }
 
     const key = cacheKey(match, context);
     const cached = this.read(key);
     if (cached) return { ...cached.verdict, source: 'cache' };
 
-    if (this.judgeDisabled) return { ...rule, source: 'tags' };
-
-    if (!this.modelAvailable()) {
-      if (this.mode === 'llm') {
-        console.warn(
-          `[Assets] ASSET_VERIFY=llm but the local model is not available; ` +
-            `using deterministic tags for ${match.id}`,
-        );
-      }
-      return { ...rule, source: 'tags' };
-    }
-
-    let judged: AssetVerdict | null = null;
-    try {
-      const raw = await this.chat(buildPrompt(match, context), {
-        temperature: 0,
-        // A judge answer is one short JSON object, but the same model may be a
-        // reasoning build that needs room to think before it writes it. A tight
-        // budget made every reply empty ("spent the whole token budget on
-        // hidden reasoning") and switched verification off for the whole run.
-        num_predict: 512,
-      });
-      judged = parseJudgeReply(raw, rule);
-      if (!judged) {
-        console.warn(`[Assets] Semantic judge returned no usable JSON for ${match.id}`);
-      }
-    } catch (err) {
-      console.warn(
-        `[Assets] Semantic judge failed for ${match.id}: ` +
-          (err instanceof Error ? err.message : String(err)),
-      );
-    }
-
-    if (!judged) {
-      this.unusableReplies++;
-      if (this.unusableReplies >= MAX_UNUSABLE_REPLIES && !this.judgeDisabled) {
-        this.judgeDisabled = true;
-        console.warn(
-          `[Assets] Semantic judge disabled for this run after ${this.unusableReplies} ` +
-            'unusable replies; using deterministic tags from here on.',
-        );
-      }
-      return { ...rule, source: 'tags' };
-    }
-
-    this.unusableReplies = 0;
-    this.write(key, judged);
-    return { ...judged, source: 'llm' };
-  }
-
-  /**
-   * Vision verdict for one candidate, cached like the text judgement.
-   * Returns null when no vision model is configured or it cannot answer, so the
-   * caller falls through to the local model and the filename rules.
-   */
-  private async auditImage(
-    match: MatchedAsset,
-    context: AssetJudgeContext,
-    rule: AssetVerdict,
-  ): Promise<JudgeVerdict | null> {
-    if (!this.visionAvailable()) return null;
-
-    // A vision verdict and a text verdict are different judgements of the same
-    // pair, so the auditor's identity is part of the cache key.
-    const key = cacheKey({ ...match, id: `${match.id}#vision:${visionModelName()}` }, context);
-    const cached = this.read(key);
-    if (cached) return { ...cached.verdict, source: 'cache' };
-
     const audit = await this.audit(match.dataUrl, {
-      label: context.label,
+      label: glossLabel(context.label),
       keyTerms: context.keyTerms,
       ...(context.narration ? { narration: context.narration } : {}),
     });
-    if (!audit) return null;
+
+    // An unreachable or unusable endpoint must not cost the job its artwork, so
+    // the deterministic verdict stands rather than turning into a rejection.
+    if (!audit) return { ...rule, source: 'tags' };
 
     const verdict: AssetVerdict = {
       accepted: audit.match,

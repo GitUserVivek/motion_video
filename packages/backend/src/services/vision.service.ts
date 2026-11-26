@@ -155,20 +155,22 @@ export interface ImageAudit {
   reason: string;
 }
 
+function textOf(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => {
+      if (typeof part === 'string') return part;
+      if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
+        return (part as { text: string }).text;
+      }
+      return '';
+    })
+    .join(' ');
+}
+
 function parseAuditJson(content: unknown): ImageAudit | null {
-  const text = typeof content === 'string'
-    ? content
-    : Array.isArray(content)
-      ? content
-        .map((part) => {
-          if (typeof part === 'string') return part;
-          if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
-            return (part as { text: string }).text;
-          }
-          return '';
-        })
-        .join(' ')
-      : '';
+  const text = textOf(content);
 
   const match = /\{[\s\S]*\}/.exec(text);
   if (!match) return null;
@@ -185,6 +187,44 @@ function parseAuditJson(content: unknown): ImageAudit | null {
   } catch {
     return null;
   }
+}
+
+/** Cheap English stemming so "angle"/"angled"/"angles" compare equal. */
+function stem(word: string): string {
+  return word.length > 4 ? word.replace(/(?:ies|ing|ed|es|s)$/, '') : word;
+}
+
+function conceptWords(need: { label: string; keyTerms?: string[] }): Set<string> {
+  return new Set(
+    [...tokenize(need.label), ...(need.keyTerms ?? []).flatMap((term) => tokenize(term))]
+      .map(stem)
+      .filter((word) => word.length > 2),
+  );
+}
+
+/**
+ * Captioning models (moondream and friends) answer with a description instead
+ * of the requested JSON. The description is still evidence: the picture matches
+ * when the model itself named one of the concepts the scene needs, and it does
+ * not when none of them appear in what the model saw.
+ */
+export function captionVerdict(
+  content: unknown,
+  need: { label: string; keyTerms?: string[] },
+): ImageAudit | null {
+  const caption = textOf(content).replace(/\s+/g, ' ').trim();
+  if (!caption) return null;
+
+  const wanted = conceptWords(need);
+  if (wanted.size === 0) return null;
+
+  const seen = new Set(tokenize(caption).map(stem));
+  const hits = [...wanted].filter((word) => seen.has(word));
+  const evidence = caption.slice(0, 120);
+
+  return hits.length > 0
+    ? { match: true, reason: `it shows ${hits.slice(0, 3).join(', ')} (${evidence})` }
+    : { match: false, reason: `it shows something else (${evidence})` };
 }
 
 class VisionService {
@@ -322,7 +362,9 @@ class VisionService {
                     'geometric cube, a painting that merely mentions a corner is not a',
                     'geometry diagram, and a decorative picture with no clear subject of',
                     'the concept is not usable.',
-                    'Return only JSON: {"match": true|false, "reason": "max 20 words"}',
+                    'Return only JSON: {"match": true|false, "reason": "max 20 words"}.',
+                    'If you cannot answer in JSON, describe what the picture shows in one',
+                    'sentence instead.',
                   ].filter(Boolean).join('\n'),
                 },
                 { type: 'image_url', image_url: { url: dataUrl } },
@@ -337,8 +379,9 @@ class VisionService {
       const payload = (await response.json()) as {
         choices?: Array<{ message?: { content?: unknown } }>;
       };
-      const audit = parseAuditJson(payload.choices?.[0]?.message?.content);
-      if (!audit) throw new Error('reply was not JSON');
+      const content = payload.choices?.[0]?.message?.content;
+      const audit = parseAuditJson(content) ?? captionVerdict(content, need);
+      if (!audit) throw new Error('the reply was empty');
 
       this.auditFailures = 0;
       return audit;

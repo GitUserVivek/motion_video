@@ -41,20 +41,30 @@ function parseRenderGl(raw: string | undefined): RenderGl | null {
   return match;
 }
 
-export type AssetVerifyMode = 'auto' | 'llm' | 'tags';
+export type AssetVerifyMode = 'auto' | 'vision' | 'tags';
 
 /**
- * ASSET_VERIFY controls the semantic asset judge:
- *  - auto: deterministic verification, LLM only for ambiguous one-word matches;
- *  - llm: always ask the local model, with the deterministic result as fallback;
- *  - tags: deterministic rules only (no model load).
+ * ASSET_VERIFY controls artwork verification:
+ *  - auto: deterministic rules, then the vision model for every accepted image;
+ *  - vision: same as auto (the vision endpoint is the only model judge);
+ *  - tags: deterministic rules only (no model call at all).
+ *
+ * The main script model is never used here: it writes scripts, it does not look
+ * at pictures. The legacy value `llm` is accepted and means `vision`.
  */
 export function parseAssetVerifyMode(raw: string | undefined): AssetVerifyMode {
   const value = (raw ?? '').trim().toLowerCase();
   if (!value) return 'auto';
-  if (value === 'auto' || value === 'llm' || value === 'tags') return value;
+  if (value === 'auto' || value === 'vision' || value === 'tags') return value;
+  if (value === 'llm') {
+    console.warn(
+      '[Config] ASSET_VERIFY=llm now uses the vision model; artwork is no longer ' +
+        'verified with the script model.',
+    );
+    return 'vision';
+  }
   console.warn(
-    `[Config] Ignoring ASSET_VERIFY="${raw}": expected auto, llm or tags`,
+    `[Config] Ignoring ASSET_VERIFY="${raw}": expected auto, vision or tags`,
   );
   return 'auto';
 }

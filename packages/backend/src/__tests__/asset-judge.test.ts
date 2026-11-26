@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAssetVerifyMode } from '../config.js';
-import { AssetJudge, type AssetJudgeChat } from '../services/asset.judge.js';
+import { AssetJudge, type AssetAudit } from '../services/asset.judge.js';
 import type { MatchedAsset } from '../services/asset.library.js';
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'edumotion-judge-'));
@@ -33,158 +33,61 @@ const context = {
 };
 
 function judgeWith(
-  mode: 'auto' | 'llm' | 'tags',
-  chat: AssetJudgeChat,
+  mode: 'auto' | 'vision' | 'tags',
+  audit: AssetAudit,
   file: string,
-  modelAvailable = true,
+  visionAvailable = true,
 ): AssetJudge {
   return new AssetJudge({
     mode,
     cachePath: cachePath(file),
-    modelAvailable: () => modelAvailable,
-    chat,
+    audit,
+    visionAvailable: () => visionAvailable,
   });
 }
 
 describe('parseAssetVerifyMode', () => {
-  it('accepts the three modes and defaults everything else to auto', () => {
+  it('accepts the modes, maps the legacy llm value to vision and defaults to auto', () => {
     expect(parseAssetVerifyMode(undefined)).toBe('auto');
     expect(parseAssetVerifyMode('')).toBe('auto');
     expect(parseAssetVerifyMode('tags')).toBe('tags');
-    expect(parseAssetVerifyMode('LLM')).toBe('llm');
+    expect(parseAssetVerifyMode('vision')).toBe('vision');
     expect(parseAssetVerifyMode('auto')).toBe('auto');
+    // Artwork is no longer judged by the script model.
+    expect(parseAssetVerifyMode('LLM')).toBe('vision');
     expect(parseAssetVerifyMode('something-else')).toBe('auto');
   });
 });
 
 describe('AssetJudge', () => {
-  it('tags mode is deterministic and never calls the model', async () => {
-    const chat = vi.fn<AssetJudgeChat>();
-    const verdict = await judgeWith('tags', chat, 'tags').verify(ambiguous, context);
+  it('tags mode is deterministic and never calls the vision model', async () => {
+    const audit = vi.fn<AssetAudit>();
+    const verdict = await judgeWith('tags', audit, 'tags').verify(ambiguous, context);
 
     expect(verdict.accepted).toBe(true);
     expect(verdict.source).toBe('tags');
-    expect(chat).not.toHaveBeenCalled();
-  });
-
-  it('auto mode skips the model for a confident verdict', async () => {
-    const chat = vi.fn<AssetJudgeChat>();
-    const verdict = await judgeWith('auto', chat, 'confident').verify(plain, {
-      keyTerms: ['cube', 'shape', 'face'],
-      label: 'Cube',
-    });
-
-    expect(verdict.accepted).toBe(true);
-    expect(verdict.source).toBe('tags');
-    expect(chat).not.toHaveBeenCalled();
-  });
-
-  it('auto mode asks the model for an ambiguous one-word match and can reject it', async () => {
-    const chat = vi.fn<AssetJudgeChat>().mockResolvedValue(
-      '{"match": false, "reason": "an anatomy chart, not the pump described"}',
-    );
-    const verdict = await judgeWith('auto', chat, 'ambiguous').verify(ambiguous, context);
-
-    expect(chat).toHaveBeenCalledTimes(1);
-    expect(verdict.accepted).toBe(false);
-    expect(verdict.source).toBe('llm');
-    expect(verdict.reason).toMatch(/LLM rejected: an anatomy chart/);
-  });
-
-  it('caches a judgement by content hash so a repeat costs no model call', async () => {
-    const firstChat = vi.fn<AssetJudgeChat>().mockResolvedValue(
-      '{"match": true, "reason": "a labelled heart diagram"}',
-    );
-    const first = await judgeWith('auto', firstChat, 'cached').verify(ambiguous, context);
-    expect(first.source).toBe('llm');
-    expect(first.accepted).toBe(true);
-
-    const secondChat = vi.fn<AssetJudgeChat>();
-    const second = await judgeWith('auto', secondChat, 'cached').verify(ambiguous, context);
-
-    expect(secondChat).not.toHaveBeenCalled();
-    expect(second.source).toBe('cache');
-    expect(second.accepted).toBe(true);
-  });
-
-  it('never lets the model overturn a deterministic subject-field rejection', async () => {
-    const chat = vi.fn<AssetJudgeChat>();
-    const verdict = await judgeWith('llm', chat, 'conflict').verify(spacecraft, {
-      keyTerms: ['cube', 'shape', 'face'],
-      label: 'Cube',
-    });
-
-    expect(chat).not.toHaveBeenCalled();
-    expect(verdict.accepted).toBe(false);
-    expect(verdict.source).toBe('tags');
-    expect(verdict.conflicts).toContain('space');
-  });
-
-  it('llm mode falls back to deterministic tags when no model is available', async () => {
-    const chat = vi.fn<AssetJudgeChat>();
-    const verdict = await judgeWith('llm', chat, 'no-model', false).verify(ambiguous, context);
-
-    expect(chat).not.toHaveBeenCalled();
-    expect(verdict.source).toBe('tags');
-    expect(verdict.accepted).toBe(true);
-  });
-
-  it('stops consulting the model after repeated unusable replies', async () => {
-    const chat = vi.fn(async () => 'I think this image is fine.');
-    const judge = judgeWith('auto', chat, 'breaker');
-    const ids = ['1111', '2222', '3333', '4444'].map((suffix) => asset(
-      `auto/heart-pumping-photograph-${suffix}.png`,
-      ['heart', 'pumping', 'photograph'],
-    ));
-
-    for (const candidate of ids.slice(0, 3)) {
-      await judge.verify(candidate, context);
-    }
-    const afterThreshold = await judge.verify(ids[3]!, context);
-
-    expect(chat).toHaveBeenCalledTimes(3);
-    expect(afterThreshold.source).toBe('tags');
-    expect(afterThreshold.accepted).toBe(true);
+    expect(audit).not.toHaveBeenCalled();
   });
 
   it('asks the vision model to look at the picture, even for a confident file name', async () => {
-    const chat = vi.fn<AssetJudgeChat>();
-    const audit = vi.fn(async () => ({ match: true, reason: 'a real cube with visible faces' }));
-    const judge = new AssetJudge({
-      mode: 'auto',
-      cachePath: cachePath('vision-accept'),
-      modelAvailable: () => true,
-      chat,
-      audit,
-      visionAvailable: () => true,
-    });
-
-    const verdict = await judge.verify(plain, {
+    const audit = vi.fn<AssetAudit>(async () => ({ match: true, reason: 'a real cube with visible faces' }));
+    const verdict = await judgeWith('auto', audit, 'vision-accept').verify(plain, {
       keyTerms: ['cube', 'shape', 'face'],
       label: 'Cube',
     });
 
     expect(audit).toHaveBeenCalledTimes(1);
-    expect(chat).not.toHaveBeenCalled();
     expect(verdict.accepted).toBe(true);
     expect(verdict.source).toBe('vision');
-    expect(verdict.reason).toMatch(/Vision accepted/);
+    expect(verdict.reason).toMatch(/Vision accepted: a real cube/);
   });
 
   it('lets the vision model reject a file whose name matches but whose picture does not', async () => {
-    const audit = vi.fn(async () => ({
+    const audit = vi.fn<AssetAudit>(async () => ({
       match: false,
       reason: 'a museum painting, no cube in the picture',
     }));
-    const judge = new AssetJudge({
-      mode: 'auto',
-      cachePath: cachePath('vision-reject'),
-      chat: vi.fn<AssetJudgeChat>(),
-      audit,
-      visionAvailable: () => true,
-    });
-
-    const verdict = await judge.verify(plain, {
+    const verdict = await judgeWith('auto', audit, 'vision-reject').verify(plain, {
       keyTerms: ['cube', 'shape', 'face'],
       label: 'Cube',
     });
@@ -194,78 +97,57 @@ describe('AssetJudge', () => {
     expect(verdict.reason).toMatch(/Vision rejected: a museum painting/);
   });
 
-  it('falls back to the text judge when the vision model cannot answer', async () => {
-    const chat = vi.fn<AssetJudgeChat>().mockResolvedValue('{"match": true, "reason": "a cube"}');
-    const judge = new AssetJudge({
-      mode: 'llm',
-      cachePath: cachePath('vision-unavailable'),
-      modelAvailable: () => true,
-      chat,
-      audit: vi.fn(async () => null),
-      visionAvailable: () => true,
-    });
+  it('rejects artwork on the file-name rules alone when no vision endpoint is set', async () => {
+    const audit = vi.fn<AssetAudit>();
+    const verdict = await judgeWith('auto', audit, 'no-vision', false).verify(ambiguous, context);
 
-    const verdict = await judge.verify(plain, {
+    expect(audit).not.toHaveBeenCalled();
+    expect(verdict.accepted).toBe(true);
+    expect(verdict.source).toBe('tags');
+  });
+
+  it('keeps the deterministic verdict when the vision model cannot answer', async () => {
+    const audit = vi.fn<AssetAudit>(async () => null);
+    const verdict = await judgeWith('vision', audit, 'vision-unavailable').verify(plain, {
       keyTerms: ['cube', 'shape', 'face'],
       label: 'Cube',
     });
 
-    expect(chat).toHaveBeenCalledTimes(1);
-    expect(verdict.source).toBe('llm');
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(verdict.source).toBe('tags');
     expect(verdict.accepted).toBe(true);
   });
 
-  it('never audits in tags mode and caches a vision verdict by model', async () => {
-    const audit = vi.fn(async () => ({ match: false, reason: 'no cube' }));
-    const tagsJudge = new AssetJudge({
-      mode: 'tags',
-      cachePath: cachePath('vision-tags'),
-      chat: vi.fn<AssetJudgeChat>(),
-      audit,
-      visionAvailable: () => true,
+  it('never lets the vision model overturn a deterministic subject-field rejection', async () => {
+    const audit = vi.fn<AssetAudit>(async () => ({ match: true, reason: 'a cube' }));
+    const verdict = await judgeWith('vision', audit, 'conflict').verify(spacecraft, {
+      keyTerms: ['cube', 'shape', 'face'],
+      label: 'Cube',
     });
-    await tagsJudge.verify(plain, { keyTerms: ['cube'], label: 'Cube' });
+
     expect(audit).not.toHaveBeenCalled();
-
-    const first = new AssetJudge({
-      mode: 'auto',
-      cachePath: cachePath('vision-cache'),
-      chat: vi.fn<AssetJudgeChat>(),
-      audit,
-      visionAvailable: () => true,
-    });
-    expect((await first.verify(plain, { keyTerms: ['cube'], label: 'Cube' })).source).toBe('vision');
-
-    const repeatedAudit = vi.fn(async () => ({ match: true, reason: 'a cube' }));
-    const second = new AssetJudge({
-      mode: 'auto',
-      cachePath: cachePath('vision-cache'),
-      chat: vi.fn<AssetJudgeChat>(),
-      audit: repeatedAudit,
-      visionAvailable: () => true,
-    });
-    const cached = await second.verify(plain, { keyTerms: ['cube'], label: 'Cube' });
-
-    expect(repeatedAudit).not.toHaveBeenCalled();
-    expect(cached.source).toBe('cache');
-    expect(cached.accepted).toBe(false);
+    expect(verdict.accepted).toBe(false);
+    expect(verdict.source).toBe('tags');
+    expect(verdict.conflicts).toContain('space');
   });
 
-  it('falls back to the deterministic verdict on malformed or failing replies', async () => {
-    const malformed = await judgeWith(
-      'llm',
-      vi.fn<AssetJudgeChat>().mockResolvedValue('not json'),
-      'malformed',
-    ).verify(ambiguous, context);
-    expect(malformed.source).toBe('tags');
-    expect(malformed.accepted).toBe(true);
+  it('caches a vision verdict by model so a repeat costs no model call', async () => {
+    const firstAudit = vi.fn<AssetAudit>(async () => ({ match: false, reason: 'no cube' }));
+    const first = await judgeWith('auto', firstAudit, 'vision-cache').verify(plain, {
+      keyTerms: ['cube'],
+      label: 'Cube',
+    });
+    expect(first.source).toBe('vision');
+    expect(first.accepted).toBe(false);
 
-    const failing = await judgeWith(
-      'llm',
-      vi.fn<AssetJudgeChat>().mockRejectedValue(new Error('model busy')),
-      'failing',
-    ).verify(ambiguous, context);
-    expect(failing.source).toBe('tags');
-    expect(failing.accepted).toBe(true);
+    const repeatedAudit = vi.fn<AssetAudit>(async () => ({ match: true, reason: 'a cube' }));
+    const second = await judgeWith('auto', repeatedAudit, 'vision-cache').verify(plain, {
+      keyTerms: ['cube'],
+      label: 'Cube',
+    });
+
+    expect(repeatedAudit).not.toHaveBeenCalled();
+    expect(second.source).toBe('cache');
+    expect(second.accepted).toBe(false);
   });
 });
