@@ -83,6 +83,16 @@ function parseGpuLayers(raw: string | undefined): GpuLayers {
   return Number.isFinite(layers) && layers >= 0 ? layers : 'auto';
 }
 
+// The Ollama provider only needs a model name; its server lives on the standard
+// local port unless VISION_API_URL says otherwise.
+const VISION_PROVIDER = (process.env['VISION_PROVIDER'] ?? 'auto').trim().toLowerCase();
+
+function visionApiUrl(): string {
+  const configured = process.env['VISION_API_URL'];
+  if (configured !== undefined && configured !== '') return configured;
+  return VISION_PROVIDER === 'ollama' ? 'http://127.0.0.1:11434/v1' : '';
+}
+
 export const config = {
   port: parseInt(process.env['PORT'] ?? '3001', 10),
   nodeEnv: process.env['NODE_ENV'] ?? 'development',
@@ -134,13 +144,24 @@ export const config = {
     // Optional free/self-hosted image description. Use any OpenAI-compatible
     // vision endpoint (local Qwen2.5-VL, OpenRouter free model, Gemini free tier).
     // Unset means the deterministic filename/label metadata is used.
-    provider: process.env['VISION_PROVIDER'] ?? 'auto',
-    apiUrl: process.env['VISION_API_URL'] ?? '',
+    provider: VISION_PROVIDER,
+    apiUrl: visionApiUrl(),
     apiKey: process.env['VISION_API_KEY'] ?? '',
     model: process.env['VISION_MODEL'] ?? '',
     timeoutMs: Math.max(
       1000,
       parseInt(process.env['VISION_TIMEOUT_MS'] ?? '30000', 10) || 30000,
+    ),
+    // The backend owns the local server for the ollama provider: it starts
+    // `ollama serve` when nothing listens and pulls the model once if missing.
+    autostart: !/^(0|false|no|off)$/i.test(process.env['VISION_AUTOSTART'] ?? ''),
+    startTimeoutMs: Math.max(
+      2000,
+      parseInt(process.env['VISION_START_TIMEOUT_MS'] ?? '45000', 10) || 45000,
+    ),
+    pullTimeoutMs: Math.max(
+      30000,
+      parseInt(process.env['VISION_PULL_TIMEOUT_MS'] ?? '600000', 10) || 600000,
     ),
   },
 

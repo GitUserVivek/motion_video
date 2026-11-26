@@ -17,6 +17,7 @@ import jobsRouter from './routes/jobs.js';
 import settingsRouter from './routes/settings.js';
 import { mountOutputStatic } from './routes/output.js';
 import assetsRouter from './routes/assets.js';
+import { ensureVisionReady } from './services/vision.server.js';
 
 // Ensure required directories exist
 function ensureDirectories(): void {
@@ -126,6 +127,17 @@ async function bootstrap(): Promise<void> {
   // Worker imported lazily to avoid circular deps
   const { startRenderWorker } = await import('./workers/render.worker.js');
   startRenderWorker();
+
+  // Make sure the artwork verifier's own server is up (it starts `ollama serve`
+  // and pulls the model when needed), so a forgotten server cannot silently
+  // downgrade artwork to file-name matching.
+  if (config.assets.verify.vision) {
+    void ensureVisionReady().then((ready) => {
+      if (!ready) {
+        console.warn('[Vision] Artwork verification will use file-name rules only.');
+      }
+    });
+  }
 
   // Warm the LLM in the background so the first script request does not spend
   // its whole lifetime loading the model (or running a one-time source build).
