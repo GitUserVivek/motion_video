@@ -20,6 +20,7 @@ function options(overrides: Partial<SupervisorOptions> = {}): SupervisorOptions 
     provider: 'ollama',
     apiUrl: 'http://127.0.0.1:11434/v1',
     model: 'moondream',
+    bin: 'ollama',
     autostart: true,
     startTimeoutMs: 5000,
     pullTimeoutMs: 5000,
@@ -93,7 +94,11 @@ describe('VisionSupervisor', () => {
       if (calls === 1) throw new Error('ECONNREFUSED');
       return response(tagsBody(['moondream:latest']));
     });
-    const spawnImpl = vi.fn(() => ({ unref: () => undefined, kill: () => true }) as never);
+    const spawnImpl = vi.fn(() => ({
+      unref: () => undefined,
+      kill: () => true,
+      once: () => undefined,
+    }) as never);
     const supervisor = new VisionSupervisor(options({ fetchImpl, spawnImpl: spawnImpl as never }));
 
     await expect(supervisor.ensure()).resolves.toBe(true);
@@ -103,6 +108,37 @@ describe('VisionSupervisor', () => {
       expect.objectContaining({ env: expect.objectContaining({ OLLAMA_HOST: '127.0.0.1:11434' }) }),
     );
     expect(supervisor.status().state).toBe('ready');
+  });
+
+  it('survives a missing binary instead of crashing the backend', async () => {
+    const { EventEmitter } = await import('events');
+    // Only the members the supervisor touches, plus event emission.
+    const child = new EventEmitter() as unknown as {
+      unref: () => void;
+      emit: (event: string, ...args: unknown[]) => boolean;
+    };
+    child.unref = () => undefined;
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      throw new Error('ECONNREFUSED');
+    });
+    const spawnImpl = vi.fn(() => {
+      // Node reports ENOENT as an async 'error' event on the child.
+      setImmediate(() => {
+        child.emit('error', new Error('spawn ollama ENOENT'));
+      });
+      return child as never;
+    });
+    const supervisor = new VisionSupervisor(options({
+      bin: '/nonexistent/ollama',
+      fetchImpl,
+      spawnImpl: spawnImpl as never,
+      // Let the 'error' event (a macrotask) run between polls.
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 5))),
+    }));
+
+    await expect(supervisor.ensure()).resolves.toBe(false);
+    expect(supervisor.status().state).toBe('failed');
+    expect(supervisor.status().detail).toContain('VISION_OLLAMA_BIN');
   });
 
   it('refuses to start when autostart is off and says what to run', async () => {

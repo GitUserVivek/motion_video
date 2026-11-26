@@ -30,6 +30,8 @@ export interface SupervisorOptions {
   provider: string;
   apiUrl: string;
   model: string;
+  /** The ollama executable; an absolute path works when it is not on PATH. */
+  bin: string;
   /** Start `ollama serve` when nothing answers at apiUrl. */
   autostart: boolean;
   /** How long to wait for the server to accept requests after spawning it. */
@@ -82,6 +84,7 @@ export class VisionSupervisor {
   private state: VisionState = 'off';
   private detail = '';
   private child: ChildProcess | null = null;
+  private spawnError: string | null = null;
   private attempt: Promise<boolean> | null = null;
   private readonly fetchImpl: typeof fetch;
   private readonly spawnImpl: typeof nodeSpawn;
@@ -151,11 +154,12 @@ export class VisionSupervisor {
       }
       this.startServer(base);
       if (!(await this.waitForServer(base))) {
-        this.set(
-          'failed',
-          `ollama did not answer at ${base} within ${this.options.startTimeoutMs} ms — ` +
-            'start it manually with: ollama serve',
-        );
+        const reason = this.spawnError
+          ? `could not run "${this.options.bin}" (${this.spawnError}) — ` +
+            'install Ollama or set VISION_OLLAMA_BIN to its full path'
+          : `ollama did not answer at ${base} within ${this.options.startTimeoutMs} ms — ` +
+            'start it manually with: ollama serve';
+        this.set('failed', reason);
         return false;
       }
     }
@@ -174,15 +178,23 @@ export class VisionSupervisor {
 
   private startServer(base: string): void {
     const host = ollamaHost(base);
+    this.spawnError = null;
     try {
-      this.child = this.spawnImpl('ollama', ['serve'], {
+      const child = this.spawnImpl(this.options.bin, ['serve'], {
         detached: true,
         stdio: 'ignore',
         env: { ...process.env, OLLAMA_HOST: host },
       });
-      this.child.unref?.();
+      this.child = child;
+      child.unref?.();
+      // A missing binary is reported as an async 'error' event, not a throw.
+      // Without this listener Node kills the whole backend on ENOENT.
+      child.once('error', (err: Error) => {
+        this.spawnError = err.message;
+        this.child = null;
+        console.warn(`[Vision] Could not start "${this.options.bin}": ${err.message}`);
+      });
       // The detached server must not outlive the backend it was started for.
-      const child = this.child;
       const kill = (): void => {
         try {
           child.kill('SIGTERM');
@@ -193,13 +205,11 @@ export class VisionSupervisor {
       process.once('exit', kill);
       process.once('SIGINT', kill);
       process.once('SIGTERM', kill);
-      console.log(`[Vision] Started "ollama serve" for ${host}`);
+      console.log(`[Vision] Started "${this.options.bin} serve" for ${host}`);
     } catch (err) {
       this.child = null;
-      console.warn(
-        '[Vision] Could not start ollama: ' +
-          (err instanceof Error ? err.message : String(err)),
-      );
+      this.spawnError = err instanceof Error ? err.message : String(err);
+      console.warn('[Vision] Could not start ollama: ' + this.spawnError);
     }
   }
 
@@ -207,6 +217,8 @@ export class VisionSupervisor {
   private async waitForServer(base: string): Promise<boolean> {
     const deadline = Date.now() + this.options.startTimeoutMs;
     while (Date.now() < deadline) {
+      // No point polling a server whose process never started.
+      if (this.spawnError) return false;
       if ((await this.tags(base)) !== null) return true;
       await this.sleep(500);
     }
@@ -219,6 +231,7 @@ export class VisionSupervisor {
    * up — a just-spawned Ollama reports an empty `/api/tags` for a few seconds.
    */
   private async ensureModel(base: string, model: string): Promise<boolean> {
+    if (this.spawnError) return false;
     if (await this.waitForModel(base, model, 8000)) {
       console.log(`[Vision] Ollama ready at ${base} with ${model}`);
       return true;
@@ -254,7 +267,7 @@ export class VisionSupervisor {
     return new Promise((resolve) => {
       let child: ChildProcess;
       try {
-        child = this.spawnImpl('ollama', ['pull', model], {
+        child = this.spawnImpl(this.options.bin, ['pull', model], {
           stdio: ['ignore', 'ignore', 'pipe'],
           env: { ...process.env, OLLAMA_HOST: ollamaHost(base) },
         });
@@ -311,9 +324,10 @@ export class VisionSupervisor {
 }
 
 export const visionSupervisor = new VisionSupervisor({
-  provider: config.vision.provider,
-  apiUrl: config.vision.apiUrl,
-  model: config.vision.model,
+      provider: config.vision.provider,
+    apiUrl: config.vision.apiUrl,
+    model: config.vision.model,
+    bin: config.vision.bin,
   autostart: config.vision.autostart,
   startTimeoutMs: config.vision.startTimeoutMs,
   pullTimeoutMs: config.vision.pullTimeoutMs,

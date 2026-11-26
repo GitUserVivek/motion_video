@@ -155,6 +155,9 @@ export const config = {
     // The backend owns the local server for the ollama provider: it starts
     // `ollama serve` when nothing listens and pulls the model once if missing.
     autostart: !/^(0|false|no|off)$/i.test(process.env['VISION_AUTOSTART'] ?? ''),
+    // Absolute path is useful when ollama was installed outside this PATH
+    // (containers, Kaggle, a per-user install).
+    bin: process.env['VISION_OLLAMA_BIN'] || 'ollama',
     startTimeoutMs: Math.max(
       2000,
       parseInt(process.env['VISION_START_TIMEOUT_MS'] ?? '45000', 10) || 45000,

@@ -263,13 +263,37 @@ Moondream is a captioning model: it ignores the JSON request and describes the p
 
 **Not verified:** job `c38e520b` itself could not be re-run — the ngrok server returned HTTP 502 for every report file during this session, so its storyboard and downloaded images were unavailable. The verifier was proven on real photographs/diagrams, not on that job's files.
 
+## The vision server is now the backend's job
+
+The vision model still runs in its own process (`node-llama-cpp` 3.22.3 has no image input), but the backend no longer relies on someone remembering to start it. `packages/backend/src/services/vision.server.ts` runs at launch whenever artwork verification uses a model:
+
+- health-checks `VISION_API_URL` (`GET /api/tags`);
+- when nothing answers and `VISION_PROVIDER=ollama`, starts `ollama serve` with `OLLAMA_HOST` taken from that URL, waits up to `VISION_START_TIMEOUT_MS` (45 s) for it to accept requests, and pulls `VISION_MODEL` once if the server does not list it (`VISION_PULL_TIMEOUT_MS`, 10 min);
+- stops the server it started on `SIGINT`/`SIGTERM`/exit — a server that was already running is left untouched;
+- treats any other provider as external: recorded, never started, never probed at boot;
+- on failure logs the exact fix (`install Ollama or set VISION_OLLAMA_BIN to its full path`) and artwork falls back to the file-name rules. `VISION_AUTOSTART=off` keeps manual control, `VISION_OLLAMA_BIN` points at a binary outside `PATH`.
+
+With `VISION_PROVIDER=ollama`, `VISION_API_URL` now defaults to `http://127.0.0.1:11434/v1`, so the only required setting is `VISION_MODEL`.
+
+This uncovered a real crash: on a box without Ollama (`spawn ollama ENOENT` in the Kaggle log) Node emits an async `error` event on the child, and with no listener the whole backend died at launch. The child now has an error listener, the readiness poll aborts immediately, and the failure is logged instead.
+
+**Verified live:**
+
+- existing server at `127.0.0.1:11434` → `ready: true`, `moondream`, nothing spawned;
+- `VISION_OLLAMA_BIN=/nonexistent/ollama` → `ready: false` in 565 ms with the install hint, process still alive and exiting 0 — the crash above is gone;
+- cold start on a free port with an empty model store (`OLLAMA_MODELS=/tmp/omodels`, port 11435): spawned `ollama serve`, downloaded 1.7 GB, `ready: true` after 501.7 s, and the spawned server was gone after `stop()`.
+- 9 unit tests cover the helpers, external provider, already-running server, self-start, autostart off, missing binary and unconfigured endpoint.
+
+**Not verified:** this box still has Ollama installed system-wide, so a machine where the pull happens on every first launch was simulated with a throwaway model store, not a fresh install.
+
 ## Verification
 
 Run on 2026-11-26:
 
 - `npm run build -w packages/backend` — exit 0.
-- `npm test -w packages/backend` — 124/124 in 16 files.
+- `npm test -w packages/backend` — 133/133 in 17 files.
 - Artwork verification through the compiled judge against local Ollama `moondream`: one accept, one reject, both re-run from cache (see above).
+- Vision server supervisor: existing server, missing binary, and cold start with a model pull (see above).
 
 Run on 2026-11-25:
 
